@@ -24,8 +24,8 @@ namespace flat {
 // should never approach UINT_MAX.
 LabelBuilder::LabelBuilder() : referenced(32), counter{0u} {}
 
-LabelRef LabelBuilder::getNext() {
-  LabelRef next{counter++};
+LabelMention LabelBuilder::getNext() {
+  LabelMention next{counter++};
   auto cap{referenced.size()};
   if (cap < counter) {
     referenced.resize(2 * cap);
@@ -34,12 +34,12 @@ LabelRef LabelBuilder::getNext() {
   return next;
 }
 
-void LabelBuilder::setReferenced(LabelRef label) {
+void LabelBuilder::setReferenced(LabelMention label) {
   CHECK(label < referenced.getBitCapacity());
   referenced.set(label);
 }
 
-bool LabelBuilder::isReferenced(LabelRef label) const {
+bool LabelBuilder::isReferenced(LabelMention label) const {
   CHECK(label < referenced.getBitCapacity());
   return referenced.test(label);
 }
@@ -65,17 +65,17 @@ static void AddAssign(AnalysisData &ad, const semantics::Symbol *symbol,
   ad.assignMap[symbol].insert(label);
 }
 
-std::vector<LabelRef> GetAssign(
+std::vector<LabelMention> GetAssign(
     AnalysisData &ad, const semantics::Symbol *symbol) {
-  std::vector<LabelRef> result;
+  std::vector<LabelMention> result;
   for (auto lab : ad.assignMap[symbol]) {
     result.emplace_back(lab);
   }
   return result;
 }
 
-static std::tuple<const parser::Name *, LabelRef, LabelRef> FindStack(
-    const std::vector<std::tuple<const parser::Name *, LabelRef, LabelRef>>
+static std::tuple<const parser::Name *, LabelMention, LabelMention> FindStack(
+    const std::vector<std::tuple<const parser::Name *, LabelMention, LabelMention>>
         &stack,
     const parser::Name *key) {
   for (auto iter{stack.rbegin()}, iend{stack.rend()}; iter != iend; ++iter) {
@@ -176,7 +176,7 @@ template<typename A>
 void errLabelSpec(const A &s, std::list<Op> &ops,
     const parser::Statement<parser::ActionStmt> &ec, AnalysisData &ad) {
   if (auto errLab{GetErr(s)}) {
-    std::optional<LabelRef> errRef{FetchLabel(ad, errLab).get()};
+    std::optional<LabelMention> errRef{FetchLabel(ad, errLab).get()};
     LabelOp next{BuildNewLabel(ad)};
     ops.emplace_back(SwitchIOOp{s, next, ec.source, errRef});
     ops.emplace_back(next);
@@ -192,15 +192,15 @@ void threeLabelSpec(const A &s, std::list<Op> &ops,
   auto eorLab{GetEor(s)};
   auto endLab{GetEnd(s)};
   if (errLab || eorLab || endLab) {
-    std::optional<LabelRef> errRef;
+    std::optional<LabelMention> errRef;
     if (errLab) {
       errRef = FetchLabel(ad, errLab).get();
     }
-    std::optional<LabelRef> eorRef;
+    std::optional<LabelMention> eorRef;
     if (eorLab) {
       eorRef = FetchLabel(ad, eorLab).get();
     }
-    std::optional<LabelRef> endRef;
+    std::optional<LabelMention> endRef;
     if (endLab) {
       endRef = FetchLabel(ad, endLab).get();
     }
@@ -213,8 +213,8 @@ void threeLabelSpec(const A &s, std::list<Op> &ops,
 }
 
 template<typename A>
-std::vector<LabelRef> toLabelRef(AnalysisData &ad, const A &labels) {
-  std::vector<LabelRef> result;
+std::vector<LabelMention> toLabelMention(AnalysisData &ad, const A &labels) {
+  std::vector<LabelMention> result;
   for (auto label : labels) {
     result.emplace_back(FetchLabel(ad, label).get());
   }
@@ -223,11 +223,11 @@ std::vector<LabelRef> toLabelRef(AnalysisData &ad, const A &labels) {
 }
 
 template<typename A>
-std::vector<LabelRef> toLabelRef(
+std::vector<LabelMention> toLabelMention(
     const LabelOp &next, AnalysisData &ad, const A &labels) {
-  std::vector<LabelRef> result;
+  std::vector<LabelMention> result;
   result.emplace_back(next);
-  auto refs{toLabelRef(ad, labels)};
+  auto refs{toLabelMention(ad, labels)};
   result.insert(result.end(), refs.begin(), refs.end());
   CHECK(result.size() == labels.size() + 1);
   return result;
@@ -256,7 +256,7 @@ static std::list<parser::Label> getAltReturnLabels(const parser::Call &call) {
   return result;
 }
 
-static LabelRef NearestEnclosingDoConstruct(AnalysisData &ad) {
+static LabelMention NearestEnclosingDoConstruct(AnalysisData &ad) {
   for (auto iterator{ad.constructContextStack.rbegin()},
        endIterator{ad.constructContextStack.rend()};
        iterator != endIterator; ++iterator) {
@@ -277,6 +277,26 @@ template<typename A, typename B> std::string GetSource(const B *s) {
   return GetSource(&std::get<parser::Statement<A>>(s->t));
 }
 
+static bool meetsBlockConstraints(const parser::Block &block) { return false; }
+
+static bool meetsLoopConstraints(const parser::DoConstruct &loop) {
+  return meetsBlockConstraints(std::get<parser::Block>(loop.t));
+}
+
+static bool meetsWhereConstraints(const parser::IfConstruct &w) {
+  // we can do better, but for now don't allow ELSE IF constructs
+  if (std::get<std::list<parser::IfConstruct::ElseIfBlock>>(w.t).empty()) {
+    const auto &optElse{
+        std::get<std::optional<parser::IfConstruct::ElseBlock>>(w.t)};
+    if (optElse.has_value() &&
+        !meetsBlockConstraints(std::get<parser::Block>(optElse->t))) {
+      return false;
+    }
+    return meetsBlockConstraints(std::get<parser::Block>(w.t));
+  }
+  return false;
+}
+
 void Op::Build(std::list<Op> &ops,
     const parser::Statement<parser::ActionStmt> &ec, AnalysisData &ad) {
   std::visit(
@@ -286,7 +306,7 @@ void Op::Build(std::list<Op> &ops,
             if (hasAltReturns(s.value())) {
               auto next{BuildNewLabel(ad)};
               auto alts{getAltReturnLabels(s.value().v)};
-              auto labels{toLabelRef(next, ad, alts)};
+              auto labels{toLabelMention(next, ad, alts)};
               ops.emplace_back(
                   SwitchOp{s.value(), std::move(labels), ec.source});
               ops.emplace_back(next);
@@ -359,14 +379,14 @@ void Op::Build(std::list<Op> &ops,
           },
           [&](const common::Indirection<parser::ComputedGotoStmt> &s) {
             auto next{BuildNewLabel(ad)};
-            auto labels{toLabelRef(
+            auto labels{toLabelMention(
                 next, ad, std::get<std::list<parser::Label>>(s.value().t))};
             ops.emplace_back(SwitchOp{s.value(), std::move(labels), ec.source});
             ops.emplace_back(next);
           },
           [&](const common::Indirection<parser::ArithmeticIfStmt> &s) {
             ops.emplace_back(SwitchOp{s.value(),
-                toLabelRef(ad,
+                toLabelMention(ad,
                     std::list{std::get<1>(s.value().t),
                         std::get<2>(s.value().t), std::get<3>(s.value().t)}),
                 ec.source});
@@ -374,7 +394,7 @@ void Op::Build(std::list<Op> &ops,
           [&](const common::Indirection<parser::AssignedGotoStmt> &s) {
             ops.emplace_back(
                 IndirectGotoOp{std::get<parser::Name>(s.value().t).symbol,
-                    toLabelRef(
+                    toLabelMention(
                         ad, std::get<std::list<parser::Label>>(s.value().t))});
           },
           [&](const common::Indirection<parser::IfStmt> &s) {
@@ -441,7 +461,7 @@ struct ControlFlowAnalyzer {
     LabelOp label{buildNewLabel()};
     const parser::Name *name{getName(construct)};
     ad.constructContextStack.emplace_back(
-        name, GetLabelRef(label), UnspecifiedLabel);
+        name, GetLabelMention(label), UnspecifiedLabel);
     appendIfLabeled(std::get<0>(construct.t), ops);
     ops.emplace_back(BeginOp{construct});
     ControlFlowAnalyzer cfa{ops, ad};
@@ -466,7 +486,7 @@ struct ControlFlowAnalyzer {
             .statement.v};
     const parser::Name *name{optName ? &*optName : nullptr};
     ad.constructContextStack.emplace_back(
-        name, GetLabelRef(label), UnspecifiedLabel);
+        name, GetLabelMention(label), UnspecifiedLabel);
     appendIfLabeled(
         std::get<parser::Statement<parser::BlockStmt>>(construct.t), ops);
     ops.emplace_back(BeginOp{construct});
@@ -484,32 +504,35 @@ struct ControlFlowAnalyzer {
   /// `DO` constructs can be lowered to `fir.loop` if they meet some
   /// constraints, otherwise they are lowered to a CFG.
   bool Pre(const parser::DoConstruct &construct) {
+    if (meetsLoopConstraints(construct)) {
+      // use `fir.loop`
+    }
     std::list<Op> ops;
     LabelOp backedgeLab{buildNewLabel()};
     LabelOp incrementLab{buildNewLabel()};
     LabelOp entryLab{buildNewLabel()};
     LabelOp exitLab{buildNewLabel()};
     const parser::Name *name{getName(construct)};
-    LabelRef exitOpRef{GetLabelRef(exitLab)};
+    LabelMention exitOpRef{GetLabelMention(exitLab)};
     ad.constructContextStack.emplace_back(
-        name, exitOpRef, GetLabelRef(incrementLab));
+        name, exitOpRef, GetLabelMention(incrementLab));
     appendIfLabeled(
         std::get<parser::Statement<parser::NonLabelDoStmt>>(construct.t), ops);
     ops.emplace_back(BeginOp{construct});
-    ops.emplace_back(GotoOp{GetLabelRef(backedgeLab)});
+    ops.emplace_back(GotoOp{GetLabelMention(backedgeLab)});
     ops.emplace_back(incrementLab);
     ops.emplace_back(DoIncrementOp{construct});
     ops.emplace_back(backedgeLab);
     ops.emplace_back(DoCompareOp{construct});
     ops.emplace_back(ConditionalGotoOp{
         std::get<parser::Statement<parser::NonLabelDoStmt>>(construct.t),
-        GetLabelRef(entryLab), exitOpRef});
+        GetLabelMention(entryLab), exitOpRef});
     ops.push_back(entryLab);
     ControlFlowAnalyzer cfa{ops, ad};
     Walk(std::get<parser::Block>(construct.t), cfa);
     appendIfLabeled(
         std::get<parser::Statement<parser::EndDoStmt>>(construct.t), ops);
-    ops.emplace_back(GotoOp{GetLabelRef(incrementLab)});
+    ops.emplace_back(GotoOp{GetLabelMention(incrementLab)});
     ops.emplace_back(EndOp{construct});
     ops.emplace_back(exitLab);
     linearOps.splice(linearOps.end(), ops);
@@ -520,23 +543,26 @@ struct ControlFlowAnalyzer {
   /// `IF` constructs can be lowered to `fir.where` if they meet some
   /// constraints, otherwise they are lowered to a CFG.
   bool Pre(const parser::IfConstruct &construct) {
+    if (meetsWhereConstraints(construct)) {
+      // use `fir.where`
+    }
     std::list<Op> ops;
     LabelOp thenLab{buildNewLabel()};
     LabelOp elseLab{buildNewLabel()};
     LabelOp exitLab{buildNewLabel()};
     const parser::Name *name{getName(construct)};
     ad.constructContextStack.emplace_back(
-        name, GetLabelRef(exitLab), UnspecifiedLabel);
+        name, GetLabelMention(exitLab), UnspecifiedLabel);
     appendIfLabeled(
         std::get<parser::Statement<parser::IfThenStmt>>(construct.t), ops);
     ops.emplace_back(BeginOp{construct});
     ops.emplace_back(ConditionalGotoOp{
         std::get<parser::Statement<parser::IfThenStmt>>(construct.t),
-        GetLabelRef(thenLab), GetLabelRef(elseLab)});
+        GetLabelMention(thenLab), GetLabelMention(elseLab)});
     ops.emplace_back(thenLab);
     ControlFlowAnalyzer cfa{ops, ad};
     Walk(std::get<parser::Block>(construct.t), cfa);
-    LabelRef exitOpRef{GetLabelRef(exitLab)};
+    LabelMention exitOpRef{GetLabelMention(exitLab)};
     ops.emplace_back(GotoOp{exitOpRef});
     for (const auto &elseIfBlock :
         std::get<std::list<parser::IfConstruct::ElseIfBlock>>(construct.t)) {
@@ -547,7 +573,7 @@ struct ControlFlowAnalyzer {
       LabelOp newElseLab{buildNewLabel()};
       ops.emplace_back(ConditionalGotoOp{
           std::get<parser::Statement<parser::ElseIfStmt>>(elseIfBlock.t),
-          GetLabelRef(newThenLab), GetLabelRef(newElseLab)});
+          GetLabelMention(newThenLab), GetLabelMention(newElseLab)});
       ops.emplace_back(newThenLab);
       Walk(std::get<parser::Block>(elseIfBlock.t), cfa);
       ops.emplace_back(GotoOp{exitOpRef});
@@ -577,20 +603,20 @@ struct ControlFlowAnalyzer {
     LabelOp exitLab{buildNewLabel()};
     const parser::Name *name{getName(construct)};
     ad.constructContextStack.emplace_back(
-        name, GetLabelRef(exitLab), UnspecifiedLabel);
+        name, GetLabelMention(exitLab), UnspecifiedLabel);
     appendIfLabeled(std::get<0>(construct.t), ops);
     ops.emplace_back(BeginOp{construct});
     const auto N{std::get<std::list<B>>(construct.t).size()};
-    LabelRef exitOpRef{GetLabelRef(exitLab)};
+    LabelMention exitOpRef{GetLabelMention(exitLab)};
     if (N > 0) {
       typename std::list<B>::size_type i;
       std::vector<LabelOp> toLabels;
       for (i = 0; i != N; ++i) {
         toLabels.emplace_back(buildNewLabel());
       }
-      std::vector<LabelRef> targets;
+      std::vector<LabelMention> targets;
       for (i = 0; i != N; ++i) {
-        targets.emplace_back(GetLabelRef(toLabels[i]));
+        targets.emplace_back(GetLabelMention(toLabels[i]));
       }
       ops.emplace_back(
           SwitchOp{construct, targets, std::get<0>(construct.t).source});
@@ -620,7 +646,7 @@ struct ControlFlowAnalyzer {
     LabelOp label{buildNewLabel()};
     const parser::Name *name{getName(c)};
     ad.constructContextStack.emplace_back(
-        name, GetLabelRef(label), UnspecifiedLabel);
+        name, GetLabelMention(label), UnspecifiedLabel);
     appendIfLabeled(
         std::get<parser::Statement<parser::WhereConstructStmt>>(c.t), ops);
     ops.emplace_back(BeginOp{c});
@@ -643,7 +669,7 @@ struct ControlFlowAnalyzer {
     LabelOp label{buildNewLabel()};
     const parser::Name *name{getName(construct)};
     ad.constructContextStack.emplace_back(
-        name, GetLabelRef(label), UnspecifiedLabel);
+        name, GetLabelMention(label), UnspecifiedLabel);
     appendIfLabeled(
         std::get<parser::Statement<parser::ForallConstructStmt>>(construct.t),
         ops);
@@ -664,12 +690,12 @@ struct ControlFlowAnalyzer {
     return optName ? &*optName : nullptr;
   }
 
-  LabelRef GetLabelRef(const LabelOp &label) {
+  LabelMention GetLabelMention(const LabelOp &label) {
     label.setReferenced();
     return label;
   }
 
-  LabelRef GetLabelRef(const parser::Label &label) {
+  LabelMention GetLabelMention(const parser::Label &label) {
     return FetchLabel(ad, label);
   }
 

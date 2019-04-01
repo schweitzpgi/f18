@@ -15,9 +15,12 @@
 #ifndef FIR_TYPE_H
 #define FIR_TYPE_H
 
+#include "mlir/IR/Attributes.h"
 #include "mlir/IR/Types.h"
+#include "llvm/ADT/Optional.h"
 
 namespace llvm {
+class raw_ostream;
 class StringRef;
 template <typename>
 class ArrayRef;
@@ -87,8 +90,16 @@ class CharacterType
 public:
   using Base::Base;
   static CharacterType get(mlir::MLIRContext *ctxt, KindTy kind);
-  int getSizeInBits() const;
-  KindTy getFKind() const { return getSizeInBits() / 8; }
+  KindTy getFKind() const;
+};
+
+class CplxType : public mlir::Type::TypeBase<CplxType, mlir::Type,
+                                             detail::CplxTypeStorage>,
+                 public IntrinsicTypeMixin<CplxType, TypeKind::FIR_COMPLEX> {
+public:
+  using Base::Base;
+  static CplxType get(mlir::MLIRContext *ctxt, KindTy kind);
+  KindTy getFKind() const;
 };
 
 class IntType
@@ -97,8 +108,7 @@ class IntType
 public:
   using Base::Base;
   static IntType get(mlir::MLIRContext *ctxt, KindTy kind);
-  int getSizeInBits() const;
-  KindTy getFKind() const { return getSizeInBits() / 8; }
+  KindTy getFKind() const;
 };
 
 class LogicalType
@@ -108,8 +118,7 @@ class LogicalType
 public:
   using Base::Base;
   static LogicalType get(mlir::MLIRContext *ctxt, KindTy kind);
-  int getSizeInBits() const;
-  KindTy getFKind() const { return getSizeInBits() / 8; }
+  KindTy getFKind() const;
 };
 
 class RealType : public mlir::Type::TypeBase<RealType, mlir::Type,
@@ -118,17 +127,6 @@ class RealType : public mlir::Type::TypeBase<RealType, mlir::Type,
 public:
   using Base::Base;
   static RealType get(mlir::MLIRContext *ctxt, KindTy kind);
-  int getSizeInBits() const;
-  KindTy getFKind() const { return getSizeInBits() / 8; }
-};
-
-class CplxType : public mlir::Type::TypeBase<CplxType, mlir::Type,
-                                             detail::CplxTypeStorage>,
-                 public IntrinsicTypeMixin<CplxType, TypeKind::FIR_COMPLEX> {
-public:
-  using Base::Base;
-  static CplxType get(mlir::MLIRContext *ctxt, KindTy kind);
-  int getSizeInBits() const;
   KindTy getFKind() const;
 };
 
@@ -138,9 +136,15 @@ class BoxType
     : public mlir::Type::TypeBase<BoxType, mlir::Type, detail::BoxTypeStorage> {
 public:
   using Base::Base;
-  static BoxType get(mlir::Type eleTy);
+  static BoxType get(mlir::Type eleTy, mlir::AffineMapAttr map = {});
   static bool kindof(unsigned kind) { return kind == TypeKind::FIR_BOX; }
   mlir::Type getEleTy() const;
+  mlir::AffineMapAttr getLayoutMap() const;
+
+  static mlir::LogicalResult
+  verifyConstructionInvariants(llvm::Optional<mlir::Location>,
+                               mlir::MLIRContext *ctx, mlir::Type eleTy,
+                               mlir::AffineMapAttr map);
 };
 
 class BoxCharType : public mlir::Type::TypeBase<BoxCharType, mlir::Type,
@@ -159,6 +163,10 @@ public:
   static BoxProcType get(mlir::Type eleTy);
   static bool kindof(unsigned kind) { return kind == TypeKind::FIR_BOXPROC; }
   mlir::Type getEleTy() const;
+
+  static mlir::LogicalResult
+  verifyConstructionInvariants(llvm::Optional<mlir::Location> loc,
+                               mlir::MLIRContext *context, mlir::Type eleTy);
 };
 
 class DimsType : public mlir::Type::TypeBase<DimsType, mlir::Type,
@@ -188,6 +196,10 @@ public:
   static bool kindof(unsigned kind) { return kind == TypeKind::FIR_HEAP; }
 
   mlir::Type getEleTy() const;
+
+  static mlir::LogicalResult
+  verifyConstructionInvariants(llvm::Optional<mlir::Location> loc,
+                               mlir::MLIRContext *context, mlir::Type eleTy);
 };
 
 class PointerType : public mlir::Type::TypeBase<PointerType, mlir::Type,
@@ -198,6 +210,10 @@ public:
   static bool kindof(unsigned kind) { return kind == TypeKind::FIR_POINTER; }
 
   mlir::Type getEleTy() const;
+
+  static mlir::LogicalResult
+  verifyConstructionInvariants(llvm::Optional<mlir::Location> loc,
+                               mlir::MLIRContext *context, mlir::Type eleTy);
 };
 
 class ReferenceType
@@ -209,6 +225,10 @@ public:
   static bool kindof(unsigned kind) { return kind == TypeKind::FIR_REFERENCE; }
 
   mlir::Type getEleTy() const;
+
+  static mlir::LogicalResult
+  verifyConstructionInvariants(llvm::Optional<mlir::Location> loc,
+                               mlir::MLIRContext *context, mlir::Type eleTy);
 };
 
 class SequenceType : public mlir::Type::TypeBase<SequenceType, mlir::Type,
@@ -216,24 +236,21 @@ class SequenceType : public mlir::Type::TypeBase<SequenceType, mlir::Type,
 public:
   using Base::Base;
   using BoundInfo = int64_t;
-  struct Extent {
-    bool known;
-    BoundInfo bound;
-    explicit Extent(bool k, BoundInfo b) : known(k), bound(b) {}
-  };
+  using Extent = llvm::Optional<BoundInfo>;
   using Bounds = std::vector<Extent>;
-  struct Shape {
-    bool known;
-    Bounds bounds;
-    Shape() : known(false) {}
-    Shape(const Bounds &b) : known(true), bounds(b) {}
-  };
+  using Shape = llvm::Optional<Bounds>;
 
   mlir::Type getEleTy() const;
   Shape getShape() const;
+  mlir::AffineMapAttr getLayoutMap() const;
 
-  static SequenceType get(const Shape &shape, mlir::Type elementType);
+  static SequenceType get(const Shape &shape, mlir::Type elementType,
+                          mlir::AffineMapAttr map = {});
   static bool kindof(unsigned kind) { return kind == TypeKind::FIR_SEQUENCE; }
+  static mlir::LogicalResult
+  verifyConstructionInvariants(llvm::Optional<mlir::Location> loc,
+                               mlir::MLIRContext *context, const Shape &shape,
+                               mlir::Type eleTy, mlir::AffineMapAttr map);
 };
 
 bool operator==(const SequenceType::Shape &, const SequenceType::Shape &);
@@ -247,6 +264,10 @@ public:
   static TypeDescType get(mlir::Type ofType);
   static bool kindof(unsigned kind) { return kind == TypeKind::FIR_TYPEDESC; }
   mlir::Type getOfTy() const;
+
+  static mlir::LogicalResult
+  verifyConstructionInvariants(llvm::Optional<mlir::Location> loc,
+                               mlir::MLIRContext *context, mlir::Type ofType);
 };
 
 // Derived types
@@ -262,16 +283,31 @@ public:
   TypeList getTypeList();
   TypeList getLenParamList();
 
-  static RecordType get(mlir::MLIRContext *ctxt, llvm::StringRef name,
-                        llvm::ArrayRef<TypePair> lenPList = {},
-                        llvm::ArrayRef<TypePair> typeList = {});
+  static RecordType get(mlir::MLIRContext *ctxt, llvm::StringRef name);
+  void finalize(llvm::ArrayRef<TypePair> lenPList,
+                llvm::ArrayRef<TypePair> typeList);
   constexpr static bool kindof(unsigned kind) { return kind == getId(); }
   constexpr static unsigned getId() { return TypeKind::FIR_DERIVED; }
+
+  detail::RecordTypeStorage const *uniqueKey() const;
+
+  static mlir::LogicalResult
+  verifyConstructionInvariants(llvm::Optional<mlir::Location> loc,
+                               mlir::MLIRContext *context,
+                               llvm::StringRef name);
 };
 
 mlir::Type parseFirType(FIROpsDialect *dialect, llvm::StringRef rawData,
                         mlir::Location loc);
 
+void printFirType(FIROpsDialect *dialect, mlir::Type ty, llvm::raw_ostream &os);
+
 } // namespace fir
+
+namespace llvm {
+inline llvm::hash_code hash_value(const Optional<int64_t> &ext) {
+  return fir::hash_value(ext);
+}
+} // namespace llvm
 
 #endif // FIR_TYPE_H
