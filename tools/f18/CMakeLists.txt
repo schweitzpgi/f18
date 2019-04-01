@@ -36,15 +36,11 @@ foreach(filename ${MODULES})
     set(depends ${include}/__fortran_builtins.mod)
   endif()
   add_custom_command(OUTPUT ${include}/${filename}.mod
-    COMMAND f18 -fparse-only -I${include}
+    COMMAND f18 -fparse-only -fdebug-semantics -I${include}
       ${FLANG_SOURCE_DIR}/module/${filename}.f90
     WORKING_DIRECTORY ${include}
     DEPENDS f18 ${FLANG_SOURCE_DIR}/module/${filename}.f90 ${depends}
   )
-  add_custom_command(OUTPUT ${include}/${filename}.f18.mod
-    DEPENDS ${include}/${filename}.mod
-    COMMAND ${CMAKE_COMMAND} -E
-      copy ${include}/${filename}.mod ${include}/${filename}.f18.mod)
   list(APPEND MODULE_FILES ${include}/${filename}.mod)
   list(APPEND MODULE_FILES ${include}/${filename}.f18.mod)
   install(FILES ${include}/${filename}.mod DESTINATION include/flang)
