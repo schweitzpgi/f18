@@ -21,7 +21,7 @@
 // state in static data.
 
 #include "char-block.h"
-#include "features.h"
+#include "flang-features.h"
 #include "parse-tree.h"
 #include "../common/idioms.h"
 #include <cinttypes>

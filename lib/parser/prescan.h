@@ -23,7 +23,7 @@
 // inclusion, and driving the Fortran source preprocessor.
 
 #include "characters.h"
-#include "features.h"
+#include "flang-features.h"
 #include "message.h"
 #include "provenance.h"
 #include "token-sequence.h"
