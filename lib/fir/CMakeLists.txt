@@ -12,27 +12,36 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-unused-parameter")
+add_subdirectory(Transforms)
 
-add_library(FortranBurnside
-  bridge.cc
-  builder.cc
-  convert-expr.cc
-  fe-helper.cc
-  flattened.cc
-  intrinsics.cc
-  runtime.cc
+add_llvm_library(FIR
+  Attribute.cpp
+  Dialect.cpp
+  FIROps.cpp
+  IteratedDominanceFrontier.cpp
+  KindMapping.cpp
+  StdConverter.cpp
+  Tilikum.cpp
+  Type.cpp
 )
 
-target_link_libraries(FortranBurnside
-  FIR
-  MLIRAffineOps
-  MLIRLLVMIR
-  MLIRStandardOps
+add_dependencies(FIR FIROpsIncGen)
+
+target_link_libraries(FIR
+  MLIRTargetLLVMIR
+  MLIRTargetLLVMIRModuleTranslation
+  MLIREDSC
+  MLIRExecutionEngine
+  MLIRParser
+  MLIRSupport
+  MLIRStandardToLLVM
+  MLIRTransforms
+  LLVMAsmParser
+  LLVMAsmPrinter
+  LLVMRemarks
 )
 
-install (TARGETS FortranBurnside
+install (TARGETS FIR
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
-  RUNTIME DESTINATION bin
 )
