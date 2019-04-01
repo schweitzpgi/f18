@@ -29,7 +29,7 @@
 // template functions.  See parser-combinators.txt for documentation.
 
 #include "char-block.h"
-#include "features.h"
+#include "flang-features.h"
 #include "message.h"
 #include "parse-state.h"
 #include "provenance.h"
