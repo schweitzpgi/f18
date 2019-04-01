@@ -12,9 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-add_subdirectory(common)
-add_subdirectory(decimal)
-add_subdirectory(evaluate)
-add_subdirectory(parser)
-add_subdirectory(semantics)
-add_subdirectory(bridge)
+add_library(FortranBridge
+  ir-gen.cc
+)
+
+target_link_libraries(FortranBridge
+  FortranCommon
+  FortranFIR
+)
+
