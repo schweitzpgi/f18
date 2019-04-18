@@ -19,6 +19,7 @@
 #include "mlir/IR/Dialect.h"
 #include "mlir/IR/OpDefinition.h"
 #include "../evaluate/expression.h"
+#include <string>
 #include <variant>
 
 namespace Fortran::mlbridge {
@@ -26,65 +27,86 @@ namespace Fortran::mlbridge {
 // In the Fortran::mlbridge namespace, the code will default follow the
 // LLVM/MLIR coding standards
 
+using StringRef = llvm::StringRef;
+
 /// Fortran dialect types
 class FIRDialect : public mlir::Dialect {
 public:
   explicit FIRDialect(mlir::MLIRContext *ctx);
+  virtual ~FIRDialect();
 
-  mlir::Type parseType(llvm::StringRef ty, mlir::Location loc) const override;
+  mlir::Type parseType(StringRef ty, mlir::Location loc) const override;
   void printType(mlir::Type ty, llvm::raw_ostream &os) const override;
 };
 
 // FIR dialect operations
 
-/// Application of a FIR expression
+/// The "fir.apply_expr" operation evaluates a Fortran expression to obtain the
+/// value that the expression.  The following computes the product of the two
+/// ssa-values %72 and %75.
+///
+///   %82 = fir.apply_expr(%72, %75){"!0!_8 * !1!_8"} : i64
 class ApplyExpr : public mlir::Op<ApplyExpr, mlir::OpTrait::VariadicOperands,
                       mlir::OpTrait::OneResult> {
 public:
   explicit ApplyExpr(const evaluate::Expr<evaluate::SomeType> &expr)
     : Op{}, expr{expr} {}
-  explicit ApplyExpr() : Op{}, expr{std::monostate{}} {}
+  explicit ApplyExpr(StringRef expr) : Op{}, expr{expr.str()} {}
+  using Op::Op;
 
-  static llvm::StringRef getOperationName() { return "fir.apply_expr"; }
+  static StringRef getOperationName() { return "fir.apply_expr"; }
 
   mlir::LogicalResult verify();
 
   static void build(mlir::FuncBuilder *builder, mlir::OperationState *state,
-      llvm::StringRef lambda, llvm::ArrayRef<mlir::Value *> args);
+      StringRef lambda, llvm::ArrayRef<mlir::Value *> args);
 
-  llvm::StringRef getExpr();
+  StringRef getExpr();
 
 private:
-  std::variant<std::monostate, evaluate::Expr<evaluate::SomeType>> expr;
-
-  // boilerplate for adding operation
-  friend class mlir::Operation;
-  using Op::Op;
+  std::variant<std::string, evaluate::Expr<evaluate::SomeType>> expr;
 };
 
-/// Location implied by FIR expression
+/// The "fir.locate_expr" operation evaluates a Fortran expression to obtain the
+/// address to which it refers.  The following computes the address of the value
+/// in a Fortran array at position (1,4).
+///
+///   %82 = fir.locate_expr(%75){"!0!(1,4)"} : i64
 class LocateExpr : public mlir::Op<LocateExpr, mlir::OpTrait::VariadicOperands,
                        mlir::OpTrait::OneResult> {
 public:
   explicit LocateExpr(const evaluate::Expr<evaluate::SomeType> &expr)
     : Op{}, expr{expr} {}
-  explicit LocateExpr() : Op{}, expr{std::monostate{}} {}
+  explicit LocateExpr(StringRef expr) : Op{}, expr{expr.str()} {}
+  using Op::Op;
 
-  static llvm::StringRef getOperationName() { return "fir.locate_expr"; }
+  static StringRef getOperationName() { return "fir.locate_expr"; }
 
   mlir::LogicalResult verify();
 
   static void build(mlir::FuncBuilder *builder, mlir::OperationState *state,
-      llvm::StringRef lambda, llvm::ArrayRef<mlir::Value *> args);
+      StringRef lambda, llvm::ArrayRef<mlir::Value *> args);
 
-  llvm::StringRef getExpr();
+  StringRef getExpr();
 
 private:
-  std::variant<std::monostate, evaluate::Expr<evaluate::SomeType>> expr;
+  std::variant<std::string, evaluate::Expr<evaluate::SomeType>> expr;
+};
 
-  // boilerplate for adding operation
-  friend class mlir::Operation;
+/// The "fir.unreachable" terminator represents an instruction that should
+/// never be reached.  This can happen if a preceeding "call" is known to
+/// not return to the caller. Lowers to an LLVM unreachable terminator.
+///
+///   call @fortran_stop(%5)
+///   fir.unreachable
+class UnreachableOp
+  : public mlir::Op<UnreachableOp, mlir::OpTrait::ZeroOperands,
+        mlir::OpTrait::ZeroResult, mlir::OpTrait::IsTerminator> {
+public:
   using Op::Op;
+
+  static StringRef getOperationName() { return "fir.unreachable"; }
+  static void build(mlir::FuncBuilder *builder, mlir::OperationState *state);
 };
 
 }  // Fortran::mlbridge

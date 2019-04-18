@@ -13,6 +13,7 @@
 // limitations under the License.
 
 #include "viaduct.h"
+#include "fir-dialect.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Module.h"
 #include "mlir/StandardOps/Ops.h"
@@ -24,11 +25,10 @@
 
 using namespace Fortran;
 using namespace Fortran::mlbridge;
-
-namespace {
-
 using LabelRef = FIR::flat::LabelRef;
 using MLIRContext = mlir::MLIRContext;
+
+namespace {
 
 /// Generate an unknown location
 mlir::Location dummyLoc(MLIRContext *ctxt) {
@@ -168,7 +168,7 @@ void MLIRConverter::genMLIR(const parser::FailImageStmt &stmt) {
   auto *callee{module->getNamedFunction(calleeName)};
   llvm::SmallVector<mlir::Value *, 8> operands;  // FIXME: argument(s)?
   builder->create<mlir::CallOp>(dummyLocation(), callee, operands);
-  // builder->create<UnreachableOp>(dummyLocation());
+  builder->create<UnreachableOp>(dummyLocation());
 }
 void MLIRConverter::genMLIR(const parser::ReturnStmt &stmt) {
   builder->create<mlir::ReturnOp>(dummyLocation());  // FIXME: argument(s)?
@@ -178,7 +178,7 @@ void MLIRConverter::genMLIR(const parser::StopStmt &stmt) {
   auto *callee{module->getNamedFunction(calleeName)};
   llvm::SmallVector<mlir::Value *, 8> operands;  // FIXME: argument(s)?
   builder->create<mlir::CallOp>(dummyLocation(), callee, operands);
-  // builder->create<UnreachableOp>(dummyLocation());
+  builder->create<UnreachableOp>(dummyLocation());
 }
 void MLIRConverter::genMLIR(const FIR::flat::ReturnOp &op) {
   std::visit([&](const auto *stmt) { genMLIR(*stmt); }, op.u);
@@ -281,13 +281,20 @@ void MLIRConverter::translateRoutine(
 
 }  // namespace
 
-std::unique_ptr<mlir::Module> MLIRViaduct(MLIRContext &mlirCtxt,
-    const parser::Program &prg, semantics::SemanticsContext &semCtxt) {
+std::unique_ptr<mlir::Module> Fortran::mlbridge::MLIRViaduct(
+    mlir::MLIRContext &mlirCtxt, const parser::Program &prg,
+    semantics::SemanticsContext &semCtxt) {
   MLIRConverter converter{mlirCtxt, semCtxt};
   Walk(prg, converter);
   return converter.acquireModule();
 }
 
-std::unique_ptr<llvm::Module> LLVMViaduct(mlir::Module &module) {
+std::unique_ptr<llvm::Module> Fortran::mlbridge::LLVMViaduct(
+    mlir::Module &module) {
   return mlir::translateModuleToLLVMIR(module);
+}
+
+std::unique_ptr<mlir::MLIRContext> Fortran::mlbridge::getFortranMLIRContext() {
+  mlir::registerDialect<FIRDialect>();
+  return std::make_unique<MLIRContext>();
 }
