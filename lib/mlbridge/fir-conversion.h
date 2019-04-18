@@ -12,29 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef FORTRAN_MLBRIDGE_VIADUCT_H_
-#define FORTRAN_MLBRIDGE_VIADUCT_H_
-
-#include <memory>
-
-// Implement the viaduct from Fortran to MLIR
-// https://github.com/tensorflow/mlir
-
-namespace Fortran::parser {
-struct Program;
-}
-
-namespace Fortran::semantics {
-class SemanticsContext;
-}
+#ifndef FORTRAN_MLBRIDGE_FORTRAN_IR_CONVERSION_H_
+#define FORTRAN_MLBRIDGE_FORTRAN_IR_CONVERSION_H_
 
 namespace mlir {
-class MLIRContext;
-class Module;
-}
-
-namespace llvm {
-class Module;
+class Pass;
 }
 
 namespace Fortran::mlbridge {
@@ -42,16 +24,12 @@ namespace Fortran::mlbridge {
 // In the Fortran::mlbridge namespace, the code will default follow the
 // LLVM/MLIR coding standards
 
-/// Viaduct from Fortran parse-tree, etc. to MLIR
-std::unique_ptr<mlir::Module> MLIRViaduct(mlir::MLIRContext &context,
-    const parser::Program &program,
-    semantics::SemanticsContext &semanticsContext);
+/// Create a pass to lower to LLVM dialect.
+mlir::Pass *createLLVMDialectLoweringPass();
 
-/// Viaduct from MLIR to LLVM-IR
-std::unique_ptr<llvm::Module> LLVMViaduct(mlir::Module &module);
-
-std::unique_ptr<mlir::MLIRContext> getFortranMLIRContext();
+/// Create a pass to lower to LLVM-IR.
+mlir::Pass *createLLVMIRLoweringPass();
 
 }  // Fortran::mlbridge
 
-#endif  // FORTRAN_MLBRIDGE_VIADUCT_H_
+#endif  // FORTRAN_MLBRIDGE_FORTRAN_IR_CONVERSION_H_

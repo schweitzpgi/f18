@@ -16,23 +16,36 @@
 
 using namespace Fortran;
 using namespace Fortran::mlbridge;
+using MLIRContext = mlir::MLIRContext;
+using StringRef = llvm::StringRef;
 
-FIRDialect::FIRDialect(mlir::MLIRContext *ctx) : mlir::Dialect("fir", ctx) {
+FIRDialect::FIRDialect(MLIRContext *ctx) : mlir::Dialect("fir", ctx) {
   // addTypes<T>();
-  addOperations<ApplyExpr, LocateExpr>();
+  addOperations<ApplyExpr, LocateExpr, UnreachableOp>();
 }
 
-mlir::LogicalResult ApplyExpr::verify() { return mlir::failure(); }
+FIRDialect::~FIRDialect() = default;
+
+mlir::Type FIRDialect::parseType(StringRef ty, mlir::Location loc) const {
+  return {};
+}
+
+void FIRDialect::printType(mlir::Type ty, llvm::raw_ostream &os) const {}
+
+mlir::LogicalResult ApplyExpr::verify() {
+  // FIXME
+  return mlir::failure();
+}
 
 void ApplyExpr::build(mlir::FuncBuilder *builder, mlir::OperationState *state,
-    llvm::StringRef lambda, llvm::ArrayRef<mlir::Value *> args) {
+    StringRef lambda, llvm::ArrayRef<mlir::Value *> args) {
   // FIXME
 }
 
 /// string representation of the expression
-llvm::StringRef ApplyExpr::getExpr() {
+StringRef ApplyExpr::getExpr() {
   std::string s{std::visit(common::visitors{
-                               [](std::monostate &) { return "opaque-value"s; },
+                               [](std::string &s) { return s; },
                                [](evaluate::Expr<evaluate::SomeType> &e) {
                                  std::stringstream ss;
                                  e.AsFortran(ss);
@@ -43,29 +56,31 @@ llvm::StringRef ApplyExpr::getExpr() {
   return s;
 }
 
-mlir::LogicalResult LocateExpr::verify() { return mlir::failure(); }
+mlir::LogicalResult LocateExpr::verify() {
+  // FIXME
+  return mlir::failure();
+}
 
 void LocateExpr::build(mlir::FuncBuilder *builder, mlir::OperationState *state,
-    llvm::StringRef lambda, llvm::ArrayRef<mlir::Value *> args) {
+    StringRef lambda, llvm::ArrayRef<mlir::Value *> args) {
   // FIXME
 }
 
 /// string representation of the expression
-llvm::StringRef LocateExpr::getExpr() {
-  std::string s{
-      std::visit(common::visitors{
-                     [](std::monostate &) { return "opaque-address"s; },
-                     [](evaluate::Expr<evaluate::SomeType> &e) {
-                       std::stringstream ss;
-                       e.AsFortran(ss);
-                       return ss.str();
-                     },
-                 },
-          expr)};
+StringRef LocateExpr::getExpr() {
+  std::string s{std::visit(common::visitors{
+                               [](std::string &s) { return s; },
+                               [](evaluate::Expr<evaluate::SomeType> &e) {
+                                 std::stringstream ss;
+                                 e.AsFortran(ss);
+                                 return ss.str();
+                               },
+                           },
+      expr)};
   return s;
 }
 
-std::unique_ptr<mlir::MLIRContext> getFortranMLIRContext() {
-  mlir::registerDialect<FIRDialect>();
-  return std::make_unique<mlir::MLIRContext>();
+void UnreachableOp::build(
+    mlir::FuncBuilder *builder, mlir::OperationState *state) {
+  // FIXME
 }
