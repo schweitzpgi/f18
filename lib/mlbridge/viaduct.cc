@@ -57,6 +57,7 @@ class MLIRConverter {
 
   mlir::Location dummyLocation() { return dummyLoc(&mlirContext); }
 
+  mlir::Function *genFunctionMLIR(StringRef callee, mlir::FunctionType funcTy);
   void genMLIR(FIR::AnalysisData &ad, std::list<FIR::flat::Op> &operations);
   void genMLIR(bool lastWasLabel, const FIR::flat::LabelOp &op);
   void genMLIR(const FIR::flat::GotoOp &op);
@@ -162,10 +163,19 @@ void MLIRConverter::genMLIR(const FIR::flat::GotoOp &op) {
   builder->clearInsertionPoint();
 }
 
+mlir::Function *MLIRConverter::genFunctionMLIR(
+    StringRef callee, mlir::FunctionType funcTy) {
+  if (auto *func{module->getNamedFunction(callee)}) {
+    return func;
+  }
+  return new mlir::Function(dummyLocation(), callee, funcTy);
+}
+
 // Return-like statements
 void MLIRConverter::genMLIR(const parser::FailImageStmt &stmt) {
   auto calleeName{"Fortran_fail_image"s};  // FIXME
-  auto *callee{module->getNamedFunction(calleeName)};
+  auto *callee{genFunctionMLIR(
+      calleeName, mlir::FunctionType::get({}, {}, &mlirContext))};
   llvm::SmallVector<mlir::Value *, 8> operands;  // FIXME: argument(s)?
   builder->create<mlir::CallOp>(dummyLocation(), callee, operands);
   builder->create<UnreachableOp>(dummyLocation());
@@ -260,9 +270,7 @@ void MLIRConverter::genMLIR(
 
 mlir::Function *createFunction(MLIRContext *ctxt, const std::string &name) {
   // FIXME: generate the correct type
-  llvm::SmallVector<mlir::Type, 4> retTy;
-  llvm::SmallVector<mlir::Type, 4> argTy;
-  auto funcTy{mlir::FunctionType::get(argTy, retTy, ctxt)};
+  auto funcTy{mlir::FunctionType::get({}, {}, ctxt)};
   return new mlir::Function(dummyLoc(ctxt), name, funcTy, /*attrs=*/{});
 }
 
@@ -277,6 +285,7 @@ void MLIRConverter::translateRoutine(
   std::list<FIR::flat::Op> operations;
   CreateFlatIR(routine, operations, ad);
   genMLIR(ad, operations);
+  module->getFunctions().push_back(function.release());
 }
 
 }  // namespace

@@ -115,7 +115,3 @@ Pass *Fortran::mlbridge::createLLVMDialectLoweringPass() {
 Pass *Fortran::mlbridge::createLLVMIRLoweringPass() {
   return new LLVMIRLoweringPass();
 }
-
-namespace llvm {
-int EnableABIBreakingChecks;
-}
