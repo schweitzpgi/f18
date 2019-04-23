@@ -15,8 +15,10 @@
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-rtti")
 
 add_library(FortranMLBridge
+  expression.cc
   fir-conversion.cc
   fir-dialect.cc
+  runtime.cc
   viaduct.cc
 )
 
@@ -28,6 +30,7 @@ target_link_libraries(FortranMLBridge
   MLIRSupport
   LLVMAsmParser
   LLVMAsmPrinter
+  LLVMRemarks
 )
 
 install (TARGETS FortranMLBridge

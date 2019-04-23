@@ -14,11 +14,15 @@
 
 #include "fir-conversion.h"
 #include "fir-dialect.h"
+#include "mlir/LLVMIR/LLVMDialect.h"
+#include "mlir/LLVMIR/Transforms.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Target/LLVMIR.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "llvm/Config/abi-breaking.h"
 #include "llvm/IR/Module.h"
+#include "llvm/Support/FileSystem.h"
+#include "llvm/Support/raw_ostream.h"
 
 using namespace Fortran;
 using namespace Fortran::mlbridge;
@@ -60,6 +64,9 @@ public:
   llvm::SmallVector<mlir::Value *, 4> rewrite(mlir::Operation *op,
       llvm::ArrayRef<mlir::Value *> operands,
       mlir::FuncBuilder &rewriter) const override {
+    rewriter.create<mlir::LLVM::UnreachableOp>(op->getLoc(),
+        llvm::ArrayRef<mlir::Value *>{}, llvm::ArrayRef<mlir::Block *>{},
+        llvm::ArrayRef<llvm::ArrayRef<mlir::Value *>>{}, op->getAttrs());
     return {};
   }
 };
@@ -82,8 +89,10 @@ class LLVMDialectLoweringPass
   : public mlir::ModulePass<LLVMDialectLoweringPass> {
 public:
   void runOnModule() override {
-    if (mlir::failed(FIRConversion{}.convert(&getModule()))) {
-      auto ctxt{getModule().getContext()};
+    auto *mod{&getModule()};
+    auto ctxt{mod->getContext()};
+    if (mlir::failed(FIRConversion{}.convert(mod)) ||
+        mlir::failed(mlir::createStdToLLVMConverter()->convert(mod))) {
       ctxt->emitError(
           mlir::UnknownLoc::get(ctxt), "error in converting to LLVM dialect\n");
       signalPassFailure();
@@ -96,8 +105,9 @@ class LLVMIRLoweringPass : public mlir::ModulePass<LLVMIRLoweringPass> {
 public:
   void runOnModule() override {
     if (auto llvmModule{mlir::translateModuleToLLVMIR(getModule())}) {
-      // FIXME: this should write the LLVM-IR to a file
-      llvm::outs() << *llvmModule << '\n';
+      std::error_code ec;
+      auto stream{llvm::raw_fd_ostream("a.ll", ec, llvm::sys::fs::F_None)};
+      stream << *llvmModule << '\n';
     } else {
       auto ctxt{getModule().getContext()};
       ctxt->emitError(mlir::UnknownLoc::get(ctxt), "could not emit LLVM-IR\n");

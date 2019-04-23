@@ -13,13 +13,17 @@
 // limitations under the License.
 
 #include "viaduct.h"
+#include "expression.h"
 #include "fir-dialect.h"
 #include "mlir/IR/Builders.h"
+#include "mlir/IR/Identifier.h"
 #include "mlir/IR/Module.h"
 #include "mlir/StandardOps/Ops.h"
 #include "mlir/Target/LLVMIR.h"
+#include "runtime.h"
 #include "../FIR/flattened.h"
 #include "../parser/parse-tree-visitor.h"
+#include "../semantics/tools.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/IR/Module.h"
 
@@ -56,6 +60,10 @@ class MLIRConverter {
   }
 
   mlir::Location dummyLocation() { return dummyLoc(&mlirContext); }
+  mlir::Type dummyType() {
+    auto firDialect{mlir::Identifier::get("fir", &mlirContext)};
+    return mlir::OpaqueType::get(firDialect, "dummy", &mlirContext);
+  }
 
   mlir::Function *genFunctionMLIR(StringRef callee, mlir::FunctionType funcTy);
   void genMLIR(FIR::AnalysisData &ad, std::list<FIR::flat::Op> &operations);
@@ -90,6 +98,38 @@ class MLIRConverter {
   }
   void genMLIR(const parser::Statement<parser::NonLabelDoStmt> &stmt,
       LabelRef trueLabel, LabelRef falseLabel);
+
+  // Action statements
+  void genMLIR(const parser::AllocateStmt &stmt);
+  void genMLIR(const parser::AssignmentStmt &stmt);
+  void genMLIR(const parser::BackspaceStmt &stmt);
+  void genMLIR(const parser::CallStmt &stmt);
+  void genMLIR(const parser::CloseStmt &stmt);
+  void genMLIR(const parser::DeallocateStmt &stmt);
+  void genMLIR(const parser::EndfileStmt &stmt);
+  void genMLIR(const parser::EventPostStmt &stmt);
+  void genMLIR(const parser::EventWaitStmt &stmt);
+  void genMLIR(const parser::FlushStmt &stmt);
+  void genMLIR(const parser::FormTeamStmt &stmt);
+  void genMLIR(const parser::InquireStmt &stmt);
+  void genMLIR(const parser::LockStmt &stmt);
+  void genMLIR(const parser::NullifyStmt &stmt);
+  void genMLIR(const parser::OpenStmt &stmt);
+  void genMLIR(const parser::PointerAssignmentStmt &stmt);
+  void genMLIR(const parser::PrintStmt &stmt);
+  void genMLIR(const parser::ReadStmt &stmt);
+  void genMLIR(const parser::RewindStmt &stmt);
+  void genMLIR(const parser::SyncAllStmt &stmt);
+  void genMLIR(const parser::SyncImagesStmt &stmt);
+  void genMLIR(const parser::SyncMemoryStmt &stmt);
+  void genMLIR(const parser::SyncTeamStmt &stmt);
+  void genMLIR(const parser::UnlockStmt &stmt);
+  void genMLIR(const parser::WaitStmt &stmt);
+  void genMLIR(const parser::WhereStmt &stmt);
+  void genMLIR(const parser::WriteStmt &stmt);
+  void genMLIR(const parser::ForallStmt &stmt);
+  void genMLIR(FIR::AnalysisData &ad, const parser::AssignStmt &stmt);
+  void genMLIR(const parser::PauseStmt &stmt);
 
   template<typename A>
   void translateRoutine(const A &routine, const std::string &name);
@@ -128,6 +168,18 @@ public:
     translateRoutine(subp, name);
   }
 };
+
+constexpr bool isStopStmt(parser::StopStmt::Kind kind) {
+  return kind == parser::StopStmt::Kind::Stop;
+}
+
+mlir::Function *createFunction(
+    mlir::Module *module, const std::string &name, mlir::FunctionType funcTy) {
+  MLIRContext *ctxt{module->getContext()};
+  auto *func{new mlir::Function(dummyLoc(ctxt), name, funcTy)};
+  module->getFunctions().push_back(func);
+  return func;
+}
 
 // Control flow destination
 void MLIRConverter::genMLIR(bool lastWasLabel, const FIR::flat::LabelOp &op) {
@@ -168,15 +220,15 @@ mlir::Function *MLIRConverter::genFunctionMLIR(
   if (auto *func{module->getNamedFunction(callee)}) {
     return func;
   }
-  return new mlir::Function(dummyLocation(), callee, funcTy);
+  return createFunction(module.get(), callee, funcTy);
 }
 
 // Return-like statements
 void MLIRConverter::genMLIR(const parser::FailImageStmt &stmt) {
-  auto calleeName{"Fortran_fail_image"s};  // FIXME
+  auto calleeName{getRuntimeEntryName(FRT_FAIL_IMAGE)};
   auto *callee{genFunctionMLIR(
       calleeName, mlir::FunctionType::get({}, {}, &mlirContext))};
-  llvm::SmallVector<mlir::Value *, 8> operands;  // FIXME: argument(s)?
+  llvm::SmallVector<mlir::Value *, 8> operands;  // FAIL IMAGE has no args
   builder->create<mlir::CallOp>(dummyLocation(), callee, operands);
   builder->create<UnreachableOp>(dummyLocation());
 }
@@ -184,9 +236,12 @@ void MLIRConverter::genMLIR(const parser::ReturnStmt &stmt) {
   builder->create<mlir::ReturnOp>(dummyLocation());  // FIXME: argument(s)?
 }
 void MLIRConverter::genMLIR(const parser::StopStmt &stmt) {
-  auto calleeName{"Fortran_stop"s};  // FIXME
+  auto calleeName{getRuntimeEntryName(
+      isStopStmt(std::get<parser::StopStmt::Kind>(stmt.t)) ? FRT_STOP
+                                                           : FRT_ERROR_STOP)};
   auto *callee{module->getNamedFunction(calleeName)};
-  llvm::SmallVector<mlir::Value *, 8> operands;  // FIXME: argument(s)?
+  // 2 args: stop-code-opt, quiet-opt
+  llvm::SmallVector<mlir::Value *, 8> operands;
   builder->create<mlir::CallOp>(dummyLocation(), callee, operands);
   builder->create<UnreachableOp>(dummyLocation());
 }
@@ -229,8 +284,81 @@ void MLIRConverter::genMLIR(const FIR::flat::EndOp &op) {}
 void MLIRConverter::genMLIR(const FIR::flat::DoIncrementOp &op) {}
 void MLIRConverter::genMLIR(const FIR::flat::DoCompareOp &op) {}
 
+void MLIRConverter::genMLIR(const parser::AllocateStmt &stmt) {}
+void MLIRConverter::genMLIR(const parser::AssignmentStmt &stmt) {
+  auto *rhs{&std::get<parser::Expr>(stmt.t).typedExpr->v.value()};
+  auto *lhs{&std::get<parser::Variable>(stmt.t).typedExpr->v.value()};
+  auto loc{dummyLocation()};
+  auto rhsOps{translateApplyExpr(rhs)};
+  auto value{builder->create<ApplyExpr>(loc, rhs, rhsOps, dummyType())};
+  auto lhsOps{translateLocateExpr(lhs)};
+  auto address{builder->create<LocateExpr>(loc, lhs, lhsOps, dummyType())};
+  llvm::SmallVector<mlir::Value *, 2> storeArgs{value, address};
+  builder->create<StoreExpr>(loc, storeArgs);
+}
+void MLIRConverter::genMLIR(const parser::BackspaceStmt &stmt) {
+  // builder->create<IOCallOp>(stmt.v);
+}
+void MLIRConverter::genMLIR(const parser::CallStmt &stmt) {}
+void MLIRConverter::genMLIR(const parser::CloseStmt &stmt) {}
+void MLIRConverter::genMLIR(const parser::DeallocateStmt &stmt) {}
+void MLIRConverter::genMLIR(const parser::EndfileStmt &stmt) {}
+void MLIRConverter::genMLIR(const parser::EventPostStmt &stmt) {}
+void MLIRConverter::genMLIR(const parser::EventWaitStmt &stmt) {}
+void MLIRConverter::genMLIR(const parser::FlushStmt &stmt) {}
+void MLIRConverter::genMLIR(const parser::FormTeamStmt &stmt) {}
+void MLIRConverter::genMLIR(const parser::InquireStmt &stmt) {}
+void MLIRConverter::genMLIR(const parser::LockStmt &stmt) {}
+void MLIRConverter::genMLIR(const parser::NullifyStmt &stmt) {}
+void MLIRConverter::genMLIR(const parser::OpenStmt &stmt) {}
+void MLIRConverter::genMLIR(const parser::PointerAssignmentStmt &stmt) {}
+void MLIRConverter::genMLIR(const parser::PrintStmt &stmt) {}
+void MLIRConverter::genMLIR(const parser::ReadStmt &stmt) {}
+void MLIRConverter::genMLIR(const parser::RewindStmt &stmt) {}
+void MLIRConverter::genMLIR(const parser::SyncAllStmt &stmt) {}
+void MLIRConverter::genMLIR(const parser::SyncImagesStmt &stmt) {}
+void MLIRConverter::genMLIR(const parser::SyncMemoryStmt &stmt) {}
+void MLIRConverter::genMLIR(const parser::SyncTeamStmt &stmt) {}
+void MLIRConverter::genMLIR(const parser::UnlockStmt &stmt) {}
+void MLIRConverter::genMLIR(const parser::WaitStmt &stmt) {}
+void MLIRConverter::genMLIR(const parser::WhereStmt &stmt) {}
+void MLIRConverter::genMLIR(const parser::WriteStmt &stmt) {}
+void MLIRConverter::genMLIR(const parser::ForallStmt &stmt) {}
 void MLIRConverter::genMLIR(
-    FIR::AnalysisData &ad, const FIR::flat::ActionOp &op) {}
+    FIR::AnalysisData &ad, const parser::AssignStmt &stmt) {}
+void MLIRConverter::genMLIR(const parser::PauseStmt &stmt) {}
+
+/// translate action statements
+void MLIRConverter::genMLIR(
+    FIR::AnalysisData &ad, const FIR::flat::ActionOp &op) {
+  std::visit(
+      common::visitors{
+          [](const common::Indirection<parser::ArithmeticIfStmt> &) {
+            assert(false);
+          },
+          [](const common::Indirection<parser::AssignedGotoStmt> &) {
+            assert(false);
+          },
+          [&](const common::Indirection<parser::AssignStmt> &assign) {
+            genMLIR(ad, assign.value());
+          },
+          [](const parser::ContinueStmt &) { assert(false); },
+          [](const common::Indirection<parser::ComputedGotoStmt> &) {
+            assert(false);
+          },
+          [](const common::Indirection<parser::CycleStmt> &) { assert(false); },
+          [](const common::Indirection<parser::ExitStmt> &) { assert(false); },
+          [](const common::Indirection<parser::GotoStmt> &) { assert(false); },
+          [](const common::Indirection<parser::IfStmt> &) { assert(false); },
+          [](const parser::FailImageStmt &) { assert(false); },
+          [](const common::Indirection<parser::ReturnStmt> &) {
+            assert(false);
+          },
+          [](const common::Indirection<parser::StopStmt> &) { assert(false); },
+          [&](const auto &stmt) { genMLIR(stmt.value()); },
+      },
+      op.v->statement.u);
+}
 
 void MLIRConverter::genMLIR(
     FIR::AnalysisData &ad, const FIR::flat::IndirectGotoOp &op) {
@@ -265,13 +393,11 @@ void MLIRConverter::genMLIR(
                },
         op.u);
   }
+  if (builder->getInsertionBlock()) {
+    // FIXME: assuming type of '() -> ()'
+    builder->create<mlir::ReturnOp>(dummyLocation());
+  }
   drawRemainingEdges();
-}
-
-mlir::Function *createFunction(MLIRContext *ctxt, const std::string &name) {
-  // FIXME: generate the correct type
-  auto funcTy{mlir::FunctionType::get({}, {}, ctxt)};
-  return new mlir::Function(dummyLoc(ctxt), name, funcTy, /*attrs=*/{});
 }
 
 /// Translate the routine to MLIR
@@ -279,13 +405,15 @@ template<typename A>
 void MLIRConverter::translateRoutine(
     const A &routine, const std::string &name) {
   assert(!module->getNamedFunction(name));
-  std::unique_ptr<mlir::Function> function{createFunction(&mlirContext, name)};
-  builder = llvm::make_unique<mlir::FuncBuilder>(function.get());
+  auto *func{createFunction(
+      module.get(), name, mlir::FunctionType::get({}, {}, &mlirContext))};
+  func->addEntryBlock();
+  builder = llvm::make_unique<mlir::FuncBuilder>(func);
+  builder->setInsertionPointToStart(&func->front());
   FIR::AnalysisData ad;
   std::list<FIR::flat::Op> operations;
   CreateFlatIR(routine, operations, ad);
   genMLIR(ad, operations);
-  module->getFunctions().push_back(function.release());
 }
 
 }  // namespace

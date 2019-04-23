@@ -226,7 +226,7 @@ std::string CompileFortran(std::string path, Fortran::parser::Options options,
   // TODO: Change this predicate to just "if (!driver.debugNoSemantics)"
   if (driver.debugSemantics || driver.debugResolveNames || driver.dumpSymbols ||
       driver.dumpUnparseWithSymbols || driver.debugLinearFIR ||
-      driver.dumpGraph) {
+      driver.dumpGraph || driver.runBackend) {
     Fortran::semantics::Semantics semantics{
         semanticsContext, parseTree, parsing.cooked()};
     semantics.Perform();
@@ -259,8 +259,13 @@ std::string CompileFortran(std::string path, Fortran::parser::Options options,
     auto mlirModule{
         Fortran::mlbridge::MLIRViaduct(*ctxt, parseTree, semanticsContext)};
     mlir::PassManager pm;
+    llvm::outs() << "== 1 ==\n";
+    mlirModule->dump();
+    pm.addPass(Fortran::mlbridge::createLLVMDialectLoweringPass());
     pm.addPass(Fortran::mlbridge::createLLVMIRLoweringPass());
     auto result{pm.run(mlirModule.get())};
+    llvm::outs() << "== 2 ==\n";
+    mlirModule->dump();
     return {};
   }
   if (driver.dumpParseTree) {
