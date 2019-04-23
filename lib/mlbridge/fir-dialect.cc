@@ -13,11 +13,20 @@
 // limitations under the License.
 
 #include "fir-dialect.h"
+#include "../evaluate/expression.h"
 
 using namespace Fortran;
 using namespace Fortran::mlbridge;
 using MLIRContext = mlir::MLIRContext;
 using StringRef = llvm::StringRef;
+
+namespace {
+std::string someExprToString(const SomeExpr *expr) {
+  std::stringstream ss;
+  expr->AsFortran(ss);
+  return ss.str();
+}
+}  // namespace
 
 FIRDialect::FIRDialect(MLIRContext *ctx) : mlir::Dialect("fir", ctx) {
   // addTypes<T>();
@@ -32,55 +41,47 @@ mlir::Type FIRDialect::parseType(StringRef ty, mlir::Location loc) const {
 
 void FIRDialect::printType(mlir::Type ty, llvm::raw_ostream &os) const {}
 
-mlir::LogicalResult ApplyExpr::verify() {
-  // FIXME
-  return mlir::failure();
-}
+mlir::LogicalResult ApplyExpr::verify() { return mlir::success(); }
 
-void ApplyExpr::build(mlir::FuncBuilder *builder, mlir::OperationState *state,
-    StringRef lambda, llvm::ArrayRef<mlir::Value *> args) {
-  // FIXME
+void ApplyExpr::build(mlir::FuncBuilder *builder, mlir::OperationState *result,
+    const SomeExpr *expr, llvm::ArrayRef<mlir::Value *> operands,
+    mlir::Type opTy) {
+  result->addOperands(operands);
+  result->addAttribute(
+      "expr", builder->getSerializableAttr(const_cast<SomeExpr *>(expr)));
+  result->addTypes(opTy);
 }
 
 /// string representation of the expression
 StringRef ApplyExpr::getExpr() {
-  std::string s{std::visit(common::visitors{
-                               [](std::string &s) { return s; },
-                               [](evaluate::Expr<evaluate::SomeType> &e) {
-                                 std::stringstream ss;
-                                 e.AsFortran(ss);
-                                 return ss.str();
-                               },
-                           },
-      expr)};
-  return s;
+  void *barePtr{getAttrOfType<mlir::SerializableAttr>("expr").getValue()};
+  return someExprToString(reinterpret_cast<SomeExpr *>(barePtr));
 }
 
-mlir::LogicalResult LocateExpr::verify() {
-  // FIXME
-  return mlir::failure();
-}
+mlir::LogicalResult LocateExpr::verify() { return mlir::success(); }
 
-void LocateExpr::build(mlir::FuncBuilder *builder, mlir::OperationState *state,
-    StringRef lambda, llvm::ArrayRef<mlir::Value *> args) {
-  // FIXME
+void LocateExpr::build(mlir::FuncBuilder *builder, mlir::OperationState *result,
+    const SomeExpr *expr, llvm::ArrayRef<mlir::Value *> operands,
+    mlir::Type opTy) {
+  result->addOperands(operands);
+  result->addAttribute(
+      "addr", builder->getSerializableAttr(const_cast<SomeExpr *>(expr)));
+  result->addTypes(opTy);
 }
 
 /// string representation of the expression
 StringRef LocateExpr::getExpr() {
-  std::string s{std::visit(common::visitors{
-                               [](std::string &s) { return s; },
-                               [](evaluate::Expr<evaluate::SomeType> &e) {
-                                 std::stringstream ss;
-                                 e.AsFortran(ss);
-                                 return ss.str();
-                               },
-                           },
-      expr)};
-  return s;
+  void *barePtr{getAttrOfType<mlir::SerializableAttr>("addr").getValue()};
+  return someExprToString(reinterpret_cast<SomeExpr *>(barePtr));
 }
 
+void StoreExpr::build(mlir::FuncBuilder *builder, mlir::OperationState *result,
+    llvm::ArrayRef<mlir::Value *> operands) {
+  result->addOperands(operands);
+}
+
+/// an unreachable takes no operands or attributes and has no type
 void UnreachableOp::build(
-    mlir::FuncBuilder *builder, mlir::OperationState *state) {
-  // FIXME
+    mlir::FuncBuilder *builder, mlir::OperationState *result) {
+  // do nothing
 }
