@@ -18,6 +18,7 @@ add_library(FortranMLBridge
   expression.cc
   fir-conversion.cc
   fir-dialect.cc
+  fir-type.cc
   runtime.cc
   viaduct.cc
 )

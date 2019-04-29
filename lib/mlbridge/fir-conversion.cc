@@ -14,13 +14,16 @@
 
 #include "fir-conversion.h"
 #include "fir-dialect.h"
+#include "mlir/IR/StandardTypes.h"
 #include "mlir/LLVMIR/LLVMDialect.h"
 #include "mlir/LLVMIR/Transforms.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Target/LLVMIR.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "llvm/Config/abi-breaking.h"
+#include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/Module.h"
+#include "llvm/IR/Type.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/raw_ostream.h"
 
@@ -32,15 +35,59 @@ using Pass = mlir::Pass;
 
 namespace {
 
+using SmallVecResult = llvm::SmallVector<mlir::Value *, 4>;
+using OperandTy = llvm::ArrayRef<mlir::Value *>;
+using AttributeTy = llvm::ArrayRef<mlir::NamedAttribute>;
+
+// throw-away code: create a dummy call as a proxy for a temporary
+mlir::Value *dummyTemporary(mlir::Operation *op, mlir::FuncBuilder &rewriter) {
+  mlir::Function *dummy =
+      op->getFunction()->getModule()->getNamedFunction("temp");
+  auto &llvmContext = static_cast<mlir::LLVM::LLVMDialect *>(
+      op->getContext()->getRegisteredDialect("llvm"))
+                          ->getLLVMModule()
+                          .getContext();
+  auto returnTy = mlir::LLVM::LLVMType::get(op->getContext(),
+      mlir::LLVM::LLVMType::get(
+          op->getContext(), llvm::IRBuilder<>(llvmContext).getIntNTy(64))
+          .cast<mlir::LLVM::LLVMType>()
+          .getUnderlyingType()
+          ->getPointerTo());
+  if (!dummy) {
+    auto dummyType = rewriter.getFunctionType({}, returnTy);
+    dummy = new mlir::Function{rewriter.getUnknownLoc(), "temp", dummyType};
+    op->getFunction()->getModule()->getFunctions().push_back(dummy);
+  }
+  return rewriter
+      .create<mlir::LLVM::CallOp>(
+          op->getLoc(), returnTy, rewriter.getFunctionAttr(dummy), OperandTy{})
+      .getResult(0);
+}
+
 class ApplyExprConversion : public DialectOpConversion {
 public:
   explicit ApplyExprConversion(MLIRContext *ctxt)
     : DialectOpConversion(ApplyExpr::getOperationName(), 1, ctxt) {}
 
-  llvm::SmallVector<mlir::Value *, 4> rewrite(mlir::Operation *op,
-      llvm::ArrayRef<mlir::Value *> operands,
+  SmallVecResult rewrite(mlir::Operation *op, OperandTy operands,
       mlir::FuncBuilder &rewriter) const override {
-    return {};
+    SmallVecResult result;
+#if 0
+    mlir::Type elementTypePtr = rewriter.getIntegerType(64);  // FIXME
+    mlir::Value *dataPtr{rewriter.create<mlir::LLVM::GEPOp>(
+        op->getLoc(), elementTypePtr, OperandTy{}, AttributeTy{})};
+#else
+    auto &llvmContext = static_cast<mlir::LLVM::LLVMDialect *>(
+        op->getContext()->getRegisteredDialect("llvm"))
+                            ->getLLVMModule()
+                            .getContext();
+    auto returnTy = mlir::LLVM::LLVMType::get(
+        op->getContext(), llvm::IRBuilder<>(llvmContext).getIntNTy(64));
+    mlir::Value *dataPtr = dummyTemporary(op, rewriter);
+#endif
+    result.push_back(rewriter.create<mlir::LLVM::LoadOp>(
+        op->getLoc(), returnTy, OperandTy{dataPtr}, AttributeTy{}));
+    return result;
   }
 };
 
@@ -49,9 +96,51 @@ public:
   explicit LocateExprConversion(MLIRContext *ctxt)
     : DialectOpConversion(LocateExpr::getOperationName(), 1, ctxt) {}
 
-  llvm::SmallVector<mlir::Value *, 4> rewrite(mlir::Operation *op,
-      llvm::ArrayRef<mlir::Value *> operands,
+  SmallVecResult rewrite(mlir::Operation *op, OperandTy operands,
       mlir::FuncBuilder &rewriter) const override {
+    SmallVecResult result;
+#if 0
+    mlir::Type elementTypePtr = rewriter.getIntegerType(64);  // FIXME
+    result.push_back(rewriter.create<mlir::LLVM::GEPOp>(
+        op->getLoc(), elementTypePtr, OperandTy{}, AttributeTy{}));
+#else
+    result.push_back(dummyTemporary(op, rewriter));
+#endif
+    return result;
+  }
+};
+
+class AllocaExprConversion : public DialectOpConversion {
+public:
+  explicit AllocaExprConversion(MLIRContext *ctxt)
+    : DialectOpConversion(AllocaExpr::getOperationName(), 1, ctxt) {}
+
+  SmallVecResult rewrite(mlir::Operation *op, OperandTy operands,
+      mlir::FuncBuilder &rewriter) const override {
+    return {};
+  }
+};
+
+class LoadExprConversion : public DialectOpConversion {
+public:
+  explicit LoadExprConversion(MLIRContext *ctxt)
+    : DialectOpConversion(LoadExpr::getOperationName(), 1, ctxt) {}
+
+  SmallVecResult rewrite(mlir::Operation *op, OperandTy operands,
+      mlir::FuncBuilder &rewriter) const override {
+    return {};
+  }
+};
+
+class StoreExprConversion : public DialectOpConversion {
+public:
+  explicit StoreExprConversion(MLIRContext *ctxt)
+    : DialectOpConversion(StoreExpr::getOperationName(), 1, ctxt) {}
+
+  SmallVecResult rewrite(mlir::Operation *op, OperandTy operands,
+      mlir::FuncBuilder &rewriter) const override {
+    mlir::Value *dataPtr = operands[1];  // FIXME
+    rewriter.create<mlir::LLVM::StoreOp>(op->getLoc(), operands[0], dataPtr);
     return {};
   }
 };
@@ -61,12 +150,11 @@ public:
   explicit UnreachableOpConversion(MLIRContext *ctxt)
     : DialectOpConversion(UnreachableOp::getOperationName(), 1, ctxt) {}
 
-  llvm::SmallVector<mlir::Value *, 4> rewrite(mlir::Operation *op,
-      llvm::ArrayRef<mlir::Value *> operands,
+  SmallVecResult rewrite(mlir::Operation *op, OperandTy operands,
       mlir::FuncBuilder &rewriter) const override {
-    rewriter.create<mlir::LLVM::UnreachableOp>(op->getLoc(),
-        llvm::ArrayRef<mlir::Value *>{}, llvm::ArrayRef<mlir::Block *>{},
-        llvm::ArrayRef<llvm::ArrayRef<mlir::Value *>>{}, op->getAttrs());
+    rewriter.create<mlir::LLVM::UnreachableOp>(op->getLoc(), OperandTy{},
+        llvm::ArrayRef<mlir::Block *>{}, llvm::ArrayRef<OperandTy>{},
+        op->getAttrs());
     return {};
   }
 };
@@ -77,7 +165,8 @@ protected:
   llvm::DenseSet<mlir::DialectOpConversion *> initConverters(
       MLIRContext *ctxt) override {
     return mlir::ConversionListBuilder<ApplyExprConversion,
-        LocateExprConversion, UnreachableOpConversion>::build(&allocator, ctxt);
+        LocateExprConversion, LoadExprConversion, StoreExprConversion,
+        AllocaExprConversion, UnreachableOpConversion>::build(&allocator, ctxt);
   }
 
 private:
