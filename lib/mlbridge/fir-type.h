@@ -101,14 +101,21 @@ class FIRSequenceType : public mlir::Type::TypeBase<FIRSequenceType, mlir::Type,
                             detail::FIRSequenceTypeStorage> {
 public:
   struct Unknown {};
+  struct BoundInfo {
+    int lower;
+    int count;
+    int stride;
+  };
   struct Extent {
-    std::variant<Unknown, unsigned> u;
+    std::variant<Unknown, BoundInfo> u;
   };
   struct Shape {
     std::variant<Unknown, std::vector<Extent>> u;
     bool operator==(const Shape &) const;
     size_t hash_value() const;
   };
+
+  BoundInfo simpleBoundInfo(int size) { return {1, size, 1}; }
 
   static FIRSequenceType get(
       mlir::MLIRContext *ctxt, const Shape &shape, mlir::Type elementType);
