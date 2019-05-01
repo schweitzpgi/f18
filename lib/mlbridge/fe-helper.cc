@@ -12,27 +12,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef FORTRAN_MLBRIDGE_FORTRAN_IR_CONVERSION_H_
-#define FORTRAN_MLBRIDGE_FORTRAN_IR_CONVERSION_H_
+#include "fe-helper.h"
+#include "mlir/IR/Location.h"
+#include "mlir/IR/MLIRContext.h"
 
-namespace mlir {
-class Pass;
+namespace Br = Fortran::mlbridge;
+namespace M = mlir;
+namespace Pa = Fortran::parser;
+
+/// Generate an unknown location
+M::Location Br::dummyLoc(M::MLIRContext *ctxt) {
+  return M::UnknownLoc::get(ctxt);
 }
 
-namespace Fortran::mlbridge {
-
-// In the Fortran::mlbridge namespace, the code will default follow the
-// LLVM/MLIR coding standards
-
-/// Convert FIR to the standard dialect
-mlir::Pass *createFIRToStdPass();
-
-/// Convert the standard dialect to LLVM IR dialect
-mlir::Pass *createStdToLLVMPass();
-
-/// Convert the LLVM IR dialect to LLVM-IR proper
-mlir::Pass *createLLVMDialectToLLVMPass();
-
-}  // Fortran::mlbridge
-
-#endif  // FORTRAN_MLBRIDGE_FORTRAN_IR_CONVERSION_H_
+// What do we need to convert a CharBlock to actual source locations?
+// FIXME: replace with a map from a provenance to a source location
+M::Location Br::parserPosToLoc(
+    M::MLIRContext &context, const Pa::CharBlock &position) {
+  return dummyLoc(&context);
+}

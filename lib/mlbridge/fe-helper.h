@@ -12,17 +12,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef FORTRAN_MLBRIDGE_RUNTIME_H_
-#define FORTRAN_MLBRIDGE_RUNTIME_H_
+#ifndef FORTRAN_MLBRIDGE_FE_HELPER_H_
+#define FORTRAN_MLBRIDGE_FE_HELPER_H_
 
-#include <string>
+/// Traversal and coversion of various Fortran::parser data structures into the
+/// FIR dialect of MLIR. These traversals are isolated in this file to hopefully
+/// make maintenance easier.
 
-namespace llvm {
-class StringRef;
-}
 namespace mlir {
-class FunctionType;
+class Location;
 class MLIRContext;
+}
+
+namespace Fortran::parser {
+class CharBlock;
 }
 
 namespace Fortran::mlbridge {
@@ -30,20 +33,12 @@ namespace Fortran::mlbridge {
 // In the Fortran::mlbridge namespace, the code will default follow the
 // LLVM/MLIR coding standards
 
-#define DEFINE_RUNTIME_ENTRY(A, B, C, D) FIRT_##A,
-enum RuntimeEntryCode {
-#include "runtime.def"
-  FIRT_LAST_ENTRY_CODE
-};
+mlir::Location dummyLoc(mlir::MLIRContext *ctxt);
 
-llvm::StringRef getRuntimeEntryName(RuntimeEntryCode code);
-
-mlir::FunctionType getRuntimeEntryType(
-    RuntimeEntryCode code, mlir::MLIRContext &mlirContext, int kind);
-
-mlir::FunctionType getRuntimeEntryType(RuntimeEntryCode code,
-    mlir::MLIRContext &mlirContext, int inpKind, int resKind);
+/// Translate a CharBlock position to (source-file, line, column)
+mlir::Location parserPosToLoc(
+    mlir::MLIRContext &context, const parser::CharBlock &position);
 
 }  // Fortran::mlbridge
 
-#endif  // FORTRAN_MLBRIDGE_RUNTIME_H_
+#endif  // FORTRAN_MLBRIDGE_FE_HELPER_H_

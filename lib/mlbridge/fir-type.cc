@@ -17,6 +17,30 @@
 namespace Fortran::mlbridge {
 namespace detail {
 
+// `REAL` storage (for reals of unsupported sizes)
+struct FIRRealTypeStorage : public mlir::TypeStorage {
+  using KeyTy = int;
+
+  static unsigned hashKey(const KeyTy &key) { return llvm::hash_combine(key); }
+
+  bool operator==(const KeyTy &key) const { return key == getFKind(); }
+
+  static FIRRealTypeStorage *construct(
+      mlir::TypeStorageAllocator &allocator, int kind) {
+    auto *storage = allocator.allocate<FIRRealTypeStorage>();
+    return new (storage) FIRRealTypeStorage{kind};
+  }
+
+  int getFKind() const { return kind; }
+
+protected:
+  int kind;
+
+private:
+  FIRRealTypeStorage() = delete;
+  explicit FIRRealTypeStorage(int kind) : kind{kind} {}
+};
+
 // `LOGICAL` storage
 struct FIRLogicalTypeStorage : public mlir::TypeStorage {
   using KeyTy = int;
@@ -26,7 +50,7 @@ struct FIRLogicalTypeStorage : public mlir::TypeStorage {
   bool operator==(const KeyTy &key) const { return key == getFKind(); }
 
   static FIRLogicalTypeStorage *construct(
-      mlir::TypeStorageAllocator &allocator, llvm::StringRef name, int kind) {
+      mlir::TypeStorageAllocator &allocator, int kind) {
     auto *storage = allocator.allocate<FIRLogicalTypeStorage>();
     return new (storage) FIRLogicalTypeStorage{kind};
   }
@@ -50,7 +74,7 @@ struct FIRCharacterTypeStorage : public mlir::TypeStorage {
   bool operator==(const KeyTy &key) const { return key == getFKind(); }
 
   static FIRCharacterTypeStorage *construct(
-      mlir::TypeStorageAllocator &allocator, llvm::StringRef name, int kind) {
+      mlir::TypeStorageAllocator &allocator, int kind) {
     auto *storage = allocator.allocate<FIRCharacterTypeStorage>();
     return new (storage) FIRCharacterTypeStorage{kind};
   }
@@ -67,30 +91,33 @@ private:
 
 // `TYPE :: name` storage
 struct FIRTupleTypeStorage : public mlir::TypeStorage {
-  using KeyTy =
-      std::tuple<llvm::StringRef, std::vector<int>, std::vector<mlir::Type>>;
+  using KeyTy = std::tuple<llvm::StringRef, llvm::ArrayRef<int>,
+      llvm::ArrayRef<mlir::Type>>;
 
   static unsigned hashKey(const KeyTy &key) {
-    const std::vector<int> &vec = std::get<std::vector<int>>(key);
+    const llvm::ArrayRef<int> &vec = std::get<llvm::ArrayRef<int>>(key);
     return llvm::hash_combine(std::get<llvm::StringRef>(key).str(),
         llvm::hash_combine_range(vec.begin(), vec.end()));
   }
 
   bool operator==(const KeyTy &key) const {
     return std::get<llvm::StringRef>(key) == getName() &&
-        std::get<std::vector<int>>(key) == getFKinds();
+        std::get<llvm::ArrayRef<int>>(key) == getFKinds();
   }
 
-  static FIRTupleTypeStorage *construct(mlir::TypeStorageAllocator &allocator,
-      llvm::StringRef name, llvm::ArrayRef<int> kinds) {
+  static FIRTupleTypeStorage *construct(
+      mlir::TypeStorageAllocator &allocator, const KeyTy &key) {
     auto *storage = allocator.allocate<FIRTupleTypeStorage>();
-    return new (storage) FIRTupleTypeStorage{name, kinds};
+    auto &name = std::get<llvm::StringRef>(key);
+    auto &kinds = std::get<llvm::ArrayRef<int>>(key);
+    auto &members = std::get<llvm::ArrayRef<mlir::Type>>(key);
+    return new (storage) FIRTupleTypeStorage{name, kinds, members};
   }
 
   llvm::StringRef getName() const { return name; }
-  std::vector<int> getFKinds() const { return kinds; }
+  llvm::ArrayRef<int> getFKinds() const { return kinds; }
   void setMembers(llvm::ArrayRef<mlir::Type> mems) { members = mems; }
-  std::vector<mlir::Type> getMembers() const { return members; }
+  llvm::ArrayRef<mlir::Type> getMembers() const { return members; }
 
 protected:
   std::string name;
@@ -99,8 +126,9 @@ protected:
 
 private:
   FIRTupleTypeStorage() = delete;
-  explicit FIRTupleTypeStorage(llvm::StringRef name, llvm::ArrayRef<int> kinds)
-    : name{name}, kinds{kinds} {}
+  explicit FIRTupleTypeStorage(llvm::StringRef name, llvm::ArrayRef<int> kinds,
+      llvm::ArrayRef<mlir::Type> members)
+    : name{name}, kinds{kinds}, members{members} {}
 };
 
 // Pointer-like object storage
@@ -113,6 +141,7 @@ struct FIRReferenceTypeStorage : public mlir::TypeStorage {
 
   static FIRReferenceTypeStorage *construct(
       mlir::TypeStorageAllocator &allocator, mlir::Type eleTy) {
+    assert(eleTy && "element type is null");
     auto *storage = allocator.allocate<FIRReferenceTypeStorage>();
     return new (storage) FIRReferenceTypeStorage{eleTy};
   }
@@ -129,7 +158,7 @@ private:
 
 // Sequence-like object storage
 struct FIRSequenceTypeStorage : public mlir::TypeStorage {
-  using KeyTy = std::tuple<FIRSequenceType::Shape, mlir::Type>;
+  using KeyTy = std::pair<FIRSequenceType::Shape, mlir::Type>;
 
   static unsigned hashKey(const KeyTy &key) {
     auto shapeHash{std::get<FIRSequenceType::Shape>(key).hash_value()};
@@ -137,15 +166,13 @@ struct FIRSequenceTypeStorage : public mlir::TypeStorage {
   }
 
   bool operator==(const KeyTy &key) const {
-    return (std::get<FIRSequenceType::Shape>(key) == getShape()) ||
-        (std::get<mlir::Type>(key) == getElementType());
+    return key == KeyTy{getShape(), getElementType()};
   }
 
   static FIRSequenceTypeStorage *construct(
-      mlir::TypeStorageAllocator &allocator,
-      const FIRSequenceType::Shape &shape, mlir::Type eleTy) {
+      mlir::TypeStorageAllocator &allocator, const KeyTy &key) {
     auto *storage = allocator.allocate<FIRSequenceTypeStorage>();
-    return new (storage) FIRSequenceTypeStorage{shape, eleTy};
+    return new (storage) FIRSequenceTypeStorage{key.first, key.second};
   }
 
   FIRSequenceType::Shape getShape() const { return shape; }
@@ -163,6 +190,27 @@ private:
 };
 }  // detail
 
+FIRRealType FIRRealType::get(mlir::MLIRContext *ctxt, int kind) {
+  return Base::get(ctxt, FIR_REAL, kind * 8);
+}
+
+int FIRRealType::getSizeInBits() const { return getImpl()->getFKind(); }
+int FIRRealType::getFKind() const { return getSizeInBits() / 8; }
+
+FIRLogicalType FIRLogicalType::get(mlir::MLIRContext *ctxt, int kind) {
+  return Base::get(ctxt, FIR_LOGICAL, kind * 8);
+}
+
+int FIRLogicalType::getSizeInBits() const { return getImpl()->getFKind(); }
+int FIRLogicalType::getFKind() const { return getSizeInBits() / 8; }
+
+FIRCharacterType FIRCharacterType::get(mlir::MLIRContext *ctxt, int kind) {
+  return Base::get(ctxt, FIR_CHARACTER, kind * 8);
+}
+
+int FIRCharacterType::getSizeInBits() const { return getImpl()->getFKind(); }
+int FIRCharacterType::getFKind() const { return getSizeInBits() / 8; }
+
 bool FIRSequenceType::Shape::operator==(
     const FIRSequenceType::Shape &shape) const {
   return false;  // FIXME
@@ -173,8 +221,29 @@ size_t FIRSequenceType::Shape::hash_value() const {
 }
 
 FIRSequenceType FIRSequenceType::get(
-    mlir::MLIRContext *ctxt, const Shape &shape, mlir::Type elementType) {
-  return {};
+    const Shape &shape, mlir::Type elementType) {
+  auto *ctxt = elementType.getContext();
+  return Base::get(ctxt, FIR_SEQUENCE, shape, elementType);
+}
+
+FIRReferenceType FIRReferenceType::get(mlir::Type elementType) {
+  return Base::get(elementType.getContext(), FIR_REFERENCE, elementType);
+}
+
+mlir::Type FIRReferenceType::getEleTy() const {
+  return getImpl()->getElementType();
+}
+
+FIRTupleType FIRTupleType::get(mlir::MLIRContext *ctxt, llvm::StringRef name,
+    llvm::ArrayRef<mlir::Type> eleTypes) {
+  llvm::SmallVector<int, 1> empty;  // FIXME
+  return Base::get(ctxt, FIR_TUPLE, name, empty, eleTypes);
+}
+
+FIRTupleType FIRTupleType::get(mlir::MLIRContext *ctxt, llvm::StringRef name) {
+  llvm::SmallVector<int, 1> empty;  // FIXME
+  llvm::SmallVector<mlir::Type, 1> noTypes;
+  return Base::get(ctxt, FIR_TUPLE, name, empty, noTypes);
 }
 
 }  // mlbridge

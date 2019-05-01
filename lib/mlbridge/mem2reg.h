@@ -12,17 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef FORTRAN_MLBRIDGE_RUNTIME_H_
-#define FORTRAN_MLBRIDGE_RUNTIME_H_
+#ifndef FORTRAN_MLBRIDGE_MEM2REG_H_
+#define FORTRAN_MLBRIDGE_MEM2REG_H_
 
-#include <string>
+// A pass to convert the FIR dialect from "Mem-SSA" form to "Reg-SSA" form. This
+// pass is a port of LLVM's mem2reg pass, but modified for the FIR dialect as
+// well as the restructuring of MLIR's representation to present PHI nodes as
+// block arguments.
+//
+// This pass could be promoted to MLIR proper to do a similar operation on
+// Standard MLIR, assuming Standard was extended with similar operators, etc.
 
-namespace llvm {
-class StringRef;
-}
 namespace mlir {
-class FunctionType;
-class MLIRContext;
+class FunctionPassBase;
 }
 
 namespace Fortran::mlbridge {
@@ -30,20 +32,9 @@ namespace Fortran::mlbridge {
 // In the Fortran::mlbridge namespace, the code will default follow the
 // LLVM/MLIR coding standards
 
-#define DEFINE_RUNTIME_ENTRY(A, B, C, D) FIRT_##A,
-enum RuntimeEntryCode {
-#include "runtime.def"
-  FIRT_LAST_ENTRY_CODE
-};
+/// Creates a pass to convert FIR into a reg SSA form
+mlir::FunctionPassBase *createMemToRegPass();
 
-llvm::StringRef getRuntimeEntryName(RuntimeEntryCode code);
+}  // mlbridge
 
-mlir::FunctionType getRuntimeEntryType(
-    RuntimeEntryCode code, mlir::MLIRContext &mlirContext, int kind);
-
-mlir::FunctionType getRuntimeEntryType(RuntimeEntryCode code,
-    mlir::MLIRContext &mlirContext, int inpKind, int resKind);
-
-}  // Fortran::mlbridge
-
-#endif  // FORTRAN_MLBRIDGE_RUNTIME_H_
+#endif  // FORTRAN_MLBRIDGE_MEM2REG_H_

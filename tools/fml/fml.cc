@@ -14,13 +14,11 @@
 
 // Temporary Fortran front end driver main program for development scaffolding.
 
-#include "mlir/IR/Module.h"
-#include "mlir/Pass/PassManager.h"
-#include "../../lib/FIR/afforestation.h"
-#include "../../lib/FIR/graph-writer.h"
 #include "../../lib/common/default-kinds.h"
+#include "../../lib/mlbridge/canonicalize.h"
 #include "../../lib/mlbridge/fir-conversion.h"
 #include "../../lib/mlbridge/fir-dialect.h"
+#include "../../lib/mlbridge/mem2reg.h"
 #include "../../lib/mlbridge/viaduct.h"
 #include "../../lib/parser/characters.h"
 #include "../../lib/parser/dump-parse-tree.h"
@@ -34,6 +32,15 @@
 #include "../../lib/semantics/expression.h"
 #include "../../lib/semantics/semantics.h"
 #include "../../lib/semantics/unparse-with-symbols.h"
+#include "llvm/Support/ErrorOr.h"
+#include "llvm/Support/MemoryBuffer.h"
+#include "llvm/Support/SourceMgr.h"
+#include "llvm/Support/raw_ostream.h"
+#include "mlir/IR/MLIRContext.h"
+#include "mlir/IR/Module.h"
+#include "mlir/Parser.h"
+#include "mlir/Pass/PassManager.h"
+#include "mlir/Transforms/Passes.h"
 #include <cerrno>
 #include <cstdio>
 #include <cstring>
@@ -48,6 +55,8 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #include <vector>
+
+namespace Br = Fortran::mlbridge;
 
 static std::list<std::string> argList(int argc, char *const argv[]) {
   std::list<std::string> result;
@@ -90,6 +99,7 @@ struct DriverOptions {
   std::string outputPath;  // -o path
   std::vector<std::string> searchDirectories{"."s};  // -I dir
   std::string moduleDirectory{"."s};  // -module dir
+  std::string moduleFileSuffix{".mod"};  // -moduleSuffix suff
   bool forcedForm{false};  // -Mfixed or -Mfree appeared
   bool warnOnNonstandardUsage{false};  // -Mstandard
   bool warningsAreErrors{false};  // -Werror
@@ -101,12 +111,16 @@ struct DriverOptions {
   bool dumpUnparseWithSymbols{false};
   bool dumpParseTree{false};
   bool dumpSymbols{false};
-  bool dumpGraph{false};
   bool debugLinearFIR{false};
   bool debugResolveNames{false};
   bool debugSemantics{false};
   bool measureTree{false};
   bool runBackend{true};
+  bool dumpHLFIR{true};
+  bool dumpFIR{true};
+  bool lowerToStd{true};
+  bool lowerToLLVM{true};
+  bool isFirInput{false};
   std::vector<std::string> pgf90Args;
   const char *prefix{nullptr};
 };
@@ -181,7 +195,7 @@ std::string CompileFortran(std::string path, Fortran::parser::Options options,
     }
   }
   options.searchDirectories = driver.searchDirectories;
-  Fortran::parser::Parsing parsing;
+  Fortran::parser::Parsing parsing{semanticsContext.allSources()};
   parsing.Prescan(path, options);
   if (!parsing.messages().empty() &&
       (driver.warningsAreErrors || parsing.messages().AnyFatalError())) {
@@ -226,7 +240,7 @@ std::string CompileFortran(std::string path, Fortran::parser::Options options,
   // TODO: Change this predicate to just "if (!driver.debugNoSemantics)"
   if (driver.debugSemantics || driver.debugResolveNames || driver.dumpSymbols ||
       driver.dumpUnparseWithSymbols || driver.debugLinearFIR ||
-      driver.dumpGraph || driver.runBackend) {
+      driver.runBackend) {
     Fortran::semantics::Semantics semantics{
         semanticsContext, parseTree, parsing.cooked()};
     semantics.Perform();
@@ -248,60 +262,80 @@ std::string CompileFortran(std::string path, Fortran::parser::Options options,
       return {};
     }
   }
-  if (driver.dumpGraph) {
-    auto *fir{Fortran::FIR::CreateFortranIR(
-        parseTree, semanticsContext, driver.debugLinearFIR)};
-    Fortran::FIR::GraphWriter::print(*fir);
-    return {};
-  }
-  if (driver.runBackend) {
-    auto ctxt{Fortran::mlbridge::getFortranMLIRContext()};
-    auto mlirModule{
-        Fortran::mlbridge::MLIRViaduct(*ctxt, parseTree, semanticsContext)};
-    mlir::PassManager pm;
-    llvm::outs() << "== 1 ==\n";
+
+  // MLIR+FIR
+  auto ctxt{Br::getFortranMLIRContext()};
+  std::unique_ptr<mlir::Module> mlirModule =
+      Br::MLIRViaduct(*ctxt, parseTree, semanticsContext);
+  mlir::PassManager pm;
+  if (driver.dumpHLFIR) {
+    llvm::outs() << ";== 1 ==\n";
     mlirModule->dump();
-    pm.addPass(Fortran::mlbridge::createLLVMDialectLoweringPass());
-    pm.addPass(Fortran::mlbridge::createLLVMIRLoweringPass());
-    auto result{pm.run(mlirModule.get())};
-    llvm::outs() << "== 2 ==\n";
+  }
+  pm.addPass(Br::createMemToRegPass());
+  // Run FIR lowering and CSE as a pair
+  pm.addPass(Br::createFIRLoweringPass());
+  pm.addPass(mlir::createCSEPass());
+  if (driver.lowerToStd) {
+    pm.addPass(Br::createFIRToStdPass());
+  }
+  if (driver.lowerToLLVM) {
+    pm.addPass(Br::createStdToLLVMPass());
+    pm.addPass(Br::createLLVMDialectToLLVMPass());
+  }
+  auto result{pm.run(mlirModule.get())};
+  if (driver.dumpFIR) {
+    llvm::outs() << ";== 2 ==\n";
     mlirModule->dump();
-    return {};
   }
-  if (driver.dumpParseTree) {
-    Fortran::parser::DumpTree(std::cout, parseTree);
-  }
-  if (driver.dumpUnparse) {
-    Unparse(std::cout, parseTree, driver.encoding, true /*capitalize*/,
-        options.features.IsEnabled(
-            Fortran::parser::LanguageFeature::BackslashEscapes));
-    return {};
-  }
-  if (driver.parseOnly) {
-    return {};
+  return {};
+}
+
+// For handling .fir files (MLIR+FIR)
+std::string CompileFir(std::string path, Fortran::parser::Options options,
+    DriverOptions &driver,
+    Fortran::semantics::SemanticsContext &semanticsContext) {
+  auto ctxt = Br::getFortranMLIRContext();
+  mlir::MLIRContext &context = *ctxt.get();
+
+  // check that there is a file to load
+  std::unique_ptr<mlir::Module> mlirModule;
+  llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> fileOrErr =
+      llvm::MemoryBuffer::getFileOrSTDIN(path);
+  if (std::error_code EC = fileOrErr.getError()) {
+    llvm::errs() << "Could not open file: " << EC.message() << '\n';
+    std::exit(-1);
   }
 
-  std::string relo{RelocatableName(driver, path)};
-
-  char tmpSourcePath[32];
-  std::snprintf(tmpSourcePath, sizeof tmpSourcePath, "/tmp/f18-%lx.f90",
-      static_cast<unsigned long>(getpid()));
-  {
-    std::ofstream tmpSource;
-    tmpSource.open(tmpSourcePath);
-    Unparse(tmpSource, parseTree, driver.encoding, true /*capitalize*/,
-        options.features.IsEnabled(
-            Fortran::parser::LanguageFeature::BackslashEscapes));
+  // load the file into a module
+  llvm::SourceMgr sourceMgr;
+  sourceMgr.AddNewSourceBuffer(std::move(*fileOrErr), llvm::SMLoc());
+  mlirModule.reset(mlir::parseSourceFile(sourceMgr, &context));
+  if (!mlirModule) {
+    llvm::errs() << "Error can't load file " << path << '\n';
+    std::exit(3);
+  }
+  if (mlir::failed(mlirModule->verify())) {
+    llvm::errs() << "Error verifying FIR module\n";
+    std::exit(4);
   }
 
-  if (ParentProcess()) {
-    filesToDelete.push_back(tmpSourcePath);
-    if (!driver.compileOnly && driver.outputPath.empty()) {
-      filesToDelete.push_back(relo);
-    }
-    return relo;
+  // run passes
+  mlir::PassManager pm;
+  if (driver.dumpHLFIR) {
+    llvm::outs() << ";== 1 ==\n";
+    mlirModule->dump();
   }
-  RunOtherCompiler(driver, tmpSourcePath, relo.data());
+  pm.addPass(Br::createMemToRegPass());
+  pm.addPass(Br::createFIRLoweringPass());
+  pm.addPass(Br::createFIRToStdPass());
+  pm.addPass(Br::createStdToLLVMPass());
+  pm.addPass(Br::createLLVMDialectToLLVMPass());
+  auto result{pm.run(mlirModule.get())};
+  if (driver.dumpFIR) {
+    llvm::outs() << ";== 2 ==\n";
+    mlirModule->dump();
+  }
   return {};
 }
 
@@ -354,10 +388,14 @@ int main(int argc, char *const argv[]) {
   options.predefinitions.emplace_back("__F18_MAJOR__", "1");
   options.predefinitions.emplace_back("__F18_MINOR__", "1");
   options.predefinitions.emplace_back("__F18_PATCHLEVEL__", "1");
+#if __x86_64__
+  options.predefinitions.emplace_back("__x86_64__", "1");
+#endif
 
   Fortran::common::IntrinsicTypeDefaultKinds defaultKinds;
 
-  std::vector<std::string> fortranSources, otherSources, relocatables;
+  std::vector<std::string> fortranSources, firSources, otherSources,
+      relocatables;
   bool anyFiles{false};
 
   while (!args.empty()) {
@@ -375,8 +413,10 @@ int main(int argc, char *const argv[]) {
             suffix == "f90" || suffix == "F90" || suffix == "ff90" ||
             suffix == "f95" || suffix == "F95" || suffix == "ff95" ||
             suffix == "cuf" || suffix == "CUF" || suffix == "f18" ||
-            suffix == "F18" || suffix == "ff18") {
+            suffix == "F18" || suffix == "ff18" || suffix == "fir") {
           fortranSources.push_back(arg);
+        } else if (suffix == "fir") {
+          firSources.push_back(arg);
         } else if (suffix == "o" || suffix == "a") {
           relocatables.push_back(arg);
         } else {
@@ -441,10 +481,17 @@ int main(int argc, char *const argv[]) {
       driver.dumpUnparse = true;
     } else if (arg == "-funparse-with-symbols") {
       driver.dumpUnparseWithSymbols = true;
-    } else if (arg == "-fdotty") {
-      driver.dumpGraph = true;
     } else if (arg == "-fdebug-dump-linear-ir") {
       driver.debugLinearFIR = true;
+    } else if (arg == "-fno-dump-hl-fir") {
+      driver.dumpHLFIR = false;
+    } else if (arg == "-fno-dump-fir") {
+      driver.dumpFIR = false;
+    } else if (arg == "-fno-lower-to-llvm") {
+      driver.lowerToLLVM = false;
+    } else if (arg == "-fno-lower-to-std") {
+      driver.lowerToStd = false;
+      driver.lowerToLLVM = false;
     } else if (arg == "-fparse-only") {
       driver.parseOnly = true;
     } else if (arg == "-c") {
@@ -467,8 +514,12 @@ int main(int argc, char *const argv[]) {
       defaultKinds.set_defaultRealKind(8);
     } else if (arg == "-i8" || arg == "-fdefault-integer-8") {
       defaultKinds.set_defaultIntegerKind(8);
-    } else if (arg == "-fno-large-arrays") {
-      defaultKinds.set_subscriptIntegerKind(4);
+    } else if (arg == "-module") {
+      driver.moduleDirectory = args.front();
+      args.pop_front();
+    } else if (arg == "-module-suffix") {
+      driver.moduleFileSuffix = args.front();
+      args.pop_front();
     } else if (arg == "-help" || arg == "--help" || arg == "-?") {
       std::cerr
           << "f18 options:\n"
@@ -482,6 +533,7 @@ int main(int argc, char *const argv[]) {
           << "  -Werror              treat warnings as errors\n"
           << "  -ed                  enable fixed form D lines\n"
           << "  -E                   prescan & preprocess only\n"
+          << "  -module dir          module output directory (default .)\n"
           << "  -fparse-only         parse only, no output except messages\n"
           << "  -funparse            parse & reformat only, no code "
              "generation\n"
@@ -512,10 +564,6 @@ int main(int argc, char *const argv[]) {
         args.pop_front();
       } else if (arg.substr(0, 2) == "-I") {
         driver.searchDirectories.push_back(arg.substr(2));
-      } else if (arg == "-module") {
-        driver.moduleDirectory = args.front();
-        driver.pgf90Args.push_back(driver.moduleDirectory);
-        args.pop_front();
       } else if (arg == "-Mx,125,4") {  // PGI "all Kanji" mode
         options.encoding = Fortran::parser::Encoding::EUC_JP;
       }
@@ -530,10 +578,15 @@ int main(int argc, char *const argv[]) {
           Fortran::parser::LanguageFeature::BackslashEscapes)) {
     driver.pgf90Args.push_back("-Mbackslash");
   }
+  if (options.features.IsEnabled(Fortran::parser::LanguageFeature::OpenMP)) {
+    driver.pgf90Args.push_back("-mp");
+  }
 
+  Fortran::parser::AllSources allSources;
   Fortran::semantics::SemanticsContext semanticsContext{
-      defaultKinds, options.features};
+      defaultKinds, options.features, allSources};
   semanticsContext.set_moduleDirectory(driver.moduleDirectory)
+      .set_moduleFileSuffix(driver.moduleFileSuffix)
       .set_searchDirectories(driver.searchDirectories)
       .set_warnOnNonstandardUsage(driver.warnOnNonstandardUsage)
       .set_warningsAreErrors(driver.warningsAreErrors);
@@ -546,6 +599,12 @@ int main(int argc, char *const argv[]) {
   }
   for (const auto &path : fortranSources) {
     std::string relo{CompileFortran(path, options, driver, semanticsContext)};
+    if (!driver.compileOnly && !relo.empty()) {
+      relocatables.push_back(relo);
+    }
+  }
+  for (const auto &path : firSources) {
+    std::string relo{CompileFir(path, options, driver, semanticsContext)};
     if (!driver.compileOnly && !relo.empty()) {
       relocatables.push_back(relo);
     }
