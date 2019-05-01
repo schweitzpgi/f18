@@ -12,17 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef FORTRAN_MLBRIDGE_RUNTIME_H_
-#define FORTRAN_MLBRIDGE_RUNTIME_H_
+#ifndef FORTRAN_MLBRIDGE_CANONICALIZE_H_
+#define FORTRAN_MLBRIDGE_CANONICALIZE_H_
 
-#include <string>
+/// Canonicalize the Expr<T> trees embedded in both `fir.apply_expr` and
+/// `fir.locate_expr` operations into discrete MLIR operations. After this pass,
+/// all `fir.apply_expr` and `fir.locate_expr` will be erased.
 
-namespace llvm {
-class StringRef;
-}
 namespace mlir {
-class FunctionType;
-class MLIRContext;
+struct LogicalResult;
+class Module;
+class Pass;
 }
 
 namespace Fortran::mlbridge {
@@ -30,20 +30,9 @@ namespace Fortran::mlbridge {
 // In the Fortran::mlbridge namespace, the code will default follow the
 // LLVM/MLIR coding standards
 
-#define DEFINE_RUNTIME_ENTRY(A, B, C, D) FIRT_##A,
-enum RuntimeEntryCode {
-#include "runtime.def"
-  FIRT_LAST_ENTRY_CODE
-};
-
-llvm::StringRef getRuntimeEntryName(RuntimeEntryCode code);
-
-mlir::FunctionType getRuntimeEntryType(
-    RuntimeEntryCode code, mlir::MLIRContext &mlirContext, int kind);
-
-mlir::FunctionType getRuntimeEntryType(RuntimeEntryCode code,
-    mlir::MLIRContext &mlirContext, int inpKind, int resKind);
+/// Lower FIR to a canonical representation (suitable as .fir files)
+mlir::Pass *createFIRLoweringPass();
 
 }  // Fortran::mlbridge
 
-#endif  // FORTRAN_MLBRIDGE_RUNTIME_H_
+#endif  // FORTRAN_MLBRIDGE_CANONICALIZE_H_

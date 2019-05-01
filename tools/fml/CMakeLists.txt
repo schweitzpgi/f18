@@ -23,7 +23,6 @@ target_link_libraries(fml
   FortranParser
   FortranEvaluate
   FortranSemantics
-  FortranFIR
   FortranMLBridge
 )
 

@@ -15,7 +15,12 @@
 #ifndef FORTRAN_MLBRIDGE_EXPRESSION_H_
 #define FORTRAN_MLBRIDGE_EXPRESSION_H_
 
+#include "../common/Fortran.h"
+#include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SmallVector.h"
+#include <map>
+#include <tuple>
+#include <variant>
 
 /// Conversion of expressions with type Fortran::evaluate::Expr<A> into the FIR
 /// dialect of MLIR.
@@ -28,11 +33,19 @@
 /// "fir.locate_expr" operation.
 
 namespace mlir {
+class OpBuilder;
+class MLIRContext;
+class Type;
 class Value;
 }
+
 namespace Fortran::evaluate {
-template<typename A> class Expr;
+template<typename> class Expr;
 struct SomeType;
+}
+namespace Fortran::semantics {
+class Symbol;
+class SemanticsContext;
 }
 
 namespace Fortran::mlbridge {
@@ -40,10 +53,66 @@ namespace Fortran::mlbridge {
 // In the Fortran::mlbridge namespace, the code will default follow the
 // LLVM/MLIR coding standards
 
+class FIRBuilder;
+class ApplyExpr;
+class LocateExpr;
+
+enum ExprType {
+  ET_NONE,  // Expr is unclassified type
+  ET_ArrayCtor,
+  ET_ArrayRef,
+  ET_CoarrayRef,
+  ET_ComplexPart,
+  ET_Component,
+  ET_Constant,
+  ET_DescriptorInquiry,
+  ET_FunctionRef,
+  ET_NullPointer,
+  ET_Operation,
+  ET_Relational,
+  ET_StructureCtor,
+  ET_Substring,
+  ET_Symbol,
+  ET_TypeParamInquiry
+};
+
+using Args = llvm::SmallVector<mlir::Value *, 8>;
+using Dict = std::map<unsigned, void *>;
+using Values = std::tuple<Args, Dict, ExprType>;
+using RewriteVals = mlir::Value *;
+using OperandTy = llvm::ArrayRef<mlir::Value *>;
 using SomeExpr = evaluate::Expr<evaluate::SomeType>;
 
-llvm::SmallVector<mlir::Value *, 8> translateApplyExpr(const SomeExpr *expr);
-llvm::SmallVector<mlir::Value *, 8> translateLocateExpr(const SomeExpr *expr);
+constexpr common::TypeCategory IntegerCat{common::TypeCategory::Integer};
+constexpr common::TypeCategory RealCat{common::TypeCategory::Real};
+constexpr common::TypeCategory ComplexCat{common::TypeCategory::Complex};
+constexpr common::TypeCategory CharacterCat{common::TypeCategory::Character};
+constexpr common::TypeCategory LogicalCat{common::TypeCategory::Logical};
+
+// When KIND is missing, assume extra long sized integer
+// TODO: maybe use the default size
+constexpr auto SomeKindIntegerBits = 128;
+
+inline Args getArgs(const Values &values) { return std::get<Args>(values); }
+inline Dict getDict(const Values &values) { return std::get<Dict>(values); }
+inline ExprType getExprType(const Values &values) {
+  return std::get<ExprType>(values);
+}
+
+/// Convert an Expr<T> in its implicit dataflow arguments
+Values translateSomeExpr(
+    FIRBuilder *builder, semantics::SemanticsContext &sc, const SomeExpr *expr);
+
+mlir::Type translateSomeExprToFIRType(mlir::MLIRContext &ctxt,
+    semantics::SemanticsContext &sc, const SomeExpr *expr);
+
+mlir::Type translateSymbolToFIRType(mlir::MLIRContext &ctxt,
+    semantics::SemanticsContext &sc, const semantics::Symbol *symbol);
+
+RewriteVals lowerSomeExpr(mlir::OpBuilder *bldr, OperandTy operands,
+    std::variant<ApplyExpr, LocateExpr> &&operation);
+
+mlir::Type convertReal(int KIND, mlir::MLIRContext *context);
 
 }  // Fortran::mlbridge
 

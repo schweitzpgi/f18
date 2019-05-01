@@ -13,20 +13,91 @@
 // limitations under the License.
 
 #include "runtime.h"
+#include "fir-type.h"
+#include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/StringRef.h"
+#include "mlir/IR/StandardTypes.h"
+#include "mlir/IR/Types.h"
 #include <cassert>
 
-namespace Fortran::mlbridge {
+namespace Br = Fortran::mlbridge;
+
+using namespace Fortran;
+using namespace Fortran::mlbridge;
 
 namespace {
-#define DEFINE_RUNTIME_ENTRY(A, B) "Fortran_" B,
-const char *RuntimeEntryNames[FRT_LAST_ENTRY_CODE] = {
+
+using FuncPointer = llvm::SmallVector<mlir::Type, 4> (*)(
+    mlir::MLIRContext *, int kind);
+
+// FIXME: these are wrong and just serving as temporary placeholders
+using Cplx = mlir::IntegerType;
+using Intopt = mlir::IntegerType;
+using TypeDesc = mlir::IntegerType;
+
+template<typename A, typename... B>
+void consType(
+    llvm::SmallVector<mlir::Type, 4> &types, mlir::MLIRContext *ctx, int kind) {
+  if constexpr (std::is_same_v<A, mlir::IntegerType>) {
+    types.emplace_back(A::get(kind, ctx));
+  } else if constexpr (std::is_same_v<A, mlir::ComplexType>) {
+    // FIXME: this is wrong
+    assert(false);
+    types.emplace_back(mlir::IntegerType::get(kind, ctx));
+  } else {
+    types.emplace_back(A::get(ctx, kind));
+  }
+  if constexpr (sizeof...(B) > 0) {
+    consType<B...>(types, ctx, kind);
+  }
+}
+
+template<typename... A>
+llvm::SmallVector<mlir::Type, 4> consType(mlir::MLIRContext *ctx, int kind) {
+  llvm::SmallVector<mlir::Type, 4> types;
+  if constexpr (sizeof...(A) > 0) {
+    consType<A...>(types, ctx, kind);
+  }
+  return types;
+}
+
+#define DEFINE_RUNTIME_ENTRY(A, B, C, D) "Fortran_" B,
+char const *const RuntimeEntryNames[FIRT_LAST_ENTRY_CODE] = {
 #include "runtime.def"
 };
+
+#define UNPACK_TYPES(...) __VA_ARGS__
+#define DEFINE_RUNTIME_ENTRY(A, B, C, D) consType<UNPACK_TYPES C>,
+FuncPointer RuntimeEntryInputType[FIRT_LAST_ENTRY_CODE] = {
+#include "runtime.def"
+};
+
+#define DEFINE_RUNTIME_ENTRY(A, B, C, D) consType<UNPACK_TYPES D>,
+FuncPointer RuntimeEntryResultType[FIRT_LAST_ENTRY_CODE] = {
+#include "runtime.def"
+};
+#undef UNPACK_TYPES
+
 }  // namespace
 
-std::string getRuntimeEntryName(RuntimeEntryCode code) {
-  assert(code < FRT_LAST_ENTRY_CODE);
+llvm::StringRef Br::getRuntimeEntryName(RuntimeEntryCode code) {
+  assert(code < FIRT_LAST_ENTRY_CODE);
   return {RuntimeEntryNames[code]};
 }
 
-}  // Fortran::mlbridge
+mlir::FunctionType Br::getRuntimeEntryType(
+    RuntimeEntryCode code, mlir::MLIRContext &mlirContext, int kind) {
+  assert(code < FIRT_LAST_ENTRY_CODE);
+  return mlir::FunctionType::get(
+      RuntimeEntryInputType[code](&mlirContext, kind),
+      RuntimeEntryResultType[code](&mlirContext, kind), &mlirContext);
+}
+
+mlir::FunctionType Br::getRuntimeEntryType(RuntimeEntryCode code,
+    mlir::MLIRContext &mlirContext, int inpKind, int resKind) {
+  assert(code < FIRT_LAST_ENTRY_CODE);
+  return mlir::FunctionType::get(
+      RuntimeEntryInputType[code](&mlirContext, inpKind),
+      RuntimeEntryResultType[code](&mlirContext, resKind), &mlirContext);
+}

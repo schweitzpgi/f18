@@ -12,17 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef FORTRAN_MLBRIDGE_RUNTIME_H_
-#define FORTRAN_MLBRIDGE_RUNTIME_H_
+#ifndef FORTRAN_MLBRIDGE_EXPRESSION_LOWERING_H_
+#define FORTRAN_MLBRIDGE_EXPRESSION_LOWERING_H_
 
-#include <string>
+#include "llvm/ADT/ArrayRef.h"
+#include <variant>
 
-namespace llvm {
-class StringRef;
-}
+/// This pass lowers the FIR.ApplyExpr and FIR.LocateExpr operations,
+/// specifically the evaluate::Expr<T> data structures, to MLIR standard
+/// operations.
+
 namespace mlir {
-class FunctionType;
-class MLIRContext;
+class OpBuilder;
+class Value;
 }
 
 namespace Fortran::mlbridge {
@@ -30,20 +32,16 @@ namespace Fortran::mlbridge {
 // In the Fortran::mlbridge namespace, the code will default follow the
 // LLVM/MLIR coding standards
 
-#define DEFINE_RUNTIME_ENTRY(A, B, C, D) FIRT_##A,
-enum RuntimeEntryCode {
-#include "runtime.def"
-  FIRT_LAST_ENTRY_CODE
-};
+class FIRBuilder;
+class ApplyExpr;
+class LocateExpr;
 
-llvm::StringRef getRuntimeEntryName(RuntimeEntryCode code);
+using RewriteVals = mlir::Value *;
+using OperandTy = llvm::ArrayRef<mlir::Value *>;
 
-mlir::FunctionType getRuntimeEntryType(
-    RuntimeEntryCode code, mlir::MLIRContext &mlirContext, int kind);
-
-mlir::FunctionType getRuntimeEntryType(RuntimeEntryCode code,
-    mlir::MLIRContext &mlirContext, int inpKind, int resKind);
+RewriteVals lowerSomeExpr(mlir::OpBuilder *bldr, OperandTy operands,
+    std::variant<ApplyExpr, LocateExpr> &&operation);
 
 }  // Fortran::mlbridge
 
-#endif  // FORTRAN_MLBRIDGE_RUNTIME_H_
+#endif  // FORTRAN_MLBRIDGE_EXPRESSION_LOWERING_H_
