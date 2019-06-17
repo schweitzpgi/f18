@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef FORTRAN_MLBRIDGE_FORTRAN_IR_DIALECT_H_
-#define FORTRAN_MLBRIDGE_FORTRAN_IR_DIALECT_H_
+#ifndef FORTRAN_LIB_MLBRIDGE_FIR_DIALECT_H
+#define FORTRAN_LIB_MLBRIDGE_FIR_DIALECT_H
 
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Dialect.h"
@@ -37,7 +37,6 @@ namespace Fortran::mlbridge {
 // LLVM/MLIR coding standards
 
 using SomeExpr = evaluate::Expr<evaluate::SomeType>;
-using StringRef = llvm::StringRef;
 
 /// Fortran dialect types
 class FIROpsDialect : public mlir::Dialect {
@@ -47,11 +46,12 @@ public:
 
   static llvm::StringRef getDialectNamespace() { return "fir"; }
 
-  mlir::Type parseType(StringRef rawData, mlir::Location loc) const override;
+  mlir::Type parseType(
+      llvm::StringRef rawData, mlir::Location loc) const override;
   void printType(mlir::Type ty, llvm::raw_ostream &os) const override;
 
   mlir::Attribute parseAttribute(
-      StringRef attrData, mlir::Location loc) const override;
+      llvm::StringRef attrData, mlir::Location loc) const override;
   void printAttribute(
       mlir::Attribute attr, llvm::raw_ostream &os) const override;
 };
@@ -71,7 +71,7 @@ class AllocaExpr : public mlir::Op<AllocaExpr, mlir::OpTrait::ZeroOperands,
 public:
   using Op::Op;
 
-  static StringRef getOperationName() { return "fir.alloca_expr"; }
+  static llvm::StringRef getOperationName() { return "fir.alloca_expr"; }
 
   mlir::LogicalResult verify();
 
@@ -81,7 +81,7 @@ public:
       llvm::StringRef name, mlir::Type opTy);
 
   mlir::Type getAllocatedType();
-  StringRef getExpr();
+  llvm::StringRef getExpr();
 };
 
 /// The "fir.allocmem" operation creates space for an object of a specified
@@ -93,7 +93,7 @@ class AllocMemOp : public mlir::Op<AllocMemOp, mlir::OpTrait::ZeroOperands,
 public:
   using Op::Op;
 
-  static StringRef getOperationName() { return "fir.allocmem"; }
+  static llvm::StringRef getOperationName() { return "fir.allocmem"; }
 
   mlir::LogicalResult verify();
   static void build(
@@ -102,7 +102,7 @@ public:
       llvm::StringRef name, mlir::Type opTy);
 
   mlir::Type getAllocatedType();
-  StringRef getExpr();
+  llvm::StringRef getExpr();
 };
 
 /// The "fir.apply_expr" operation evaluates a Fortran expression to obtain the
@@ -116,7 +116,7 @@ class ApplyExpr : public mlir::Op<ApplyExpr, mlir::OpTrait::VariadicOperands,
 public:
   using Op::Op;
 
-  static StringRef getOperationName() { return "fir.apply_expr"; }
+  static llvm::StringRef getOperationName() { return "fir.apply_expr"; }
 
   mlir::LogicalResult verify();
 
@@ -124,9 +124,37 @@ public:
       const SomeExpr *expr, const std::map<unsigned, void *> &dict,
       llvm::ArrayRef<mlir::Value *> operands, mlir::Type opTy);
 
-  StringRef getExpr();
+  llvm::StringRef getExpr();
   SomeExpr *getRawExpr();
   std::map<unsigned, void *> *getDict();
+};
+
+class ExtractValueOp
+  : public mlir::Op<ExtractValueOp, mlir::OpTrait::HasNoSideEffect,
+        mlir::OpTrait::VariadicOperands, mlir::OpTrait::OneResult> {
+public:
+  using Op::Op;
+
+  static llvm::StringRef getOperationName() { return "fir.extract_value"; }
+
+  mlir::LogicalResult verify();
+  static void build(mlir::OpBuilder *builder, mlir::OperationState *result,
+      llvm::ArrayRef<mlir::Value *> args, mlir::Type opTy);
+};
+
+/// Encoding of a field (part reference)
+/// Always yield a value of type `!fir.field_type`
+class FieldValueOp
+  : public mlir::Op<FieldValueOp, mlir::OpTrait::HasNoSideEffect,
+        mlir::OpTrait::ZeroOperands, mlir::OpTrait::OneResult> {
+public:
+  using Op::Op;
+
+  static llvm::StringRef getOperationName() { return "fir.field_value"; }
+
+  mlir::LogicalResult verify();
+  static void build(mlir::OpBuilder *builder, mlir::OperationState *result,
+      llvm::StringRef name);
 };
 
 /// The "fir.freemem" operation frees the heap memory object referenced by
@@ -138,14 +166,14 @@ class FreeMemOp : public mlir::Op<FreeMemOp, mlir::OpTrait::OneOperand,
 public:
   using Op::Op;
 
-  static StringRef getOperationName() { return "fir.freemem"; }
+  static llvm::StringRef getOperationName() { return "fir.freemem"; }
 
   mlir::LogicalResult verify();
   static void build(mlir::OpBuilder *builder, mlir::OperationState *result,
       llvm::ArrayRef<mlir::Value *> args);
 
   mlir::Type getAllocatedType();
-  StringRef getExpr();
+  llvm::StringRef getExpr();
 };
 
 /// The "fir.global_expr" operation is used to access global space for specified
@@ -163,14 +191,27 @@ class GlobalExpr : public mlir::Op<GlobalExpr, mlir::OpTrait::ZeroOperands,
 public:
   using Op::Op;
 
-  static StringRef getOperationName() { return "fir.global_expr"; }
+  static llvm::StringRef getOperationName() { return "fir.global_expr"; }
 
   mlir::LogicalResult verify();
 
   static void build(mlir::OpBuilder *builder, mlir::OperationState *result,
       llvm::StringRef name, mlir::Attribute value, mlir::Type opTy);
 
-  StringRef getName();
+  llvm::StringRef getName();
+};
+
+class InsertValueOp
+  : public mlir::Op<InsertValueOp, mlir::OpTrait::HasNoSideEffect,
+        mlir::OpTrait::VariadicOperands, mlir::OpTrait::OneResult> {
+public:
+  using Op::Op;
+
+  static llvm::StringRef getOperationName() { return "fir.insert_value"; }
+
+  mlir::LogicalResult verify();
+  static void build(mlir::OpBuilder *builder, mlir::OperationState *result,
+      llvm::ArrayRef<mlir::Value *> args, mlir::Type opTy);
 };
 
 /// The "fir.load_expr" operation is used to load the result of a
@@ -183,7 +224,7 @@ class LoadExpr : public mlir::Op<LoadExpr, mlir::OpTrait::OneOperand,
 public:
   using Op::Op;
 
-  static StringRef getOperationName() { return "fir.load_expr"; }
+  static llvm::StringRef getOperationName() { return "fir.load_expr"; }
 
   mlir::LogicalResult verify();
 
@@ -203,7 +244,7 @@ class LocateExpr : public mlir::Op<LocateExpr, mlir::OpTrait::VariadicOperands,
 public:
   using Op::Op;
 
-  static StringRef getOperationName() { return "fir.locate_expr"; }
+  static llvm::StringRef getOperationName() { return "fir.locate_expr"; }
 
   mlir::LogicalResult verify();
 
@@ -211,7 +252,7 @@ public:
       const SomeExpr *expr, const std::map<unsigned, void *> &dict,
       llvm::ArrayRef<mlir::Value *> operands, mlir::Type opTy);
 
-  StringRef getExpr();
+  llvm::StringRef getExpr();
   SomeExpr *getRawExpr();
   std::map<unsigned, void *> *getDict();
 };
@@ -236,7 +277,7 @@ public:
   using BranchTuple =
       std::tuple<Conditions, mlir::Block *, llvm::ArrayRef<mlir::Value *>>;
 
-  static StringRef getOperationName() { return "fir.select"; }
+  static llvm::StringRef getOperationName() { return "fir.select"; }
 
   mlir::LogicalResult verify();
 
@@ -299,7 +340,7 @@ public:
   using BranchTuple =
       std::tuple<Conditions, mlir::Block *, llvm::ArrayRef<mlir::Value *>>;
 
-  static StringRef getOperationName() { return "fir.select_case"; }
+  static llvm::StringRef getOperationName() { return "fir.select_case"; }
 
   mlir::LogicalResult verify();
 
@@ -328,7 +369,7 @@ public:
   using BranchTuple =
       std::tuple<Conditions, mlir::Block *, llvm::ArrayRef<mlir::Value *>>;
 
-  static StringRef getOperationName() { return "fir.select_rank"; }
+  static llvm::StringRef getOperationName() { return "fir.select_rank"; }
 
   mlir::LogicalResult verify();
 
@@ -358,7 +399,7 @@ public:
   using BranchTuple =
       std::tuple<Conditions, mlir::Block *, llvm::ArrayRef<mlir::Value *>>;
 
-  static StringRef getOperationName() { return "fir.select_type"; }
+  static llvm::StringRef getOperationName() { return "fir.select_type"; }
 
   mlir::LogicalResult verify();
 
@@ -378,7 +419,7 @@ class StoreExpr : public mlir::Op<StoreExpr, mlir::OpTrait::NOperands<2>::Impl,
 public:
   using Op::Op;
 
-  static StringRef getOperationName() { return "fir.store_expr"; }
+  static llvm::StringRef getOperationName() { return "fir.store_expr"; }
 
   mlir::LogicalResult verify();
 
@@ -394,7 +435,7 @@ class UndefOp : public mlir::Op<UndefOp, mlir::OpTrait::HasNoSideEffect,
 public:
   using Op::Op;
 
-  static StringRef getOperationName() { return "fir.undefined"; }
+  static llvm::StringRef getOperationName() { return "fir.undefined"; }
 
   mlir::LogicalResult verify();
 
@@ -414,7 +455,7 @@ class UnreachableOp
 public:
   using Op::Op;
 
-  static StringRef getOperationName() { return "fir.unreachable"; }
+  static llvm::StringRef getOperationName() { return "fir.unreachable"; }
 
   mlir::LogicalResult verify();
 
@@ -423,4 +464,4 @@ public:
 
 }  // Fortran::mlbridge
 
-#endif  // FORTRAN_MLBRIDGE_FORTRAN_IR_DIALECT_H_
+#endif  // FORTRAN_LIB_MLBRIDGE_FIR_DIALECT_H

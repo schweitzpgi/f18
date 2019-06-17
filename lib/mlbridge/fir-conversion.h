@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef FORTRAN_MLBRIDGE_FORTRAN_IR_CONVERSION_H_
-#define FORTRAN_MLBRIDGE_FORTRAN_IR_CONVERSION_H_
+#ifndef FORTRAN_LIB_MLBRIDGE_FIR_CONVERSION_H
+#define FORTRAN_LIB_MLBRIDGE_FIR_CONVERSION_H
 
 namespace mlir {
 class Pass;
@@ -35,4 +35,4 @@ mlir::Pass *createLLVMDialectToLLVMPass();
 
 }  // Fortran::mlbridge
 
-#endif  // FORTRAN_MLBRIDGE_FORTRAN_IR_CONVERSION_H_
+#endif  // FORTRAN_LIB_MLBRIDGE_FIR_CONVERSION_H

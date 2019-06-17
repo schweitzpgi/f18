@@ -141,7 +141,7 @@ public:
     return std::visit([&](const auto &x) { return gen(x); }, expr.u);
   }
 
-  M::Type mkVoid() { return FIRTupleType::get(context, "(void)"); }
+  M::Type mkVoid() { return M::TupleType::get(context); }
 
   /// Type consing from a symbol. A symbol's type must be created from the type
   /// discovered by the front-end at runtime.

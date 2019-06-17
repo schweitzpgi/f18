@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef FORTRAN_MLBRIDGE_FORTRAN_IR_TYPE_H_
-#define FORTRAN_MLBRIDGE_FORTRAN_IR_TYPE_H_
+#ifndef FORTRAN_LIB_MLBRIDGE_FIR_TYPE_H
+#define FORTRAN_LIB_MLBRIDGE_FIR_TYPE_H
 
 #include "mlir/IR/Types.h"
 #include <variant>
@@ -21,90 +21,120 @@
 namespace llvm {
 class StringRef;
 template<typename> class ArrayRef;
+class hash_code;
 }
 
 namespace Fortran::mlbridge {
+
+class FIROpsDialect;
+
+using KindTy = int;
 
 // In the Fortran::mlbridge namespace, the code will default follow the
 // LLVM/MLIR coding standards
 
 namespace detail {
-struct FIRRealTypeStorage;
-struct FIRLogicalTypeStorage;
 struct FIRCharacterTypeStorage;
-struct FIRTupleTypeStorage;
+struct FIRFieldTypeStorage;
+struct FIRLogicalTypeStorage;
+struct FIRRealTypeStorage;
 struct FIRReferenceTypeStorage;
 struct FIRSequenceTypeStorage;
+struct FIRTupleTypeStorage;
+struct FIRTypeDescTypeStorage;
 }
 
-/// LLVM-style RTTI: one entry per subclass to allow dyn_cast/isa.
-enum FIRTypeKind {
-  // The enum starts at the range reserved for this dialect.
-  FIR_TYPE = mlir::Type::FIRST_FIR_TYPE,
-  FIR_REAL,
-  FIR_LOGICAL,
-  FIR_CHARACTER,
-  FIR_TUPLE,
-  FIR_REFERENCE,
-  FIR_SEQUENCE,
-};
-
-/// CHARACTER*k(n)  --> `char {kind:` k*8 `}`
-/// These will be lowered to `[` n ` x i` k*8 `]` if n is constant
-///                       or `{i` k*8 `*, i64}`   if n is variable
-class FIRCharacterType : public mlir::Type::TypeBase<FIRCharacterType,
-                             mlir::Type, detail::FIRCharacterTypeStorage> {
-public:
-  using Base::Base;
-  static FIRCharacterType get(mlir::MLIRContext *ctxt, int kind);
-  static bool kindof(unsigned kind) {
-    return kind == FIRTypeKind::FIR_CHARACTER;
-  }
-
-  int getSizeInBits() const;
-  int getFKind() const;
-};
-
-// COMPLEX*k      --> `complex<f` k*8 `>`                  where k in {2, 4, 8}
-///                   `complex<!fir<"real {kind:` k*8 `}">>`  otherwise
+// COMPLEX*k      --> `complex<f` k*8 `>`            where k in {2, 4, 8}
+//                    `complex<!fir.real<` k*8 `>>`  otherwise
 // COMPLEX*3      --> `complex<bf16>`
 
 // function types  -->  `(` type-list `) ->` `(`? result-type-list `)`?
 // and in LLVM-IR  `{`? result-type-list `}`? `(` type-list `)`
 
 // Intrinsic Fortran type mappings
-// INTEGER*k      --> `i` k*8  where k in {1, 2, 4, 8, 16}
+// INTEGER*k      --> `i` k*8    where k in {1, 2, 4, 8, 16}
 
-/// LOGICAL*k     --> `logical {kind:` k*8 `}`
+/// LLVM-style RTTI: one entry per subclass to allow dyn_cast/isa.
+enum FIRTypeKind {
+  // The enum starts at the range reserved for this dialect.
+  FIR_TYPE = mlir::Type::FIRST_FIR_TYPE,
+  FIR_CHARACTER,
+  FIR_FIELD,
+  FIR_LOGICAL,
+  FIR_REAL,
+  FIR_REFERENCE,
+  FIR_SEQUENCE,
+  FIR_TUPLE,
+  FIR_TYPEDESC,
+};
+
+/// CHARACTER*k(n)  --> `!fir.char<` k `>`
+/// These will be lowered to `[` n ` x i` k*8 `]` if n is constant
+///                       or `{i` k*8 `*, i64}`   if n is variable
+class FIRCharacterType : public mlir::Type::TypeBase<FIRCharacterType,
+                             mlir::Type, detail::FIRCharacterTypeStorage> {
+public:
+  using Base::Base;
+  static FIRCharacterType get(mlir::MLIRContext *ctxt, KindTy kind);
+  static bool kindof(unsigned kind) {
+    return kind == FIRTypeKind::FIR_CHARACTER;
+  }
+
+  int getSizeInBits() const;
+  KindTy getFKind() const;
+};
+
+/// A field in a PART-REF represented as a FieldOp. A FieldOp has type
+/// FIRFieldType.
+///          --> `!fir.field`
+/// lowering to an integer
+class FIRFieldType : public mlir::Type::TypeBase<FIRFieldType, mlir::Type,
+                         detail::FIRFieldTypeStorage> {
+public:
+  using Base::Base;
+  static FIRFieldType get(mlir::MLIRContext *ctxt, KindTy _ = 0);
+  static bool kindof(unsigned kind) { return kind == FIRTypeKind::FIR_FIELD; }
+};
+
+/// LOGICAL*k     --> `logical<` k `>`
 /// These will be lowered to `i1`, `i8`, etc.
 class FIRLogicalType : public mlir::Type::TypeBase<FIRLogicalType, mlir::Type,
                            detail::FIRLogicalTypeStorage> {
 public:
   using Base::Base;
-  static FIRLogicalType get(mlir::MLIRContext *ctxt, int kind);
+  static FIRLogicalType get(mlir::MLIRContext *ctxt, KindTy kind);
   static bool kindof(unsigned kind) { return kind == FIRTypeKind::FIR_LOGICAL; }
 
   int getSizeInBits() const;
-  int getFKind() const;
+  KindTy getFKind() const;
 };
 
-/// REAL*k         --> `f` k*8                where k in {2, 4, 8}
-///                    `real {kind:` k*8 `}`  otherwise
-/// REAL*3         --> `bf16`                 (not 3/4 precision)
+/// REAL*k         --> `f` k*8               where k in {2, 4, 8}
+///                    `!fir.real<` k `>`  otherwise
+/// REAL*3         --> `bf16`                (not 3/4 precision)
 class FIRRealType : public mlir::Type::TypeBase<FIRRealType, mlir::Type,
                         detail::FIRRealTypeStorage> {
 public:
   using Base::Base;
-  static FIRRealType get(mlir::MLIRContext *ctxt, int kind);
+  static FIRRealType get(mlir::MLIRContext *ctxt, KindTy kind);
   static bool kindof(unsigned kind) { return kind == FIRTypeKind::FIR_REAL; }
 
   int getSizeInBits() const;
-  int getFKind() const;
+  KindTy getFKind() const;
 };
 
-/// FIR support types
-/// Pointer-like objects  -->  `ref` `<` type `>`
-/// These will be lowered to   type `*` (LLVM-IR)
+// FIR support types
+
+/// Pointer-like objects
+///
+///  REAL, POINTER :: ptr
+///
+/// The FIR type:
+///      -->  `!fir.ref` `<` type `>`
+///
+/// These will be lowered to
+///      --> `memref` `<` type `>`
+///      --> type `*` (LLVM-IR)
 class FIRReferenceType : public mlir::Type::TypeBase<FIRReferenceType,
                              mlir::Type, detail::FIRReferenceTypeStorage> {
 public:
@@ -117,12 +147,17 @@ public:
   mlir::Type getEleTy() const;
 };
 
-/// Sequence-like objects
+/// Sequence-like object values
+///
+///  REAL :: A(n,2:m)
+///
 /// The FIR type:
-///      --> bounds ::= (lo `:`)? extent (`;` stride)? | `?`
-///          `array` `<` bounds (`,` bounds)* `x` type `>`
+///      --> bounds ::= lo extent stride | `?`
+///          `!fir.array` `<` bounds (`,` bounds)* `:` type `>`
+///
 /// These will be lowered to
 ///      --> (`tensor` | `memref`) `<` dim-list `x` type `>`
+///      --> [n x [... type ...] ] (LLVM-IR)
 class FIRSequenceType : public mlir::Type::TypeBase<FIRSequenceType, mlir::Type,
                             detail::FIRSequenceTypeStorage> {
 public:
@@ -133,16 +168,12 @@ public:
     int count;
     int stride;
   };
-  struct Extent {
-    std::variant<Unknown, BoundInfo> u;
-  };
-  struct Shape {
-    std::variant<Unknown, std::vector<Extent>> u;
-    bool operator==(const Shape &) const;
-    size_t hash_value() const;
-  };
+  using Extent = std::variant<Unknown, BoundInfo>;
+  using Bounds = std::vector<Extent>;
+  using Shape = std::variant<Unknown, Bounds>;
 
-  BoundInfo simpleBoundInfo(int size) { return {1, size, 1}; }
+  mlir::Type getEleTy() const;
+  Shape getShape() const;
 
   static FIRSequenceType get(const Shape &shape, mlir::Type elementType);
   static bool kindof(unsigned kind) {
@@ -150,23 +181,67 @@ public:
   }
 };
 
-/// Derived Fortran types:
-/// TYPE :: name ... END TYPE name
+bool operator==(const FIRSequenceType::Shape &, const FIRSequenceType::Shape &);
+llvm::hash_code hash_value(const FIRSequenceType::Extent &);
+llvm::hash_code hash_value(const FIRSequenceType::Shape &);
+
+/// Derived Fortran types
+///
+///  TYPE :: name ... END TYPE name
+///
 /// The FIR type:
-///     --> `type` name `<` type (`,` type)* `>` (`{` kind (`,` kind)* `}`)?
-///         `type<` type-list `> {name:` name , kinds: ` kind-list `}`
+///    --> `!fir.type` `<` name
+///              (`,` `{` str `:` type (`,` str `:` type)* `}`)?
+///              (`,` `[` str `:` kind (`,` str `:` kind)* `]`)? '>'
+///
 /// These will be lowered to `tuple <` list `>` (standard dialect)
 /// and then `{` type-list `}` (LLVM-IR)
 class FIRTupleType : public mlir::Type::TypeBase<FIRTupleType, mlir::Type,
                          detail::FIRTupleTypeStorage> {
 public:
   using Base::Base;
-  static FIRTupleType get(mlir::MLIRContext *ctxt, llvm::StringRef name);
+  using TypePair = std::pair<std::string, mlir::Type>;
+  using TypeList = std::vector<TypePair>;
+  using KindPair = std::pair<std::string, KindTy>;
+  using KindList = std::vector<KindPair>;
+
+  llvm::StringRef getName();
+  TypeList getTypeList();
+  KindList getKindList();
+
   static FIRTupleType get(mlir::MLIRContext *ctxt, llvm::StringRef name,
-      llvm::ArrayRef<mlir::Type> elementTypes);  // TODO: add kinds
+      llvm::ArrayRef<KindPair> kindList = {},
+      llvm::ArrayRef<TypePair> typeList = {});
   static bool kindof(unsigned kind) { return kind == FIRTypeKind::FIR_TUPLE; }
 };
 
+/// The type of a type descriptor object
+///
+/// Each Fortran type has a type descriptor object, which may (or may not) be
+/// reified. A type descriptor object is a constant "dope vector" that may be
+/// used by the Fortran runtime. The type of that type descriptor object is a
+/// FIRTypeDescType. A FIRTypeDescType has one argument, the Type that the
+/// descriptor describes.
+///
+/// The FIR type:
+///     ---> `!fir.typedesc` type
+///
+/// Code gen can render an object of this type into the appropriate LLVM
+/// constant(s)
+class FIRTypeDescType : public mlir::Type::TypeBase<FIRTypeDescType, mlir::Type,
+                            detail::FIRTypeDescTypeStorage> {
+public:
+  using Base::Base;
+  static FIRTypeDescType get(mlir::Type ofType);
+  static bool kindof(unsigned kind) {
+    return kind == FIRTypeKind::FIR_TYPEDESC;
+  }
+  mlir::Type getOfTy() const;
+};
+
+mlir::Type parseFirType(
+    FIROpsDialect *dialect, llvm::StringRef rawData, mlir::Location loc);
+
 }  // Fortran::mlbridge
 
-#endif  // FORTRAN_MLBRIDGE_FORTRAN_IR_TYPE_H_
+#endif  // FORTRAN_LIB_MLBRIDGE_FIR_TYPE_H

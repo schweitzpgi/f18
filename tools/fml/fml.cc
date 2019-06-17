@@ -320,21 +320,23 @@ std::string CompileFir(std::string path, Fortran::parser::Options options,
     std::exit(4);
   }
 
+  llvm::outs() << ";== 3 ==\n";
+  mlirModule->dump();
+
   // run passes
   mlir::PassManager pm;
-  if (driver.dumpHLFIR) {
-    llvm::outs() << ";== 1 ==\n";
-    mlirModule->dump();
-  }
   pm.addPass(Br::createMemToRegPass());
   pm.addPass(Br::createFIRLoweringPass());
+  pm.addPass(mlir::createCSEPass());
   pm.addPass(Br::createFIRToStdPass());
   pm.addPass(Br::createStdToLLVMPass());
   pm.addPass(Br::createLLVMDialectToLLVMPass());
   auto result{pm.run(mlirModule.get())};
-  if (driver.dumpFIR) {
-    llvm::outs() << ";== 2 ==\n";
-    mlirModule->dump();
+  if (mlir::succeeded(result)) {
+    llvm::outs() << "a.ll written\n";
+  } else {
+    llvm::errs() << "FAILED\n";
+    std::exit(5);
   }
   return {};
 }
@@ -413,7 +415,7 @@ int main(int argc, char *const argv[]) {
             suffix == "f90" || suffix == "F90" || suffix == "ff90" ||
             suffix == "f95" || suffix == "F95" || suffix == "ff95" ||
             suffix == "cuf" || suffix == "CUF" || suffix == "f18" ||
-            suffix == "F18" || suffix == "ff18" || suffix == "fir") {
+            suffix == "F18" || suffix == "ff18") {
           fortranSources.push_back(arg);
         } else if (suffix == "fir") {
           firSources.push_back(arg);
