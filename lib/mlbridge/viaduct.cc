@@ -122,7 +122,7 @@ class MLIRConverter {
     return builder->create<AllocaExpr>(toLocation(), type);
   }
 
-  M::Function *genFunctionMLIR(StringRef callee, M::FunctionType funcTy) {
+  M::Function *genFunctionMLIR(llvm::StringRef callee, M::FunctionType funcTy) {
     if (auto *func{module->getNamedFunction(callee)}) {
       return func;
     }

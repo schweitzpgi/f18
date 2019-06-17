@@ -84,9 +84,9 @@ public:
     M::ConversionTarget target{context};
     target.addLegalDialect<M::AffineOpsDialect, M::LLVM::LLVMDialect,
         M::StandardOpsDialect>();
-    target.addLegalOp<AllocaExpr, AllocMemOp, FreeMemOp, GlobalExpr, LoadExpr,
-        SelectOp, SelectCaseOp, SelectRankOp, SelectTypeOp, StoreExpr, UndefOp,
-        UnreachableOp>();
+    target.addLegalOp<AllocaExpr, AllocMemOp, ExtractValueOp, FreeMemOp,
+        GlobalExpr, InsertValueOp, LoadExpr, SelectOp, SelectCaseOp,
+        SelectRankOp, SelectTypeOp, StoreExpr, UndefOp, UnreachableOp>();
     if (M::failed(M::applyConversionPatterns(
             getModule(), target, typeConverter, std::move(patterns)))) {
       context.emitError(M::UnknownLoc::get(&context),
