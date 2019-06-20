@@ -109,9 +109,6 @@ mlir::Type translateSomeExprToFIRType(mlir::MLIRContext &ctxt,
 mlir::Type translateSymbolToFIRType(mlir::MLIRContext &ctxt,
     semantics::SemanticsContext &sc, const semantics::Symbol *symbol);
 
-RewriteVals lowerSomeExpr(mlir::OpBuilder *bldr, OperandTy operands,
-    std::variant<ApplyExpr, LocateExpr> &&operation);
-
 mlir::Type convertReal(int KIND, mlir::MLIRContext *context);
 
 }  // Fortran::mlbridge

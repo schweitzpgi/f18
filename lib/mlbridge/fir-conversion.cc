@@ -13,6 +13,7 @@
 // limitations under the License.
 
 #include "fir-conversion.h"
+#include "canonicalize.h"
 #include "expression.h"
 #include "fir-dialect.h"
 #include "fir-type.h"
@@ -144,7 +145,7 @@ public:
   M::PatternMatchResult matchAndRewrite(M::Operation *op, OperandTy operands,
       M::PatternRewriter &rewriter) const override {
     auto apply = M::cast<ApplyExpr>(op);
-    rewriter.replaceOp(op, lowerSomeExpr(&rewriter, operands, {apply}));
+    rewriter.replaceOp(op, lowerSomeExpr(&rewriter, operands, apply));
     return matchSuccess();
   }
 };
@@ -201,7 +202,7 @@ public:
   M::PatternMatchResult matchAndRewrite(M::Operation *op, OperandTy operands,
       M::PatternRewriter &rewriter) const override {
     auto loc = M::cast<LocateExpr>(op);
-    rewriter.replaceOp(op, lowerSomeExpr(&rewriter, operands, {loc}));
+    rewriter.replaceOp(op, lowerSomeExpr(&rewriter, operands, loc));
     return matchSuccess();
   }
 };

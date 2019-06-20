@@ -19,10 +19,14 @@
 /// `fir.locate_expr` operations into discrete MLIR operations. After this pass,
 /// all `fir.apply_expr` and `fir.locate_expr` will be erased.
 
+namespace llvm {
+template<typename A> class ArrayRef;
+}
+
 namespace mlir {
-struct LogicalResult;
-class Module;
+class OpBuilder;
 class Pass;
+class Value;
 }
 
 namespace Fortran::mlbridge {
@@ -30,8 +34,21 @@ namespace Fortran::mlbridge {
 // In the Fortran::mlbridge namespace, the code will default follow the
 // LLVM/MLIR coding standards
 
+class ApplyExpr;
+class LocateExpr;
+
+using RewriteVals = mlir::Value *;
+using OperandTy = llvm::ArrayRef<mlir::Value *>;
+
 /// Lower FIR to a canonical representation (suitable as .fir files)
 mlir::Pass *createFIRLoweringPass();
+
+/// Allow for selective lowering of ApplyExpr ops
+RewriteVals lowerSomeExpr(
+    mlir::OpBuilder *bldr, OperandTy operands, ApplyExpr &operation);
+/// Allow for selective lowering of LocateExpr ops
+RewriteVals lowerSomeExpr(
+    mlir::OpBuilder *bldr, OperandTy operands, LocateExpr &operation);
 
 }  // Fortran::mlbridge
 

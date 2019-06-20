@@ -17,7 +17,6 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-rtti")
 add_library(FortranMLBridge
   builder.cc
   canonicalize.cc
-  expr-lowering.cc
   expression.cc
   fe-helper.cc
   fir-conversion.cc
