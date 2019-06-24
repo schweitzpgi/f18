@@ -143,6 +143,34 @@ public:
 
   M::Type mkVoid() { return M::TupleType::get(context); }
 
+  FIRSequenceType::Shape genSeqShape(const Se::Symbol *symbol) {
+    assert(symbol->IsObjectArray());
+    FIRSequenceType::Bounds bounds;
+    auto &details = symbol->get<Se::ObjectEntityDetails>();
+    const auto size = details.shape().size();
+    for (auto &ss : details.shape()) {
+      auto lb = ss.lbound();
+      auto ub = ss.ubound();
+      if (lb.isAssumed() && ub.isAssumed() && size == 1) {
+        return {FIRSequenceType::Unknown{}};
+      }
+      if (lb.isExplicit() && ub.isExplicit()) {
+        auto &lbv = lb.GetExplicit();
+        auto &ubv = ub.GetExplicit();
+        if (lbv.has_value() && ubv.has_value()) {
+          bounds.emplace_back(FIRSequenceType::BoundInfo{
+              static_cast<int>(toConstant(lbv.value())),
+              static_cast<int>(toConstant(ubv.value())), 1});
+        } else {
+          bounds.emplace_back(FIRSequenceType::Unknown{});
+        }
+      } else {
+        bounds.emplace_back(FIRSequenceType::Unknown{});
+      }
+    }
+    return bounds;
+  }
+
   /// Type consing from a symbol. A symbol's type must be created from the type
   /// discovered by the front-end at runtime.
   M::Type gen(const Se::Symbol *symbol) {
@@ -187,8 +215,7 @@ public:
     }
     if (symbol->IsObjectArray()) {
       // FIXME: add bounds info
-      returnTy = FIRSequenceType::get(
-          FIRSequenceType::Shape{FIRSequenceType::Unknown{}}, returnTy);
+      returnTy = FIRSequenceType::get(genSeqShape(symbol), returnTy);
     } else if (Se::IsPointer(*symbol)) {
       // FIXME: what about allocatable?
       returnTy = FIRReferenceType::get(returnTy);

@@ -114,12 +114,19 @@ class MLIRConverter {
     return builder->create<ApplyExpr>(
         loc, expr, getDict(exprOps), getArgs(exprOps), exprType(expr));
   }
+
   AllocaExpr createTemp(M::Type type, Se::Symbol *symbol = nullptr) {
+    auto insPt(builder->saveInsertionPoint());
+    builder->setInsertionPointToStart(&builder->getRegion()->front());
+    AllocaExpr ae;
     if (symbol) {
-      return builder->create<AllocaExpr>(
+      ae = builder->create<AllocaExpr>(
           toLocation(), symbol->name().ToString(), type);
+    } else {
+      ae = builder->create<AllocaExpr>(toLocation(), type);
     }
-    return builder->create<AllocaExpr>(toLocation(), type);
+    builder->restoreInsertionPoint(insPt);
+    return ae;
   }
 
   M::Function *genFunctionMLIR(llvm::StringRef callee, M::FunctionType funcTy) {
