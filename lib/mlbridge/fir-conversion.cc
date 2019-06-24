@@ -88,10 +88,20 @@ public:
     if (auto seq = t.dyn_cast<FIRSequenceType>()) {
       return t;  // fixme
     }
+    if (auto tdesc = t.dyn_cast<FIRTypeDescType>()) {
+      // lower the type descriptor
+      return M::IntegerType::get(64, tdesc.getContext());  // FIXME
+    }
     return t;
   }
 
   M::Type convertToLLVMType(M::Type t) {
+    if (auto ref = t.dyn_cast<FIRReferenceType>()) {
+      auto ele = convertToLLVMType(ref.getEleTy());
+      auto *eleTy = ele.cast<M::LLVM::LLVMType>().getUnderlyingType();
+      llvm::Type *ptrTy = eleTy->getPointerTo();
+      return M::LLVM::LLVMType::get(ref.getContext(), ptrTy);
+    }
     return LLVMTypeConverter::convertType(t);
   }
 };
@@ -116,8 +126,8 @@ public:
     auto alloc{M::cast<AllocaExpr>(op)};
     llvm::SmallVector<M::Value *, 1> vec;
     vec.emplace_back(rewriter.create<M::LLVM::AllocaOp>(alloc.getLoc(),
-        lowering.convertType(alloc.getType()), llvm::ArrayRef<M::Value *>{},
-        llvm::ArrayRef<M::NamedAttribute>{}));
+        lowering.convertToLLVMType(alloc.getType()),
+        llvm::ArrayRef<M::Value *>{}, llvm::ArrayRef<M::NamedAttribute>{}));
     rewriter.replaceOp(op, vec);
     return matchSuccess();
   }
