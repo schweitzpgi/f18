@@ -81,10 +81,10 @@ class MLIRConverter {
 
   /// Construct the type of an Expr<A> expression
   M::Type exprType(const SomeExpr *expr) {
-    return translateSomeExprToFIRType(mlirContext, semanticsContext, expr);
+    return translateSomeExprToFIRType(&mlirContext, semanticsContext, expr);
   }
   M::Type refExprType(const SomeExpr *expr) {
-    auto type{translateSomeExprToFIRType(mlirContext, semanticsContext, expr)};
+    auto type{translateSomeExprToFIRType(&mlirContext, semanticsContext, expr)};
     return FIRReferenceType::get(type);
   }
 
@@ -116,12 +116,17 @@ class MLIRConverter {
   }
 
   AllocaExpr createTemp(M::Type type, Se::Symbol *symbol = nullptr) {
+    if (symbol)
+      if (auto *val{builder->lookupSymbol(symbol)}) {
+        return M::cast<AllocaExpr>(*val->getDefiningOp());
+      }
     auto insPt(builder->saveInsertionPoint());
     builder->setInsertionPointToStart(&builder->getRegion()->front());
     AllocaExpr ae;
     if (symbol) {
       ae = builder->create<AllocaExpr>(
           toLocation(), symbol->name().ToString(), type);
+      builder->addSymbol(symbol, ae);
     } else {
       ae = builder->create<AllocaExpr>(toLocation(), type);
     }
@@ -273,6 +278,7 @@ class MLIRConverter {
       M::Value *stepExpr = nullptr) {
     doMap.emplace(doStmt, DoBoundsInfo{doVar, counter, stepExpr});
   }
+
   void genLoopEnterMLIR(const Pa::LoopControl::Bounds &bounds,
       const Pa::NonLabelDoStmt *stmt, const Pa::CharBlock &source) {
     auto loc{toLocation(source)};
@@ -304,6 +310,7 @@ class MLIRConverter {
     builder->create<StoreExpr>(loc, totalTrips, tripCounter);
     pushDoContext(stmt, name, tripCounter, e3);
   }
+
   void genLoopEnterMLIR(const Pa::ScalarLogicalExpr &logicalExpr,
       const Pa::NonLabelDoStmt *stmt, const Pa::CharBlock &source) {
     // See 11.1.7.4.1, para. 2
@@ -440,7 +447,7 @@ class MLIRConverter {
       Ff::LabelRef trueLabel, Ff::LabelRef falseLabel) {
     lastKnownPos = stmt.source;
     auto &loopCtrl{std::get<std::optional<Pa::LoopControl>>(stmt.statement.t)};
-    M::Value *condition;
+    M::Value *condition{nullptr};
     if (loopCtrl.has_value()) {
       std::visit(Co::visitors{
                      [&](const parser::LoopControl::Bounds &) {
@@ -462,6 +469,7 @@ class MLIRConverter {
     } else {
       condition = getTrueConstant();
     }
+    assert(condition && "condition must be a Value");
     genCondBranch(condition, trueLabel, falseLabel);
   }
 
@@ -472,13 +480,16 @@ class MLIRConverter {
     auto *rhs{Se::GetExpr(std::get<Pa::Expr>(stmt.t))};
     auto *value{createFIRExpr(loc, rhs)};
     auto *lhs{Se::GetExpr(std::get<Pa::Variable>(stmt.t))};
-    auto lhsOps{translateSomeExpr(builder.get(), semanticsContext, lhs)};
+    auto lhsOps{translateSomeAddrExpr(builder.get(), semanticsContext, lhs)};
     M::Value *toLoc{nullptr};
-    auto *defOp{getArgs(lhsOps)[0]->getDefiningOp()};
-    if (auto load = M::dyn_cast<LoadExpr>(defOp)) {
-      // Skip generating a locate_expr when the location is obvious
-      toLoc = load.getOperand();
-    } else {
+    auto defOps{getArgs(lhsOps)};
+    if (defOps.size() == 1)
+      if (auto *defOp{defOps[0]->getDefiningOp()})
+        if (auto load{M::dyn_cast<LoadExpr>(defOp)}) {
+          // Skip generating a locate_expr when the location is obvious
+          toLoc = load.getOperand();
+        }
+    if (!toLoc) {
       LocateExpr address{builder->create<LocateExpr>(
           loc, lhs, getDict(lhsOps), getArgs(lhsOps), refExprType(lhs))};
       toLoc = address.getResult();
@@ -881,14 +892,15 @@ void MLIRConverter::translateRoutine(const A &routine, const std::string &name,
     if (funcSym) {
       if (auto *details{funcSym->detailsIf<Se::SubprogramDetails>()}) {
         for (auto a : details->dummyArgs()) {
-          auto type{translateSymbolToFIRType(mlirContext, semanticsContext, a)};
+          auto type{
+              translateSymbolToFIRType(&mlirContext, semanticsContext, a)};
           args.push_back(FIRReferenceType::get(type));
         }
         if (details->isFunction()) {
           // FIXME: handle subroutines that return magic values
           auto *result{&details->result()};
           results.push_back(
-              translateSymbolToFIRType(mlirContext, semanticsContext, result));
+              translateSymbolToFIRType(&mlirContext, semanticsContext, result));
         }
       } else {
         llvm::errs() << "Symbol: " << funcSym->name().ToString() << " @ "

@@ -52,10 +52,10 @@ void selectBuild(M::OpBuilder *builder, M::OperationState *result,
 Br::FIROpsDialect::FIROpsDialect(M::MLIRContext *ctx) : M::Dialect("fir", ctx) {
   addTypes<FIRCharacterType, FIRFieldType, FIRLogicalType, FIRRealType,
       FIRReferenceType, FIRSequenceType, FIRTupleType, FIRTypeDescType>();
-  addOperations<AllocaExpr, AllocMemOp, ApplyExpr, ExtractValueOp, FieldValueOp,
-      FreeMemOp, GlobalExpr, InsertValueOp, LoadExpr, LocateExpr, SelectOp,
-      SelectCaseOp, SelectRankOp, SelectTypeOp, StoreExpr, UndefOp,
-      UnreachableOp>();
+  addOperations<AddressOp, AllocaExpr, AllocMemOp, ApplyExpr, ConvertOp,
+      ExtractValueOp, FieldValueOp, FreeMemOp, GlobalExpr, InsertValueOp,
+      LoadExpr, LocateExpr, SelectOp, SelectCaseOp, SelectRankOp, SelectTypeOp,
+      StoreExpr, UndefOp, UnreachableOp>();
 }
 
 // anchor the class vtable
@@ -147,6 +147,16 @@ void Br::FIROpsDialect::printAttribute(
   os << '?';
 }
 
+/// AddressOp
+M::LogicalResult Br::AddressOp::verify() { return M::success(); }
+
+void Br::AddressOp::build(mlir::OpBuilder *builder,
+    mlir::OperationState *result, llvm::ArrayRef<mlir::Value *> operands,
+    M::Type opTy) {
+  result->addOperands(operands);
+  result->addTypes(FIRReferenceType::get(opTy));
+}
+
 /// AllocaExpr
 void Br::AllocaExpr::build(
     M::OpBuilder *builder, M::OperationState *result, M::Type opTy) {
@@ -198,7 +208,14 @@ std::map<unsigned, void *> *Br::ApplyExpr::getDict() {
   return reinterpret_cast<std::map<unsigned, void *> *>(barePtr);
 }
 
-M::LogicalResult Br::LocateExpr::verify() { return M::success(); }
+/// ConvertOp
+M::LogicalResult Br::ConvertOp::verify() { return M::success(); }
+
+void Br::ConvertOp::build(mlir::OpBuilder *builder,
+    mlir::OperationState *result, mlir::Value *val, mlir::Type toType) {
+  result->addOperands({val});
+  result->addTypes(toType);
+}
 
 /// ExtractValue
 M::LogicalResult Br::ExtractValueOp::verify() { return M::success(); }
@@ -223,14 +240,14 @@ void Br::FieldValueOp::build(mlir::OpBuilder *builder,
 M::LogicalResult Br::FreeMemOp::verify() { return M::success(); }
 
 /// GlobalExpr
+M::LogicalResult Br::GlobalExpr::verify() { return M::success(); }
+
 void Br::GlobalExpr::build(M::OpBuilder *builder, M::OperationState *result,
     llvm::StringRef name, M::Attribute value, M::Type opTy) {
   result->addAttribute("name", builder->getStringAttr(name));
   result->addAttribute("value", value);
   result->addTypes(FIRReferenceType::get(opTy));
 }
-
-M::LogicalResult Br::GlobalExpr::verify() { return M::success(); }
 
 /// InsertValue
 M::LogicalResult Br::InsertValueOp::verify() { return M::success(); }
@@ -243,6 +260,8 @@ void Br::InsertValueOp::build(mlir::OpBuilder *builder,
 }
 
 /// LoadExpr
+M::LogicalResult Br::LoadExpr::verify() { return M::success(); }
+
 void Br::LoadExpr::build(M::OpBuilder *builder, M::OperationState *result,
     llvm::ArrayRef<M::Value *> operands, M::Type opTy) {
   result->addOperands(operands);
@@ -257,9 +276,9 @@ void Br::LoadExpr::build(
   result->addTypes(opTy);
 }
 
-M::LogicalResult Br::LoadExpr::verify() { return M::success(); }
-
 /// LocateExpr
+M::LogicalResult Br::LocateExpr::verify() { return M::success(); }
+
 void Br::LocateExpr::build(M::OpBuilder *builder, M::OperationState *result,
     const SomeExpr *expr, const std::map<unsigned, void *> &dict,
     llvm::ArrayRef<M::Value *> operands, M::Type opTy) {
@@ -287,28 +306,28 @@ std::map<unsigned, void *> *Br::LocateExpr::getDict() {
 }
 
 /// SelectCase
+M::LogicalResult Br::SelectCaseOp::verify() { return M::success(); }
+
 void Br::SelectCaseOp::build(M::OpBuilder *builder, M::OperationState *result,
     M::Value *condition, llvm::ArrayRef<BranchTuple> tuples) {
   selectBuild<SelectCaseOp>(builder, result, condition, tuples);
 }
 
-M::LogicalResult Br::SelectCaseOp::verify() { return M::success(); }
-
 /// SelectRank
+M::LogicalResult Br::SelectRankOp::verify() { return M::success(); }
+
 void Br::SelectRankOp::build(M::OpBuilder *builder, M::OperationState *result,
     M::Value *condition, llvm::ArrayRef<BranchTuple> tuples) {
   selectBuild<SelectRankOp>(builder, result, condition, tuples);
 }
 
-M::LogicalResult Br::SelectRankOp::verify() { return M::success(); }
-
 /// SelectType
+M::LogicalResult Br::SelectTypeOp::verify() { return M::success(); }
+
 void Br::SelectTypeOp::build(M::OpBuilder *builder, M::OperationState *result,
     M::Value *condition, llvm::ArrayRef<BranchTuple> tuples) {
   selectBuild<SelectTypeOp>(builder, result, condition, tuples);
 }
-
-M::LogicalResult Br::SelectTypeOp::verify() { return M::success(); }
 
 /// Select
 M::LogicalResult Br::SelectOp::verify() { return M::success(); }

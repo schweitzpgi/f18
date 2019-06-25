@@ -15,7 +15,6 @@
 #ifndef FORTRAN_MLBRIDGE_EXPRESSION_H_
 #define FORTRAN_MLBRIDGE_EXPRESSION_H_
 
-#include "../common/Fortran.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SmallVector.h"
 #include <map>
@@ -33,9 +32,7 @@
 /// "fir.locate_expr" operation.
 
 namespace mlir {
-class OpBuilder;
 class MLIRContext;
-class Type;
 class Value;
 }
 
@@ -44,7 +41,6 @@ template<typename> class Expr;
 struct SomeType;
 }
 namespace Fortran::semantics {
-class Symbol;
 class SemanticsContext;
 }
 
@@ -83,12 +79,6 @@ using RewriteVals = mlir::Value *;
 using OperandTy = llvm::ArrayRef<mlir::Value *>;
 using SomeExpr = evaluate::Expr<evaluate::SomeType>;
 
-constexpr common::TypeCategory IntegerCat{common::TypeCategory::Integer};
-constexpr common::TypeCategory RealCat{common::TypeCategory::Real};
-constexpr common::TypeCategory ComplexCat{common::TypeCategory::Complex};
-constexpr common::TypeCategory CharacterCat{common::TypeCategory::Character};
-constexpr common::TypeCategory LogicalCat{common::TypeCategory::Logical};
-
 // When KIND is missing, assume extra long sized integer
 // TODO: maybe use the default size
 constexpr auto SomeKindIntegerBits = 128;
@@ -101,15 +91,10 @@ inline ExprType getExprType(const Values &values) {
 
 /// Convert an Expr<T> in its implicit dataflow arguments
 Values translateSomeExpr(
-    FIRBuilder *builder, semantics::SemanticsContext &sc, const SomeExpr *expr);
+    FIRBuilder *bldr, semantics::SemanticsContext &sc, const SomeExpr *exp);
 
-mlir::Type translateSomeExprToFIRType(mlir::MLIRContext &ctxt,
-    semantics::SemanticsContext &sc, const SomeExpr *expr);
-
-mlir::Type translateSymbolToFIRType(mlir::MLIRContext &ctxt,
-    semantics::SemanticsContext &sc, const semantics::Symbol *symbol);
-
-mlir::Type convertReal(int KIND, mlir::MLIRContext *context);
+Values translateSomeAddrExpr(
+    FIRBuilder *bldr, semantics::SemanticsContext &sc, const SomeExpr *exp);
 
 }  // Fortran::mlbridge
 

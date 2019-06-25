@@ -14,6 +14,7 @@
 
 #include "expression.h"
 #include "builder.h"
+#include "fe-helper.h"
 #include "fir-dialect.h"
 #include "fir-type.h"
 #include "../semantics/expression.h"
@@ -26,7 +27,6 @@
 #include "mlir/IR/Module.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/StandardTypes.h"
-#include "mlir/IR/Types.h"
 #include "mlir/StandardOps/Ops.h"
 
 namespace Br = Fortran::mlbridge;
@@ -41,257 +41,28 @@ using namespace Fortran::mlbridge;
 
 namespace {
 
-template<typename A> int64_t toConstant(const Ev::Expr<A> &e) {
-  auto opt = Ev::ToInt64(e);
-  assert(opt.has_value() && "expression didn't resolve to a constant");
-  return opt.value();
-}
-
 #undef TODO
-#if 1
 #define TODO() assert(false)
-#else
-#define TODO() \
-  return {}
-#endif
-
-/// Recover the type of an evaluate::Expr<T> and convert it to an
-/// mlir::Type. The type returned can be a MLIR standard or FIR type.
-class TypeBuilder {
-  M::MLIRContext *context;
-  Se::SemanticsContext &semanticsContext;
-
-  int getDefaultRealKind() const {
-    return Ev::ExpressionAnalyzer{semanticsContext}.GetDefaultKind(
-        Co::TypeCategory::Real);
-  }
-
-  int getDefaultIntegerBits() const {
-    Ev::ExpressionAnalyzer analyzer(semanticsContext);
-    return analyzer.GetDefaultKind(Co::TypeCategory::Integer) * 8;
-  }
-
-public:
-  explicit TypeBuilder(M::MLIRContext *context, Se::SemanticsContext &sc)
-    : context{context}, semanticsContext{sc} {}
-
-  /// Create a FIR/MLIR real type
-  template<int KIND> static M::Type genReal(M::MLIRContext *context) {
-    if constexpr (KIND == 2) {
-      return M::FloatType::getF16(context);
-    } else if constexpr (KIND == 3) {
-      return M::FloatType::getBF16(context);
-    } else if constexpr (KIND == 4) {
-      return M::FloatType::getF32(context);
-    } else if constexpr (KIND == 8) {
-      return M::FloatType::getF64(context);
-    }
-    return FIRRealType::get(context, KIND);
-  }
-
-  template<int KIND> M::Type genReal() { return genReal<KIND>(context); }
-
-  /// Create a FIR/MLIR real type from information at runtime
-  static M::Type genReal(int kind, M::MLIRContext *context) {
-    switch (kind) {
-    case 2: return genReal<2>(context);
-    case 3: return genReal<3>(context);
-    case 4: return genReal<4>(context);
-    case 8: return genReal<8>(context);
-    default: return FIRRealType::get(context, kind);
-    }
-  }
-
-  M::Type genReal(int kind) { return genReal(kind, context); }
-
-  template<Co::TypeCategory TC, int KIND> M::Type genTy() {
-    if constexpr (TC == IntegerCat) {
-      return M::IntegerType::get(KIND * 8, context);
-    } else if constexpr (TC == RealCat) {
-      return genReal<KIND>();
-    } else if constexpr (TC == ComplexCat) {
-      return M::ComplexType::get(genReal<KIND>());
-    } else if constexpr (TC == CharacterCat) {
-      return FIRCharacterType::get(context, KIND);
-    } else if constexpr (TC == LogicalCat) {
-      return FIRLogicalType::get(context, KIND);
-    }
-    assert(false && "not implemented");
-    return {};
-  }
-
-  template<Co::TypeCategory TC, int KIND>
-  M::Type gen(const Ev::Designator<Ev::Type<TC, KIND>> &) {
-    return genTy<TC, KIND>();
-  }
-  template<Co::TypeCategory TC, int KIND>
-  M::Type gen(const Ev::Expr<Ev::Type<TC, KIND>> &) {
-    return genTy<TC, KIND>();
-  }
-  template<Co::TypeCategory TC, int KIND>
-  M::Type gen(const Ev::Constant<Ev::Type<TC, KIND>> &) {
-    return genTy<TC, KIND>();
-  }
-  template<Co::TypeCategory TC, int KIND>
-  M::Type gen(const Ev::FunctionRef<Ev::Type<TC, KIND>> &) {
-    return genTy<TC, KIND>();
-  }
-
-  template<typename A> M::Type gen(const Ev::Expr<A> &expr) {
-    return std::visit([&](const auto &x) { return gen(x); }, expr.u);
-  }
-
-  M::Type mkVoid() { return M::TupleType::get(context); }
-
-  FIRSequenceType::Shape genSeqShape(const Se::Symbol *symbol) {
-    assert(symbol->IsObjectArray());
-    FIRSequenceType::Bounds bounds;
-    auto &details = symbol->get<Se::ObjectEntityDetails>();
-    const auto size = details.shape().size();
-    for (auto &ss : details.shape()) {
-      auto lb = ss.lbound();
-      auto ub = ss.ubound();
-      if (lb.isAssumed() && ub.isAssumed() && size == 1) {
-        return {FIRSequenceType::Unknown{}};
-      }
-      if (lb.isExplicit() && ub.isExplicit()) {
-        auto &lbv = lb.GetExplicit();
-        auto &ubv = ub.GetExplicit();
-        if (lbv.has_value() && ubv.has_value()) {
-          bounds.emplace_back(FIRSequenceType::BoundInfo{
-              static_cast<int>(toConstant(lbv.value())),
-              static_cast<int>(toConstant(ubv.value())), 1});
-        } else {
-          bounds.emplace_back(FIRSequenceType::Unknown{});
-        }
-      } else {
-        bounds.emplace_back(FIRSequenceType::Unknown{});
-      }
-    }
-    return bounds;
-  }
-
-  /// Type consing from a symbol. A symbol's type must be created from the type
-  /// discovered by the front-end at runtime.
-  M::Type gen(const Se::Symbol *symbol) {
-    if (auto *proc = symbol->detailsIf<Se::SubprogramDetails>()) {
-      M::Type returnTy{mkVoid()};
-      if (proc->isFunction()) {
-        returnTy = gen(&proc->result());
-      }
-      // FIXME: handle alt-return
-      llvm::SmallVector<M::Type, 4> inputTys;
-      for (auto *arg : proc->dummyArgs()) {
-        // FIXME: not all args are pass by ref
-        inputTys.emplace_back(FIRReferenceType::get(gen(arg)));
-      }
-      return M::FunctionType::get(inputTys, returnTy, context);
-    }
-    M::Type returnTy{};
-    if (auto *type{symbol->GetType()}) {
-      if (auto *tySpec{type->AsIntrinsic()}) {
-        int kind = toConstant(tySpec->kind());
-        switch (tySpec->category()) {
-        case Co::TypeCategory::Integer:
-          returnTy = M::IntegerType::get(kind * 8, context);
-          break;
-        case Co::TypeCategory::Real: {
-          returnTy = genReal(kind);
-        } break;
-        case Co::TypeCategory::Complex:
-          returnTy = M::ComplexType::get(genReal(kind));
-          break;
-        case Co::TypeCategory::Character:
-          returnTy = FIRCharacterType::get(context, kind);
-          break;
-        case Co::TypeCategory::Logical:
-          returnTy = FIRLogicalType::get(context, kind);
-          break;
-        case Co::TypeCategory::Derived: {
-          TODO();
-        } break;
-        }
-      }
-    }
-    if (symbol->IsObjectArray()) {
-      // FIXME: add bounds info
-      returnTy = FIRSequenceType::get(genSeqShape(symbol), returnTy);
-    } else if (Se::IsPointer(*symbol)) {
-      // FIXME: what about allocatable?
-      returnTy = FIRReferenceType::get(returnTy);
-    }
-    return returnTy;
-  }
-
-  M::Type gen(const Ev::DataRef &dref) {
-    return std::visit([&](const auto &x) { return gen(x); }, dref.u);
-  }
-
-  M::Type gen(const Ev::ImpliedDoIndex &) {
-    return M::IntegerType::get(getDefaultIntegerBits(), context);
-  }
-
-  // FIXME: to be implemented...
-  template<Co::TypeCategory TC>
-  M::Type gen(const Ev::Designator<Ev::SomeKind<TC>> &des) {
-    TODO();
-  }
-  template<Co::TypeCategory TC>
-  M::Type gen(const Ev::Constant<Ev::SomeKind<TC>> &) {
-    if constexpr (TC == IntegerCat) {
-      return M::IntegerType::get(getDefaultIntegerBits(), context);
-    } else if constexpr (TC == RealCat) {
-      return genReal(getDefaultRealKind());
-    } else {
-      TODO();
-    }
-  }
-  template<Co::TypeCategory TC>
-  M::Type gen(const Ev::FunctionRef<Ev::SomeKind<TC>> &funref) {
-    TODO();
-  }
-  M::Type gen(const Ev::ProcedureRef &) { TODO(); }
-  M::Type gen(const Ev::ProcedureDesignator &) { TODO(); }
-  M::Type gen(const Ev::ArrayRef &) { TODO(); }
-  M::Type gen(const Ev::NullPointer &) { TODO(); }
-  M::Type gen(const Ev::CoarrayRef &) { TODO(); }
-  M::Type gen(const Ev::Component &) { TODO(); }
-  M::Type gen(const Ev::Substring &) { TODO(); }
-  M::Type gen(const Ev::ComplexPart &) { TODO(); }
-  M::Type gen(const Ev::DescriptorInquiry &) { TODO(); }
-  M::Type gen(const Ev::StructureConstructor &) { TODO(); }
-  M::Type gen(const Ev::BOZLiteralConstant &) { TODO(); }
-  template<int KIND> M::Type gen(const Ev::TypeParamInquiry<KIND> &) { TODO(); }
-  template<typename A> M::Type gen(const Ev::ArrayConstructor<A> &) { TODO(); }
-  template<typename A> M::Type gen(const Ev::Relational<A> &) {
-    return FIRLogicalType::get(context, 1);
-  }
-};
-
-#undef TODO
-#if 1
-#define TODO() assert(false)
-#else
-#define TODO()
-#endif
 
 /// Collect the arguments and build the dictionary for FIR instructions with
 /// embedded evaluate::Expr<T> attributes. These arguments strictly conform to
 /// data flow between Fortran expressions.
 class TreeArgsBuilder {
   FIRBuilder *builder;
-  Se::SemanticsContext &semanticsContext;
+  Se::SemanticsContext &semanCtx;
   Args results;
   Dict dictionary;
   ExprType visited{ET_NONE};
+  std::set<void *> keys;
 
   void addResult(M::Value *v, void *expr) {
     const auto index{results.size()};
     results.push_back(v);
     dictionary[index] = expr;
+    keys.insert(expr);
   }
 
-  inline void addResult(M::Value *v, const void *expr) {
+  void addResult(M::Value *v, const void *expr) {
     addResult(v, const_cast<void *>(expr));
   }
 
@@ -300,158 +71,208 @@ class TreeArgsBuilder {
 
 public:
   explicit TreeArgsBuilder(FIRBuilder *builder, Se::SemanticsContext &sc)
-    : builder{builder}, semanticsContext{sc} {}
+    : builder{builder}, semanCtx{sc} {}
 
-  /// What we generate for a `Symbol` depends on the category of the symbol
-  void gen(const Se::Symbol *variable, void *des, M::Type ty) {
-    auto *store = builder->lookupSymbol(variable);
-    if (!store) {
-      auto ip{builder->getInsertionBlock()};
-      builder->setInsertionPointToStart(
-          &builder->getBlock()->getFunction()->front());
-      store = builder->create<AllocaExpr>(dummyLoc(), ty);
-      builder->addSymbol(variable, store);
-      builder->setInsertionPointToEnd(ip);
+  // FIXME: what we generate for a `Symbol` depends on the category of the
+  // symbol
+  void gen(const Se::Symbol *variable, M::Type ty, bool asAddr) {
+    if (keys.find(const_cast<Se::Symbol *>(variable)) == keys.end()) {
+      auto *addr = builder->lookupSymbol(variable);
+      if (!addr) {
+        auto ip{builder->getInsertionBlock()};
+        builder->setInsertionPointToStart(
+            &builder->getBlock()->getFunction()->front());
+        addr = builder->create<AllocaExpr>(dummyLoc(), ty);
+        builder->addSymbol(variable, addr);
+        builder->setInsertionPointToEnd(ip);
+      }
+      if (asAddr) {
+        addResult(addr, variable);
+      } else {
+        llvm::SmallVector<M::Value *, 2> loadArg{addr};
+        auto load{builder->create<LoadExpr>(dummyLoc(), loadArg, ty)};
+        addResult(load.getResult(), variable);
+      }
     }
-    llvm::SmallVector<M::Value *, 2> loadArg{store};
-    auto load{builder->create<LoadExpr>(dummyLoc(), loadArg, ty)};
-    addResult(load.getResult(), des);
     visited = ET_Symbol;
-  }
-  void gen(const Se::Symbol *variable, const void *des, M::Type ty) {
-    gen(variable, const_cast<void *>(des), ty);
   }
 
   // FIXME - need to handle the different cases
-  template<typename A> void gen(const Ev::Designator<A> &designator) {
-    std::visit(
-        Co::visitors{
-            [&](const Se::Symbol *x) {
-              TypeBuilder tyBldr{builder->getContext(), semanticsContext};
-              M::Type ty{tyBldr.gen(designator)};
-              gen(x, &designator, ty);
-            },
-            [&](const auto &x) { gen(x); },
-        },
-        designator.u);
+  template<typename A> void gen(const Ev::Designator<A> &des, bool asAddr) {
+    std::visit(Co::visitors{
+                   [&](const Se::Symbol *x) {
+                     auto *ctx{builder->getContext()};
+                     M::Type ty{
+                         translateDesignatorToFIRType(ctx, semanCtx, des)};
+                     gen(x, ty, asAddr);
+                   },
+                   [&](const auto &x) { gen(x, asAddr); },
+               },
+        des.u);
   }
 
   template<typename D, typename R, typename... A>
-  void gen(const Ev::Operation<D, R, A...> &op) {
-    gen(op.left());
+  void gen(const Ev::Operation<D, R, A...> &op, bool asAddr) {
+    gen(op.left(), asAddr);
     if constexpr (op.operands > 1) {
-      gen(op.right());
+      gen(op.right(), asAddr);
     }
     visited = ET_Operation;
   }
 
-  void gen(const Ev::DataRef &dref) {
-    std::visit(
-        Co::visitors{
-            [&](const Se::Symbol *x) {
-              TypeBuilder tyBldr{builder->getContext(), semanticsContext};
-              M::Type ty{tyBldr.gen(dref)};
-              gen(x, &dref, ty);
-            },
-            [&](const auto &x) { gen(x); },
-        },
+  void gen(const Ev::DataRef &dref, bool asAddr) {
+    std::visit(Co::visitors{
+                   [&](const Se::Symbol *x) {
+                     auto *ctx{builder->getContext()};
+                     M::Type ty{translateDataRefToFIRType(ctx, semanCtx, dref)};
+                     gen(x, ty, asAddr);
+                   },
+                   [&](const auto &x) { gen(x, asAddr); },
+               },
         dref.u);
   }
 
-  void gen(const Ev::Triplet &triplet) {
-    if (triplet.lower().has_value()) gen(triplet.lower().value());
-    if (triplet.upper().has_value()) gen(triplet.upper().value());
-    gen(triplet.stride());
+  void gen(const Ev::Triplet &triplet, bool asAddr) {
+    if (triplet.lower().has_value()) {
+      gen(triplet.lower().value(), asAddr);
+    }
+    if (triplet.upper().has_value()) {
+      gen(triplet.upper().value(), asAddr);
+    }
+    gen(triplet.stride(), asAddr);
   }
 
   /// Lower an array reference
   ///
   /// Visit each of the expressions in each dimension of the array access so as
   /// to add them to the data flow.
-  void gen(const Ev::ArrayRef &aref) {
+  void gen(const Ev::ArrayRef &aref, bool asAddr) {
     // add the base
-    std::visit(
-        Co::visitors{
-            [&](const Ev::Component &x) { gen(x); },
-            [&](const Se::Symbol *x) {
-              TypeBuilder tyBldr{builder->getContext(), semanticsContext};
-              M::Type ty{tyBldr.gen(x)};
-              gen(x, &aref.base(), ty);  // FIXME wrong type, use sequence!
-            },
-        },
+    std::visit(Co::visitors{
+                   [&](const Ev::Component &x) { gen(x, true); },
+                   [&](const Se::Symbol *x) {
+                     auto *ctx{builder->getContext()};
+                     M::Type ty{translateSymbolToFIRType(ctx, semanCtx, x)};
+                     gen(x, ty, true);
+                   },
+               },
         aref.base());
     // add each expression
     for (int i = 0, e = aref.size(); i < e; ++i)
       std::visit(Co::visitors{
-                     [&](const Ev::Triplet &t) { gen(t); },
+                     [&](const Ev::Triplet &t) { gen(t, false); },
                      [&](const Ev::IndirectSubscriptIntegerExpr &x) {
-                       gen(x.value());
+                       gen(x.value(), false);
                      },
                  },
           aref.at(i).u);
     visited = ET_ArrayRef;
   }
 
-  void gen(const Ev::NullPointer &) { visited = ET_NullPointer; }
-  void gen(const Ev::CoarrayRef &) {
-    TODO();
+  void gen(const Ev::NullPointer &, bool) { visited = ET_NullPointer; }
+  void gen(const Ev::CoarrayRef &coref, bool asAddr) {
+    for (auto *sym : coref.base()) {
+      M::Type ty{};  // FIXME
+      gen(sym, ty, true);
+    }
+    for (auto &subs : coref.subscript()) {
+      std::visit(Co::visitors{
+                     [&](const Ev::Triplet &x) { gen(x, false); },
+                     [&](const Ev::IndirectSubscriptIntegerExpr &x) {
+                       gen(x.value(), false);
+                     },
+                 },
+          subs.u);
+    }
+    for (auto &cosubs : coref.cosubscript()) {
+      gen(cosubs, false);
+    }
     visited = ET_CoarrayRef;
   }
-  void gen(const Ev::Component &) {
-    TODO();
+  void gen(const Ev::Component &cmpt, bool) {
+    gen(cmpt.base(), true);
     visited = ET_Component;
   }
-  void gen(const Ev::Substring &) {
-    TODO();
+  void gen(const Ev::Substring &subs, bool) {
+    gen(subs.lower(), true);
+    gen(subs.upper(), true);
     visited = ET_Substring;
   }
-  void gen(const Ev::ComplexPart &) { visited = ET_ComplexPart; }
-  void gen(const Ev::ImpliedDoIndex &) { TODO(); }
-  void gen(const Ev::StructureConstructor &) {
-    TODO();
+  void gen(const Ev::ComplexPart &, bool) { visited = ET_ComplexPart; }
+  void gen(const Ev::ImpliedDoIndex &, bool) {
+    // do nothing
+  }
+  void gen(const Ev::StructureConstructor &, bool) {
     visited = ET_StructureCtor;
   }
 
   // Skip over constants
-  void gen(const Ev::BOZLiteralConstant &) { visited = ET_Constant; }
-  template<typename A> void gen(const Ev::Constant<A> &) {
+  void gen(const Ev::BOZLiteralConstant &, bool) { visited = ET_Constant; }
+  template<typename A> void gen(const Ev::Constant<A> &, bool) {
     visited = ET_Constant;
   }
 
-  void gen(const Ev::DescriptorInquiry &) {
+  void gen(const Ev::DescriptorInquiry &, bool) {
     TODO();
     visited = ET_DescriptorInquiry;
   }
-  template<int KIND> void gen(const Ev::TypeParamInquiry<KIND> &inquiry) {
+  template<int KIND>
+  void gen(const Ev::TypeParamInquiry<KIND> &inquiry, bool asAddr) {
     std::visit(Co::visitors{
                    [&](const Se::Symbol *x) {},  // FIXME
-                   [&](auto &x) { gen(x); },
+                   [&](auto &x) { gen(x, asAddr); },
                },
         inquiry.base());
     visited = ET_TypeParamInquiry;
   }
 
-  void gen(const Ev::ProcedureRef &) { TODO(); }
-  void gen(const Ev::ProcedureDesignator &) { TODO(); }
+  void gen(const Ev::ProcedureRef &pref, bool asAddr) {
+    gen(pref.proc(), true);
+    for (auto &arg : pref.arguments()) {
+      if (arg.has_value()) {
+        auto &xarg{arg.value()};
+        if (auto *x{xarg.UnwrapExpr()}) {
+          gen(*x, asAddr);
+        } else {
+          auto *sym{xarg.GetAssumedTypeDummy()};
+          gen(sym, M::Type{} /*FIXME*/, asAddr);
+        }
+      }
+    }
+  }
+
+  void gen(const Ev::ProcedureDesignator &des, bool asAddr) {
+    std::visit(
+        Co::visitors{
+            [&](const Ev::SpecificIntrinsic &) {
+              // do nothing
+            },
+            [&](const Se::Symbol *sym) { gen(sym, M::Type{} /*FIXME*/, true); },
+            [&](const Co::CopyableIndirection<Ev::Component> &x) {
+              gen(x.value(), true);
+            },
+        },
+        des.u);
+  }
 
   M::FunctionType genFunctionType(const Ev::ProcedureDesignator &proc) {
-    return std::visit(Co::visitors{
-                          [&](const Ev::SpecificIntrinsic &) {
-                            TODO(); /* FIXME */
-                            return M::Type{};
-                          },
-                          [&](const Se::Symbol *x) {
-                            return translateSymbolToFIRType(
-                                *builder->getContext(), semanticsContext, x);
-                          },
-                          [&](const Co::CopyableIndirection<Ev::Component> &x) {
-                            return translateSymbolToFIRType(
-                                *builder->getContext(), semanticsContext,
-                                &x.value().GetLastSymbol());
-                          },
-                      },
-        proc.u)
-        .cast<M::FunctionType>();
+    auto *ctx{builder->getContext()};
+    M::Type ty{
+        std::visit(Co::visitors{
+                       [&](const Ev::SpecificIntrinsic &) {
+                         TODO(); /* FIXME */
+                         return M::Type{};
+                       },
+                       [&](const Se::Symbol *x) {
+                         return translateSymbolToFIRType(ctx, semanCtx, x);
+                       },
+                       [&](const Co::CopyableIndirection<Ev::Component> &x) {
+                         auto *sym{&x.value().GetLastSymbol()};
+                         return translateSymbolToFIRType(ctx, semanCtx, sym);
+                       },
+                   },
+            proc.u)};
+    return ty.cast<M::FunctionType>();
   }
 
   /// Lower a function call
@@ -465,11 +286,10 @@ public:
   ///   %54 = FIR.ApplyExpr(...)
   ///   %55 = FIR.ApplyExpr(...)
   ///   %56 = call(@target_func, %54, %55)
-  template<typename A> void gen(const Ev::FunctionRef<A> &funref) {
+  template<typename A> void gen(const Ev::FunctionRef<A> &funref, bool) {
     // must be lowered to a call and data flow added for each actual arg
     auto *context = builder->getContext();
     M::Location loc = M::UnknownLoc::get(context);  // FIXME
-    TypeBuilder tyBldr{context, semanticsContext};
 
     // lookup this function
     llvm::StringRef callee = funref.proc().GetName();
@@ -477,7 +297,6 @@ public:
     auto *func = module->getNamedFunction(callee);
     if (!func) {
       // create new function
-      TypeBuilder bldr{context, semanticsContext};
       auto funTy{genFunctionType(funref.proc())};
       func = createFunction(module, callee, funTy);
     }
@@ -488,9 +307,9 @@ public:
     for (auto &arg : funref.arguments()) {
       if (arg.has_value()) {
         if (auto *aa{arg->UnwrapExpr()}) {
-          auto eops{translateSomeExpr(builder, semanticsContext, aa)};
+          auto eops{translateSomeExpr(builder, semanCtx, aa)};
           auto aaType{FIRReferenceType::get(
-              translateSomeExprToFIRType(*context, semanticsContext, aa))};
+              translateSomeExprToFIRType(context, semanCtx, aa))};
           M::Value *toLoc{nullptr};
           auto *defOp{getArgs(eops)[0]->getDefiningOp()};
           if (auto load = M::dyn_cast<LoadExpr>(defOp)) {
@@ -503,8 +322,8 @@ public:
           inputs.push_back(toLoc);
         } else {
           auto *x{arg->GetAssumedTypeDummy()};
-          auto xType{translateSymbolToFIRType(*context, semanticsContext, x)};
-          gen(x, &arg, xType);
+          // FIXME: can argument not be passed by reference?
+          gen(x, translateSymbolToFIRType(context, semanCtx, x), true);
         }
       } else {
         assert(false && "argument is std::nullopt?");
@@ -517,25 +336,30 @@ public:
     visited = ET_FunctionRef;
   }
 
-  template<typename A> void gen(const Ev::ImpliedDo<A> &impliedDo) { TODO(); }
-  template<typename A> void gen(const Ev::ArrayConstructor<A> &arrayCtor) {
+  template<typename A> void gen(const Ev::ImpliedDo<A> &ido, bool) {
+    gen(ido.lower(), false);
+    gen(ido.upper(), false);
+    gen(ido.stride(), false);
+  }
+  template<typename A>
+  void gen(const Ev::ArrayConstructor<A> &arrayCtor, bool asAddr) {
     for (auto i{arrayCtor.begin()}, end{arrayCtor.end()}; i != end; ++i) {
-      std::visit([&](auto &x) { gen(x); }, i->u);
+      std::visit([&](auto &x) { gen(x, asAddr); }, i->u);
     }
     visited = ET_ArrayCtor;
   }
 
-  template<typename A> void gen(const Ev::Relational<A> &op) {
-    gen(op.left());
-    gen(op.right());
+  template<typename A> void gen(const Ev::Relational<A> &op, bool asAddr) {
+    gen(op.left(), asAddr);
+    gen(op.right(), asAddr);
     visited = ET_Relational;
   }
-  void gen(const Ev::Relational<Ev::SomeType> &op) {
-    std::visit([&](const auto &x) { gen(x); }, op.u);
+  void gen(const Ev::Relational<Ev::SomeType> &op, bool asAddr) {
+    std::visit([&](const auto &x) { gen(x, asAddr); }, op.u);
   }
 
-  template<typename A> void gen(const Ev::Expr<A> &expr) {
-    std::visit([&](const auto &x) { gen(x); }, expr.u);
+  template<typename A> void gen(const Ev::Expr<A> &expr, bool asAddr) {
+    std::visit([&](const auto &x) { gen(x, asAddr); }, expr.u);
   }
 
   Args getResults() const { return results; }
@@ -543,33 +367,26 @@ public:
   ExprType getExprType() const { return visited; }
 };
 
+// Builds the `([results], [inputs], {dict})` pair for constructing both
+// `fir.apply_expr` and `fir.locate_expr` operations.
+template<bool AddressResult>
+inline Values translateToFIR(
+    FIRBuilder *bldr, Se::SemanticsContext &semanCtx, const SomeExpr *exp) {
+  TreeArgsBuilder ab{bldr, semanCtx};
+  ab.gen(*exp, AddressResult);
+  return {ab.getResults(), ab.getDictionary(), ab.getExprType()};
+}
+
 }  // namespace
 
-// Builds the `([inputs], {dict})` pair for constructing both `fir.apply_expr`
-// and `fir.locate_expr` operations.
-Values Br::translateSomeExpr(FIRBuilder *builder,
-    Se::SemanticsContext &semanticsContext, const SomeExpr *expr) {
-  TreeArgsBuilder argsBldr{builder, semanticsContext};
-  argsBldr.gen(*expr);
-  return {
-      argsBldr.getResults(), argsBldr.getDictionary(), argsBldr.getExprType()};
+// `fir.apply_expr` builder
+Values Br::translateSomeExpr(
+    FIRBuilder *bldr, Se::SemanticsContext &semanCtx, const SomeExpr *exp) {
+  return translateToFIR<false>(bldr, semanCtx, exp);
 }
 
-// Builds the FIR type from an instance of SomeExpr
-M::Type Br::translateSomeExprToFIRType(M::MLIRContext &context,
-    Se::SemanticsContext &semanticsContext, const SomeExpr *expr) {
-  TypeBuilder tyBldr{&context, semanticsContext};
-  return tyBldr.gen(*expr);
-}
-
-// This entry point avoids gratuitously wrapping the Symbol instance in layers
-// of Expr<T> that will then be immediately peeled back off and discarded.
-M::Type Br::translateSymbolToFIRType(M::MLIRContext &context,
-    Se::SemanticsContext &semanticsContext, const Se::Symbol *symbol) {
-  TypeBuilder tyBldr{&context, semanticsContext};
-  return tyBldr.gen(symbol);
-}
-
-M::Type Br::convertReal(int KIND, M::MLIRContext *context) {
-  return TypeBuilder::genReal(KIND, context);
+// `fir.locate_expr` builder
+Values Br::translateSomeAddrExpr(
+    FIRBuilder *bldr, Se::SemanticsContext &semanCtx, const SomeExpr *exp) {
+  return translateToFIR<true>(bldr, semanCtx, exp);
 }
