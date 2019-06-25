@@ -15,6 +15,7 @@
 #include "fir-conversion.h"
 #include "canonicalize.h"
 #include "expression.h"
+#include "fe-helper.h"
 #include "fir-dialect.h"
 #include "fir-type.h"
 #include "llvm/ADT/ArrayRef.h"
@@ -35,6 +36,7 @@
 #include "mlir/Transforms/DialectConversion.h"
 
 namespace Br = Fortran::mlbridge;
+namespace Co = Fortran::common;
 namespace M = mlir;
 
 using namespace Fortran;
@@ -55,7 +57,11 @@ public:
   /// Convert FIR types to LLVM IR dialect types
   M::Type convertType(M::Type t) override {
     if (auto ref = t.dyn_cast<FIRReferenceType>()) {
-      auto eleTy = convertType(ref.getEleTy());
+      auto ele = ref.getEleTy();
+      auto eleTy = convertType(ele);
+      if (ele.dyn_cast<FIRSequenceType>()) {
+        return eleTy;
+      }
       return M::MemRefType::get(llvm::ArrayRef<std::int64_t>{}, eleTy);
     }
     if (auto real = t.dyn_cast<FIRRealType>()) {
@@ -86,7 +92,24 @@ public:
       return t;  // fixme
     }
     if (auto seq = t.dyn_cast<FIRSequenceType>()) {
-      return t;  // fixme
+      auto eleTy = convertType(seq.getEleTy());
+      auto shape = seq.getShape();
+      llvm::SmallVector<int64_t, 4> memshape;
+      if (std::holds_alternative<FIRSequenceType::Bounds>(shape)) {
+        for (auto bi : std::get<FIRSequenceType::Bounds>(shape)) {
+          std::visit(Co::visitors{
+                         [&](const FIRSequenceType::Unknown &) {
+                           memshape.push_back(-1);
+                         },
+                         [&](const FIRSequenceType::BoundInfo &bi) {
+                           memshape.push_back(bi.count);
+                         },
+                     },
+              bi);
+        }
+      }
+      std::reverse(memshape.begin(), memshape.end());
+      return M::MemRefType::get(memshape, eleTy);
     }
     if (auto tdesc = t.dyn_cast<FIRTypeDescType>()) {
       // lower the type descriptor

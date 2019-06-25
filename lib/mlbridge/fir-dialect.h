@@ -58,6 +58,30 @@ public:
 
 // FIR dialect operations
 
+/// The "fir.address" operation is used to compute the address of a well-typed
+/// expression.  The first argument is the base object.  This is compositional
+/// so multiple "fir.address" operations can be chained.  "fir.address" with
+/// a single argument devolves to a NOP.
+///
+///   %45 = ... : !fir.ref<!fir.type<"T", {"A" : !fir.array<1 10 1:i64>}>>
+///   %46 = "fir.field_value"("A") : !fir.field_type
+///   %47 = ... : i32   ; index `i` into array `A`
+///   %48 = "fir.address"(%45, %46, %47) : !fir.ref<i64>
+class AddressOp
+  : public mlir::Op<AddressOp, mlir::OpTrait::VariadicOperands,
+        mlir::OpTrait::HasNoSideEffect, mlir::OpTrait::OneResult> {
+public:
+  using Op::Op;
+
+  static llvm::StringRef getOperationName() { return "fir.address"; }
+
+  mlir::LogicalResult verify();
+
+  // `opTy` will be wrapped with !fir.ref in `build`
+  static void build(mlir::OpBuilder *builder, mlir::OperationState *result,
+      llvm::ArrayRef<mlir::Value *> operands, mlir::Type opTy);
+};
+
 /// The "fir.alloca_expr" operation is used to allocate local temporary space
 /// for object of a specified type.  The result of "fir.alloca_expr" is a
 /// pointer to an uninitialized ssa-object of the designated type.  Together
@@ -75,6 +99,7 @@ public:
 
   mlir::LogicalResult verify();
 
+  // `opTy` will be wrapped with !fir.ref in `build`
   static void build(
       mlir::OpBuilder *builder, mlir::OperationState *result, mlir::Type opTy);
   static void build(mlir::OpBuilder *builder, mlir::OperationState *result,
@@ -127,6 +152,19 @@ public:
   llvm::StringRef getExpr();
   SomeExpr *getRawExpr();
   std::map<unsigned, void *> *getDict();
+};
+
+class ConvertOp
+  : public mlir::Op<ConvertOp, mlir::OpTrait::OneOperand,
+        mlir::OpTrait::OneResult, mlir::OpTrait::HasNoSideEffect> {
+public:
+  using Op::Op;
+
+  static llvm::StringRef getOperationName() { return "fir.convert"; }
+
+  mlir::LogicalResult verify();
+  static void build(mlir::OpBuilder *builder, mlir::OperationState *result,
+      mlir::Value *val, mlir::Type toType);
 };
 
 class ExtractValueOp

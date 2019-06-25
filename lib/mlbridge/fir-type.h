@@ -164,9 +164,9 @@ public:
   using Base::Base;
   struct Unknown {};
   struct BoundInfo {
-    int lower;
-    int count;
-    int stride;
+    int64_t lower;
+    int64_t count;
+    int64_t stride;
   };
   using Extent = std::variant<Unknown, BoundInfo>;
   using Bounds = std::vector<Extent>;

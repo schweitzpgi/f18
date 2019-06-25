@@ -15,6 +15,7 @@
 #include "canonicalize.h"
 #include "builder.h"
 #include "expression.h"
+#include "fe-helper.h"
 #include "fir-dialect.h"
 #include "fir-type.h"
 #include "runtime.h"
@@ -35,7 +36,6 @@
 #include "mlir/IR/Module.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/PatternMatch.h"
-#include "mlir/IR/Types.h"
 #include "mlir/IR/Value.h"
 #include "mlir/LLVMIR/LLVMDialect.h"
 #include "mlir/Pass/Pass.h"
@@ -73,6 +73,7 @@ class ExprLowering {
   const SomeExpr *expr;
   L::DenseMap<void *, unsigned> operMap;
   L::SmallVector<M::Value *, 8> operands;
+  const bool resultIsValue;
 
   // FIXME: how do we map an evaluate::Expr<T> to a source location?
   M::Location dummyLoc() { return M::UnknownLoc::get(builder->getContext()); }
@@ -228,8 +229,10 @@ class ExprLowering {
 
 public:
   template<typename A>
-  explicit ExprLowering(M::OpBuilder *bldr, OperandTy operands, A &vop)
-    : builder{bldr}, operands{operands.begin(), operands.end()} {
+  explicit ExprLowering(
+      M::OpBuilder *bldr, OperandTy operands, A &vop, bool resultIsValue)
+    : builder{bldr}, operands{operands.begin(), operands.end()},
+      resultIsValue{resultIsValue} {
     initialize(vop);
   }
 
@@ -340,23 +343,8 @@ public:
 
   template<Co::TypeCategory TC1, int KIND, Co::TypeCategory TC2>
   RewriteVals gen(const Ev::Convert<Ev::Type<TC1, KIND>, TC2> &convert) {
-    if constexpr (TC1 == RealCat && TC2 == IntegerCat) {
-      auto ty{convertReal(KIND, builder->getContext())};
-      auto arg{gen(convert.left())};
-      // return createCast<Sitofp>(ty, arg);
-      (void)ty;
-      (void)arg;
-      TODO();
-    } else if constexpr (TC1 == IntegerCat && TC2 == RealCat) {
-      M::Type ty{};
-      auto arg{gen(convert.left())};
-      // return createCast<Fptosi>(ty, arg);
-      (void)ty;
-      (void)arg;
-      TODO();
-    } else {
-      TODO();
-    }
+    auto ty{genTypeFromCategoryAndKind(builder->getContext(), TC1, KIND)};
+    return builder->create<ConvertOp>(dummyLoc(), gen(convert.left()), ty);
   }
   template<typename A> RewriteVals gen(const Ev::Parentheses<A> &) { TODO(); }
   template<int KIND> RewriteVals gen(const Ev::Not<KIND> &op) {
@@ -436,17 +424,117 @@ public:
   template<typename A> RewriteVals gen(const Ev::ArrayConstructor<A> &) {
     TODO();
   }
-  template<typename A> RewriteVals gen(const Ev::Designator<A> &des) {
-    auto iter{operMap.find(const_cast<Ev::Designator<A> *>(&des))};
-    assert(iter != operMap.end() && "designator not in dictionary");
+
+  // Lookup a data-ref by its key value.  The `key` must be in the map
+  // `operands`.
+  RewriteVals genKey(void *key) {
+    auto iter{operMap.find(key)};
+    assert(iter != operMap.end() && "key not in dictionary");
     return operands[iter->second];
+  }
+
+  RewriteVals gen(const Ev::ComplexPart &) { TODO(); }
+  RewriteVals gen(const Ev::Substring &) { TODO(); }
+  RewriteVals gen(const Ev::Triplet &trip) { TODO(); }
+  RewriteVals gen(const Ev::Subscript &subs) {
+    return std::visit(Co::visitors{
+                          [&](const Ev::IndirectSubscriptIntegerExpr &x) {
+                            return gen(x.value());
+                          },
+                          [&](const Ev::Triplet &x) { return gen(x); },
+                      },
+        subs.u);
+  }
+
+  RewriteVals gen(const Ev::DataRef &dref) {
+    return std::visit(Co::visitors{
+                          [&](const Se::Symbol *x) {
+                            return genKey(const_cast<Se::Symbol *>(x));
+                          },
+                          [&](const auto &x) { return gen(x); },
+                      },
+        dref.u);
+  }
+
+  // An ExtractFieldOp from the base using a FieldValueOp offset
+  RewriteVals gen(const Ev::Component &cmpt) {
+    // FIXME: need to add the field symbol and build a FieldValueOp
+    return gen(cmpt.base());
+  }
+
+  // Determine the result type after removing `dims` dimensions from the array
+  // type `arrTy`
+  M::Type genSubType(M::Type arrTy, unsigned dims) {
+    if (auto memRef{arrTy.dyn_cast<M::MemRefType>()}) {
+      if (dims < memRef.getRank()) {
+        auto shape{memRef.getShape()};
+        llvm::SmallVector<int64_t, 4> newShape;
+        // TODO: should we really remove rows here?
+        for (unsigned i = dims, e = memRef.getRank(); i < e; ++i) {
+          newShape.push_back(shape[i]);
+        }
+        return M::MemRefType::get(newShape, memRef.getElementType());
+      }
+      return memRef.getElementType();
+    }
+    auto unwrapTy{arrTy.cast<FIRReferenceType>().getEleTy()};
+    auto seqTy{unwrapTy.cast<FIRSequenceType>()};
+    return std::visit(
+        Co::visitors{
+            [&](const FIRSequenceType::Unknown &) { return seqTy.getEleTy(); },
+            [&](const FIRSequenceType::Bounds &bnds) -> M::Type {
+              if (dims < bnds.size()) {
+                FIRSequenceType::Bounds newBnds;
+                // follow Fortran semantics and remove columns
+                for (unsigned i = 0; i < dims; ++i) {
+                  newBnds.push_back(bnds[i]);
+                }
+                return FIRSequenceType::get({newBnds}, seqTy.getEleTy());
+              }
+              return seqTy.getEleTy();
+            },
+        },
+        seqTy.getShape());
+  }
+
+  RewriteVals gen(const Ev::ArrayRef &aref) {
+    auto *base{std::visit(Co::visitors{
+                              [&](const Se::Symbol *x) {
+                                return genKey(const_cast<Se::Symbol *>(x));
+                              },
+                              [&](const auto &x) { return gen(x); },
+                          },
+        aref.base())};
+    llvm::SmallVector<M::Value *, 8> args;
+    args.push_back(base);
+    for (auto &subsc : aref.subscript()) {
+      args.push_back(gen(subsc));
+    }
+    auto subTy{genSubType(base->getType(), args.size() - 1)};
+    if (resultIsValue) {
+      return builder->create<ExtractValueOp>(dummyLoc(), args, subTy);
+    }
+    return builder->create<AddressOp>(dummyLoc(), args, subTy);
+  }
+
+  RewriteVals gen(const Ev::CoarrayRef &coref) {
+    // FIXME: need to visit the cosubscripts...
+    // return gen(coref.base());
+    TODO();
+  }
+  template<typename A> RewriteVals gen(const Ev::Designator<A> &des) {
+    return std::visit(Co::visitors{
+                          [&](const Se::Symbol *x) {
+                            return genKey(const_cast<Se::Symbol *>(x));
+                          },
+                          [&](const auto &x) { return gen(x); },
+                      },
+        des.u);
   }
 
   // lookup call in the map
   template<typename A> RewriteVals gen(const Ev::FunctionRef<A> &funRef) {
-    auto iter{operMap.find(const_cast<Ev::FunctionRef<A> *>(&funRef))};
-    assert(iter != operMap.end() && "function ref not in dictionary");
-    return operands[iter->second];
+    return genKey(const_cast<Ev::FunctionRef<A> *>(&funRef));
   }
 
   template<typename A> RewriteVals gen(const Ev::Expr<A> &exp) {
@@ -506,9 +594,10 @@ public:
     target.addLegalDialect<M::AffineOpsDialect, M::LLVM::LLVMDialect,
         M::StandardOpsDialect>();
     // everything except ApplyExpr and LocateExpr
-    target.addLegalOp<AllocaExpr, AllocMemOp, ExtractValueOp, FreeMemOp,
-        GlobalExpr, InsertValueOp, LoadExpr, SelectOp, SelectCaseOp,
-        SelectRankOp, SelectTypeOp, StoreExpr, UndefOp, UnreachableOp>();
+    target.addLegalOp<AddressOp, AllocaExpr, AllocMemOp, ConvertOp,
+        ExtractValueOp, FreeMemOp, GlobalExpr, InsertValueOp, LoadExpr,
+        SelectOp, SelectCaseOp, SelectRankOp, SelectTypeOp, StoreExpr, UndefOp,
+        UnreachableOp>();
     if (M::failed(M::applyConversionPatterns(
             getModule(), target, typeConverter, std::move(patterns)))) {
       context.emitError(M::UnknownLoc::get(&context),
@@ -522,8 +611,8 @@ public:
 // `fir.locate_expr` into FIR operations
 template<typename A>
 inline RewriteVals lowerAbstractExpr(
-    M::OpBuilder *builder, OperandTy operands, A &op) {
-  ExprLowering lower{builder, operands, op};
+    M::OpBuilder *builder, OperandTy operands, A &op, bool value) {
+  ExprLowering lower{builder, operands, op, value};
   return lower.gen();
 }
 
@@ -533,10 +622,10 @@ M::Pass *Br::createFIRLoweringPass() { return new FIRLoweringPass(); }
 
 RewriteVals Br::lowerSomeExpr(
     M::OpBuilder *bldr, OperandTy opnds, ApplyExpr &op) {
-  return lowerAbstractExpr(bldr, opnds, op);
+  return lowerAbstractExpr(bldr, opnds, op, true);
 }
 
 RewriteVals Br::lowerSomeExpr(
     M::OpBuilder *bldr, OperandTy opnds, LocateExpr &op) {
-  return lowerAbstractExpr(bldr, opnds, op);
+  return lowerAbstractExpr(bldr, opnds, op, false);
 }
