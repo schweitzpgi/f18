@@ -15,14 +15,9 @@
 // Temporary Fortran front end driver main program for development scaffolding.
 
 #include "../../lib/common/default-kinds.h"
-#include "../../lib/mlbridge/canonicalize.h"
-#include "../../lib/mlbridge/fir-conversion.h"
-#include "../../lib/mlbridge/fir-dialect.h"
-#include "../../lib/mlbridge/mem2reg.h"
-#include "../../lib/mlbridge/viaduct.h"
 #include "../../lib/parser/characters.h"
 #include "../../lib/parser/dump-parse-tree.h"
-#include "../../lib/parser/features.h"
+#include "../../lib/parser/flang-features.h"
 #include "../../lib/parser/message.h"
 #include "../../lib/parser/parse-tree-visitor.h"
 #include "../../lib/parser/parse-tree.h"
@@ -39,8 +34,15 @@
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/Module.h"
 #include "mlir/Parser.h"
+#include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/Passes.h"
+#include "fir/Dialect.h"
+#include "fir/Tilikum/LLVMConverter.h"
+#include "fir/Tilikum/StdConverter.h"
+#include "fir/Transforms/MemToReg.h"
+#include "../../lib/burnside/bridge.h"
+#include "../../lib/burnside/canonicalize.h"
 #include <cerrno>
 #include <cstdio>
 #include <cstring>
@@ -56,7 +58,7 @@
 #include <unistd.h>
 #include <vector>
 
-namespace Br = Fortran::mlbridge;
+namespace Br = Fortran::burnside;
 
 static std::list<std::string> argList(int argc, char *const argv[]) {
   std::list<std::string> result;
@@ -103,7 +105,7 @@ struct DriverOptions {
   bool forcedForm{false};  // -Mfixed or -Mfree appeared
   bool warnOnNonstandardUsage{false};  // -Mstandard
   bool warningsAreErrors{false};  // -Werror
-  Fortran::parser::Encoding encoding{Fortran::parser::Encoding::UTF8};
+  Fortran::parser::Encoding encoding{Fortran::parser::Encoding::UTF_8};
   bool parseOnly{false};
   bool dumpProvenance{false};
   bool dumpCookedChars{false};
@@ -120,6 +122,7 @@ struct DriverOptions {
   bool dumpFIR{true};
   bool lowerToStd{true};
   bool lowerToLLVM{true};
+  bool lowerToLLVMIR{true};
   bool isFirInput{false};
   std::vector<std::string> pgf90Args;
   const char *prefix{nullptr};
@@ -264,29 +267,30 @@ std::string CompileFortran(std::string path, Fortran::parser::Options options,
   }
 
   // MLIR+FIR
-  auto ctxt{Br::getFortranMLIRContext()};
-  std::unique_ptr<mlir::Module> mlirModule =
-      Br::MLIRViaduct(*ctxt, parseTree, semanticsContext);
-  mlir::PassManager pm;
+  Br::instantiateBurnsideBridge(semanticsContext.defaultKinds());
+  Br::crossBurnsideBridge(Br::getBridge(), parseTree);
+  mlir::ModuleOp mlirModule{Br::getBridge().getModule()};
+  mlir::PassManager pm{mlirModule.getContext()};
   if (driver.dumpHLFIR) {
     llvm::outs() << ";== 1 ==\n";
-    mlirModule->dump();
+    mlirModule.dump();
   }
-  pm.addPass(Br::createMemToRegPass());
+  pm.addPass(fir::createMemToRegPass());
   // Run FIR lowering and CSE as a pair
-  pm.addPass(Br::createFIRLoweringPass());
   pm.addPass(mlir::createCSEPass());
   if (driver.lowerToStd) {
-    pm.addPass(Br::createFIRToStdPass());
+    pm.addPass(fir::createFIRToStdPass());
   }
   if (driver.lowerToLLVM) {
-    pm.addPass(Br::createStdToLLVMPass());
-    pm.addPass(Br::createLLVMDialectToLLVMPass());
+    pm.addPass(fir::createFIRToLLVMPass());
   }
-  auto result{pm.run(mlirModule.get())};
+  if (driver.lowerToLLVMIR) {
+    pm.addPass(fir::createLLVMDialectToLLVMPass());
+  }
+  auto result{pm.run(mlirModule)};
   if (driver.dumpFIR) {
     llvm::outs() << ";== 2 ==\n";
-    mlirModule->dump();
+    mlirModule.dump();
   }
   return {};
 }
@@ -295,11 +299,9 @@ std::string CompileFortran(std::string path, Fortran::parser::Options options,
 std::string CompileFir(std::string path, Fortran::parser::Options options,
     DriverOptions &driver,
     Fortran::semantics::SemanticsContext &semanticsContext) {
-  auto ctxt = Br::getFortranMLIRContext();
-  mlir::MLIRContext &context = *ctxt.get();
+  Br::instantiateBurnsideBridge(semanticsContext.defaultKinds());
 
   // check that there is a file to load
-  std::unique_ptr<mlir::Module> mlirModule;
   llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> fileOrErr =
       llvm::MemoryBuffer::getFileOrSTDIN(path);
   if (std::error_code EC = fileOrErr.getError()) {
@@ -310,28 +312,36 @@ std::string CompileFir(std::string path, Fortran::parser::Options options,
   // load the file into a module
   llvm::SourceMgr sourceMgr;
   sourceMgr.AddNewSourceBuffer(std::move(*fileOrErr), llvm::SMLoc());
-  mlirModule.reset(mlir::parseSourceFile(sourceMgr, &context));
-  if (!mlirModule) {
+  Br::getBridge().parseSourceFile(sourceMgr);
+  auto mlirModule = Br::getBridge().getModule();
+  if (!Br::getBridge().validModule()) {
     llvm::errs() << "Error can't load file " << path << '\n';
     std::exit(3);
   }
-  if (mlir::failed(mlirModule->verify())) {
+  if (mlir::failed(mlirModule.verify())) {
     llvm::errs() << "Error verifying FIR module\n";
     std::exit(4);
   }
 
   llvm::outs() << ";== 3 ==\n";
-  mlirModule->dump();
+  mlirModule.dump();
 
   // run passes
-  mlir::PassManager pm;
-  pm.addPass(Br::createMemToRegPass());
-  pm.addPass(Br::createFIRLoweringPass());
+  mlir::PassManager pm{mlirModule.getContext()};
+  pm.addPass(fir::createMemToRegPass());
   pm.addPass(mlir::createCSEPass());
-  pm.addPass(Br::createFIRToStdPass());
-  pm.addPass(Br::createStdToLLVMPass());
-  pm.addPass(Br::createLLVMDialectToLLVMPass());
-  auto result{pm.run(mlirModule.get())};
+  if (driver.lowerToStd) {
+    pm.addPass(fir::createFIRToStdPass());
+  }
+  if (driver.lowerToLLVM) {
+    pm.addPass(fir::createFIRToLLVMPass());
+  }
+  if (driver.lowerToLLVMIR) {
+    pm.addPass(fir::createLLVMDialectToLLVMPass());
+  }
+  auto result{pm.run(mlirModule)};
+  llvm::outs() << ";== 4 ==\n";
+  mlirModule.dump();
   if (mlir::succeeded(result)) {
     llvm::outs() << "a.ll written\n";
   } else {
@@ -417,7 +427,7 @@ int main(int argc, char *const argv[]) {
             suffix == "cuf" || suffix == "CUF" || suffix == "f18" ||
             suffix == "F18" || suffix == "ff18") {
           fortranSources.push_back(arg);
-        } else if (suffix == "fir") {
+        } else if (suffix == "fir" || suffix == "ir" || suffix == "mlir")  {
           firSources.push_back(arg);
         } else if (suffix == "o" || suffix == "a") {
           relocatables.push_back(arg);
@@ -490,10 +500,14 @@ int main(int argc, char *const argv[]) {
     } else if (arg == "-fno-dump-fir") {
       driver.dumpFIR = false;
     } else if (arg == "-fno-lower-to-llvm") {
+      driver.lowerToLLVMIR = false;
+    } else if (arg == "-fno-lower-to-llvm-dialect") {
       driver.lowerToLLVM = false;
+      driver.lowerToLLVMIR = false;
     } else if (arg == "-fno-lower-to-std") {
       driver.lowerToStd = false;
       driver.lowerToLLVM = false;
+      driver.lowerToLLVMIR = false;
     } else if (arg == "-fparse-only") {
       driver.parseOnly = true;
     } else if (arg == "-c") {
@@ -566,12 +580,9 @@ int main(int argc, char *const argv[]) {
         args.pop_front();
       } else if (arg.substr(0, 2) == "-I") {
         driver.searchDirectories.push_back(arg.substr(2));
-      } else if (arg == "-Mx,125,4") {  // PGI "all Kanji" mode
-        options.encoding = Fortran::parser::Encoding::EUC_JP;
       }
     }
   }
-  driver.encoding = options.encoding;
 
   if (driver.warnOnNonstandardUsage) {
     options.features.WarnOnAllNonstandard();

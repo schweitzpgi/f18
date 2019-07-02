@@ -18,12 +18,21 @@ add_executable(fml
   fml.cc
 )
 
+set(LIBS
+  MLIRAffineOps
+  MLIRLLVMIR
+  MLIRLoopOps
+  MLIRStandardOps
+)
+
+whole_archive_link(fml ${LIBS})
 target_link_libraries(fml
   FortranCommon
   FortranParser
   FortranEvaluate
   FortranSemantics
-  FortranMLBridge
+  FortranBurnside
+  ${LIBS}
 )
 
 install(TARGETS fml DESTINATION bin)
