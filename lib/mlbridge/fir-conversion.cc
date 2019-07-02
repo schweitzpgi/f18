@@ -35,8 +35,12 @@
 #include "mlir/Target/LLVMIR.h"
 #include "mlir/Transforms/DialectConversion.h"
 
+// This module performs the conversion of FIR operations to MLIR standard and/or
+// LLVM-IR dialects.
+
 namespace Br = Fortran::mlbridge;
 namespace Co = Fortran::common;
+namespace L = llvm;
 namespace M = mlir;
 
 using namespace Fortran;
@@ -44,9 +48,9 @@ using namespace Fortran::mlbridge;
 
 namespace {
 
-using SmallVecResult = llvm::SmallVector<M::Value *, 4>;
-using OperandTy = llvm::ArrayRef<M::Value *>;
-using AttributeTy = llvm::ArrayRef<M::NamedAttribute>;
+using SmallVecResult = L::SmallVector<M::Value *, 4>;
+using OperandTy = L::ArrayRef<M::Value *>;
+using AttributeTy = L::ArrayRef<M::NamedAttribute>;
 
 /// FIR type converter
 /// This converts FIR types to LLVM types (for now)
@@ -54,47 +58,78 @@ class FIRTypeConverter : public M::LLVMTypeConverter {
 public:
   using LLVMTypeConverter::LLVMTypeConverter;
 
+  // lower the type descriptor
+  M::Type convertTypeDescType(M::MLIRContext *ctx) {
+    return M::IntegerType::get(64, ctx);  // FIXME
+  }
+
   /// Convert FIR types to LLVM IR dialect types
   M::Type convertType(M::Type t) override {
+    auto &llvmCtx{getLLVMContext()};
     if (auto ref = t.dyn_cast<FIRReferenceType>()) {
       auto ele = ref.getEleTy();
       auto eleTy = convertType(ele);
       if (ele.dyn_cast<FIRSequenceType>()) {
         return eleTy;
       }
-      return M::MemRefType::get(llvm::ArrayRef<std::int64_t>{}, eleTy);
+      return M::MemRefType::get(L::ArrayRef<std::int64_t>{}, eleTy);
     }
     if (auto real = t.dyn_cast<FIRRealType>()) {
-      auto *ctx{real.getContext()};
-      auto &llvmCtx{getLLVMContext()};
-      llvm::Type *llTy{nullptr};
+      L::Type *llTy{nullptr};
       switch (real.getFKind()) {
-      case 10: llTy = llvm::Type::getX86_FP80Ty(llvmCtx); break;
+      case 10: llTy = L::Type::getX86_FP80Ty(llvmCtx); break;
       case 16:
-        // FIXME: llTy = llvm::Type::getPPC_FP128Ty(llvmCtx);
-        llTy = llvm::Type::getFP128Ty(llvmCtx);
+        // FIXME: llTy = L::Type::getPPC_FP128Ty(llvmCtx);
+        llTy = L::Type::getFP128Ty(llvmCtx);
         break;
       default: assert(false && "unsupported REAL kind"); break;
       }
-      return M::LLVM::LLVMType::get(ctx, llTy);
+      return M::LLVM::LLVMType::get(real.getContext(), llTy);
     }
     if (auto log = t.dyn_cast<FIRLogicalType>()) {
-      llvm::Type *llTy{
-          llvm::Type::getIntNTy(getLLVMContext(), log.getSizeInBits())};
+      L::Type *llTy{L::Type::getIntNTy(llvmCtx, log.getSizeInBits())};
       return M::LLVM::LLVMType::get(log.getContext(), llTy);
     }
     if (auto chr = t.dyn_cast<FIRCharacterType>()) {
-      llvm::Type *llTy{
-          llvm::Type::getIntNTy(getLLVMContext(), chr.getSizeInBits())};
+      L::Type *llTy{L::Type::getIntNTy(llvmCtx, chr.getSizeInBits())};
       return M::LLVM::LLVMType::get(chr.getContext(), llTy);
     }
     if (auto tup = t.dyn_cast<FIRTupleType>()) {
       return t;  // fixme
     }
+    if (auto box = t.dyn_cast<FIRBoxType>()) {
+      // (buffer*, ele-size, rank, type-descriptor, attribute, [dims])
+      L::SmallVector<M::Type, 6> parts;
+      // buffer*
+      // ele-size
+      // rank
+      parts.push_back(convertTypeDescType(box.getContext()));
+      // attribute
+      //[dims]
+      // ...
+      return t;  // fixme
+    }
+    if (auto box = t.dyn_cast<FIRBoxCharType>()) {
+      // (buffer*, buffer-size)
+      L::SmallVector<M::Type, 2> parts;
+      // buffer*
+      parts.push_back(M::LLVM::LLVMType::get(
+          box.getContext(), L::Type::getIntNTy(llvmCtx, 64)));
+      // ...
+      return t;  // fixme
+    }
+    if (auto box = t.dyn_cast<FIRBoxProcType>()) {
+      // (function*, host-context*)
+      return t;  // fixme
+    }
+    if (auto dims = t.dyn_cast<FIRDimsType>()) {
+      // [(lower, extent, stride)]
+      return t;  // fixme
+    }
     if (auto seq = t.dyn_cast<FIRSequenceType>()) {
       auto eleTy = convertType(seq.getEleTy());
       auto shape = seq.getShape();
-      llvm::SmallVector<int64_t, 4> memshape;
+      L::SmallVector<int64_t, 4> memshape;
       if (std::holds_alternative<FIRSequenceType::Bounds>(shape)) {
         for (auto bi : std::get<FIRSequenceType::Bounds>(shape)) {
           std::visit(Co::visitors{
@@ -112,17 +147,17 @@ public:
       return M::MemRefType::get(memshape, eleTy);
     }
     if (auto tdesc = t.dyn_cast<FIRTypeDescType>()) {
-      // lower the type descriptor
-      return M::IntegerType::get(64, tdesc.getContext());  // FIXME
+      return convertTypeDescType(tdesc.getContext());
     }
     return t;
   }
 
+  // Convert !fir.ref types to LLVM pointer types
   M::Type convertToLLVMType(M::Type t) {
     if (auto ref = t.dyn_cast<FIRReferenceType>()) {
       auto ele = convertToLLVMType(ref.getEleTy());
       auto *eleTy = ele.cast<M::LLVM::LLVMType>().getUnderlyingType();
-      llvm::Type *ptrTy = eleTy->getPointerTo();
+      L::Type *ptrTy = eleTy->getPointerTo();
       return M::LLVM::LLVMType::get(ref.getContext(), ptrTy);
     }
     return LLVMTypeConverter::convertType(t);
@@ -131,7 +166,7 @@ public:
 
 class FIROpConversion : public M::ConversionPattern {
 protected:
-  FIROpConversion(llvm::StringRef rootName, M::PatternBenefit benefit,
+  FIROpConversion(L::StringRef rootName, M::PatternBenefit benefit,
       M::MLIRContext *ctx, FIRTypeConverter &lowering)
     : ConversionPattern(rootName, benefit, ctx), lowering(lowering) {}
 
@@ -147,11 +182,9 @@ public:
   M::PatternMatchResult matchAndRewrite(M::Operation *op, OperandTy operands,
       M::PatternRewriter &rewriter) const override {
     auto alloc{M::cast<AllocaExpr>(op)};
-    llvm::SmallVector<M::Value *, 1> vec;
-    vec.emplace_back(rewriter.create<M::LLVM::AllocaOp>(alloc.getLoc(),
-        lowering.convertToLLVMType(alloc.getType()),
-        llvm::ArrayRef<M::Value *>{}, llvm::ArrayRef<M::NamedAttribute>{}));
-    rewriter.replaceOp(op, vec);
+    M::Value *v{rewriter.create<M::LLVM::AllocaOp>(alloc.getLoc(),
+        lowering.convertType(alloc.getType()), OperandTy{}, AttributeTy{})};
+    rewriter.replaceOp(op, v);
     return matchSuccess();
   }
 };
@@ -183,6 +216,53 @@ public:
   }
 };
 
+// lower the type to MLIR standard dialect
+class ConvertOpConversion : public FIROpConversion {
+public:
+  explicit ConvertOpConversion(M::MLIRContext *ctxt, FIRTypeConverter &lowering)
+    : FIROpConversion(ConvertOp::getOperationName(), 1, ctxt, lowering) {}
+
+  M::PatternMatchResult matchAndRewrite(M::Operation *op, OperandTy operands,
+      M::PatternRewriter &rewriter) const override {
+    auto convert = M::cast<ConvertOp>(op);
+    M::Value *v{rewriter.create<ConvertOp>(convert.getLoc(), operands[0],
+        lowering.convertType(convert.getType()))};
+    rewriter.replaceOp(op, v);
+    return matchSuccess();
+  }
+};
+
+// lower the type to MLIR standard dialect
+class CoordinateOpConversion : public FIROpConversion {
+public:
+  explicit CoordinateOpConversion(
+      M::MLIRContext *ctxt, FIRTypeConverter &lowering)
+    : FIROpConversion(CoordinateOp::getOperationName(), 1, ctxt, lowering) {}
+
+  M::PatternMatchResult matchAndRewrite(M::Operation *op, OperandTy operands,
+      M::PatternRewriter &rewriter) const override {
+    auto coor = M::cast<CoordinateOp>(op);
+    M::Value *v{rewriter.create<CoordinateOp>(
+        coor.getLoc(), operands, lowering.convertType(coor.getType()))};
+    rewriter.replaceOp(op, v);
+    return matchSuccess();
+  }
+};
+
+class ExtractValueOpConversion : public FIROpConversion {
+public:
+  explicit ExtractValueOpConversion(
+      M::MLIRContext *ctxt, FIRTypeConverter &lowering)
+    : FIROpConversion(ExtractValueOp::getOperationName(), 1, ctxt, lowering) {}
+
+  M::PatternMatchResult matchAndRewrite(M::Operation *op, OperandTy operands,
+      M::PatternRewriter &rewriter) const override {
+    // FIXME
+    assert(false);
+    return matchSuccess();
+  }
+};
+
 class FreeMemOpConversion : public FIROpConversion {
 public:
   explicit FreeMemOpConversion(M::MLIRContext *ctxt, FIRTypeConverter &lowering)
@@ -210,6 +290,20 @@ public:
   }
 };
 
+class InsertValueOpConversion : public FIROpConversion {
+public:
+  explicit InsertValueOpConversion(
+      M::MLIRContext *ctxt, FIRTypeConverter &lowering)
+    : FIROpConversion(InsertValueOp::getOperationName(), 1, ctxt, lowering) {}
+
+  M::PatternMatchResult matchAndRewrite(M::Operation *op, OperandTy operands,
+      M::PatternRewriter &rewriter) const override {
+    // FIXME
+    assert(false);
+    return matchSuccess();
+  }
+};
+
 class LoadExprConversion : public FIROpConversion {
 public:
   explicit LoadExprConversion(M::MLIRContext *ctxt, FIRTypeConverter &lowering)
@@ -218,10 +312,9 @@ public:
   M::PatternMatchResult matchAndRewrite(M::Operation *op, OperandTy operands,
       M::PatternRewriter &rewriter) const override {
     auto load = M::cast<LoadExpr>(op);
-    llvm::SmallVector<M::Value *, 1> vec;
-    vec.emplace_back(rewriter.create<M::LoadOp>(load.getLoc(),
-        lowering.convertType(load.getType()), operands, AttributeTy{}));
-    rewriter.replaceOp(op, vec);
+    M::Value *v{rewriter.create<M::LoadOp>(load.getLoc(),
+        lowering.convertType(load.getType()), operands, AttributeTy{})};
+    rewriter.replaceOp(op, v);
     return matchSuccess();
   }
 };
@@ -246,8 +339,7 @@ public:
     : FIROpConversion(SelectOp::getOperationName(), 1, ctxt, lowering) {}
 
   M::PatternMatchResult matchAndRewrite(M::Operation *op, OperandTy operands,
-      llvm::ArrayRef<M::Block *> destinations,
-      llvm::ArrayRef<OperandTy> destOperands,
+      L::ArrayRef<M::Block *> destinations, L::ArrayRef<OperandTy> destOperands,
       M::PatternRewriter &rewriter) const override {
     // FIXME
     assert(false);
@@ -262,9 +354,12 @@ public:
     : FIROpConversion(SelectCaseOp::getOperationName(), 1, ctxt, lowering) {}
 
   M::PatternMatchResult matchAndRewrite(M::Operation *op, OperandTy operands,
-      llvm::ArrayRef<M::Block *> destinations,
-      llvm::ArrayRef<OperandTy> destOperands,
-      M::PatternRewriter &rewriter) const override;
+      L::ArrayRef<M::Block *> destinations, L::ArrayRef<OperandTy> destOperands,
+      M::PatternRewriter &rewriter) const override {
+    // FIXME
+    assert(false);
+    return matchSuccess();
+  }
 };
 
 class SelectRankOpConversion : public FIROpConversion {
@@ -274,9 +369,12 @@ public:
     : FIROpConversion(SelectRankOp::getOperationName(), 1, ctxt, lowering) {}
 
   M::PatternMatchResult matchAndRewrite(M::Operation *op, OperandTy operands,
-      llvm::ArrayRef<M::Block *> destinations,
-      llvm::ArrayRef<OperandTy> destOperands,
-      M::PatternRewriter &rewriter) const override;
+      L::ArrayRef<M::Block *> destinations, L::ArrayRef<OperandTy> destOperands,
+      M::PatternRewriter &rewriter) const override {
+    // FIXME
+    assert(false);
+    return matchSuccess();
+  }
 };
 
 class SelectTypeOpConversion : public FIROpConversion {
@@ -286,9 +384,12 @@ public:
     : FIROpConversion(SelectTypeOp::getOperationName(), 1, ctxt, lowering) {}
 
   M::PatternMatchResult matchAndRewrite(M::Operation *op, OperandTy operands,
-      llvm::ArrayRef<M::Block *> destinations,
-      llvm::ArrayRef<OperandTy> destOperands,
-      M::PatternRewriter &rewriter) const override;
+      L::ArrayRef<M::Block *> destinations, L::ArrayRef<OperandTy> destOperands,
+      M::PatternRewriter &rewriter) const override {
+    // FIXME
+    assert(false);
+    return matchSuccess();
+  }
 };
 
 class StoreExprConversion : public FIROpConversion {
@@ -298,9 +399,8 @@ public:
 
   M::PatternMatchResult matchAndRewrite(M::Operation *op, OperandTy operands,
       M::PatternRewriter &rewriter) const override {
-    M::Value *data = operands[1];
-    M::Value *addr = operands[0];
-    rewriter.create<M::StoreOp>(op->getLoc(), addr, data);
+    rewriter.create<M::StoreOp>(
+        op->getLoc(), L::ArrayRef<M::Type>{}, operands, AttributeTy{});
     op->erase();
     return matchSuccess();
   }
@@ -315,10 +415,9 @@ public:
   M::PatternMatchResult matchAndRewrite(M::Operation *op, OperandTy operands,
       M::PatternRewriter &rewriter) const override {
     auto undef = M::cast<UndefOp>(op);
-    llvm::SmallVector<M::Value *, 1> vec;
-    vec.emplace_back(rewriter.create<M::LLVM::UndefOp>(
-        undef.getLoc(), lowering.convertToLLVMType(undef.getType())));
-    rewriter.replaceOp(op, vec);
+    M::Value *v{rewriter.create<M::LLVM::UndefOp>(
+        undef.getLoc(), lowering.convertToLLVMType(undef.getType()))};
+    rewriter.replaceOp(op, v);
     return matchSuccess();
   }
 };
@@ -331,8 +430,8 @@ public:
 
   M::PatternMatchResult matchAndRewrite(M::Operation *op, OperandTy operands,
       M::PatternRewriter &rewriter) const override {
-    llvm::SmallVector<M::Block *, 1> destinations;
-    llvm::SmallVector<OperandTy, 1> destOperands;
+    L::SmallVector<M::Block *, 1> destinations;  // none
+    L::SmallVector<OperandTy, 1> destOperands;  // none
     rewriter.create<M::LLVM::UnreachableOp>(
         op->getLoc(), operands, destinations, destOperands, op->getAttrs());
     return matchSuccess();
@@ -342,10 +441,10 @@ public:
 // Lower a SELECT operation into a cascade of conditional branches. The last
 // case must be the `true` condition.
 inline void rewriteSelectConstruct(M::Operation *op, OperandTy operands,
-    llvm::ArrayRef<M::Block *> dests, llvm::ArrayRef<OperandTy> destOperands,
+    L::ArrayRef<M::Block *> dests, L::ArrayRef<OperandTy> destOperands,
     M::OpBuilder &rewriter) {
-  llvm::SmallVector<M::Value *, 1> noargs;
-  llvm::SmallVector<M::Block *, 8> blocks;
+  L::SmallVector<M::Value *, 1> noargs;
+  L::SmallVector<M::Block *, 8> blocks;
   auto loc{op->getLoc()};
   blocks.push_back(rewriter.getInsertionBlock());
   for (std::size_t i = 1; i < dests.size(); ++i)
@@ -375,22 +474,22 @@ class FIRToStdLoweringPass : public M::ModulePass<FIRToStdLoweringPass> {
     if (M::dyn_cast<SelectCaseOp>(op) || M::dyn_cast<SelectRankOp>(op) ||
         M::dyn_cast<SelectTypeOp>(op)) {
       // build the lists of operands and successors
-      llvm::SmallVector<M::Value *, 4> operands{
+      L::SmallVector<M::Value *, 4> operands{
           op->operand_begin(), op->operand_end()};
-      llvm::SmallVector<M::Block *, 2> destinations;
+      L::SmallVector<M::Block *, 2> destinations;
       destinations.reserve(op->getNumSuccessors());
-      llvm::SmallVector<llvm::ArrayRef<M::Value *>, 2> destOperands;
+      L::SmallVector<OperandTy, 2> destOperands;
       unsigned firstSuccOpd = op->getSuccessorOperandIndex(0);
       for (unsigned i = 0, seen = 0, e = op->getNumSuccessors(); i < e; ++i) {
         destinations.push_back(op->getSuccessor(i));
         unsigned n = op->getNumSuccessorOperands(i);
         destOperands.push_back(
-            llvm::makeArrayRef(operands.data() + firstSuccOpd + seen, n));
+            L::makeArrayRef(operands.data() + firstSuccOpd + seen, n));
         seen += n;
       }
       // do the rewrite
       rewriteSelectConstruct(op,
-          llvm::makeArrayRef(operands.data(), operands.data() + firstSuccOpd),
+          L::makeArrayRef(operands.data(), operands.data() + firstSuccOpd),
           destinations, destOperands, *builder);
       op->erase();
     }
@@ -407,10 +506,12 @@ public:
     FIRTypeConverter typeConverter{&context};
     M::OwningRewritePatternList patterns;
     M::RewriteListBuilder<AllocaExprConversion, AllocMemOpConversion,
-        ApplyExprConversion, FreeMemOpConversion, GlobalExprConversion,
-        LoadExprConversion, LocateExprConversion, StoreExprConversion,
-        UndefOpConversion, UnreachableOpConversion>::build(patterns, &context,
-        typeConverter);
+        ApplyExprConversion, ConvertOpConversion, CoordinateOpConversion,
+        ExtractValueOpConversion, FreeMemOpConversion, GlobalExprConversion,
+        InsertValueOpConversion, LoadExprConversion, LocateExprConversion,
+        SelectOpConversion, SelectCaseOpConversion, SelectRankOpConversion,
+        SelectTypeOpConversion, StoreExprConversion, UndefOpConversion,
+        UnreachableOpConversion>::build(patterns, &context, typeConverter);
     M::ConversionTarget target{context};
     target.addLegalDialect<M::AffineOpsDialect, M::LLVM::LLVMDialect,
         M::StandardOpsDialect>();
@@ -429,7 +530,7 @@ public:
   void runOnModule() override {
     if (auto llvmModule{M::translateModuleToLLVMIR(getModule())}) {
       std::error_code ec;
-      auto stream{llvm::raw_fd_ostream("a.ll", ec, llvm::sys::fs::F_None)};
+      auto stream{L::raw_fd_ostream("a.ll", ec, L::sys::fs::F_None)};
       stream << *llvmModule << '\n';
     } else {
       auto ctxt{getModule().getContext()};

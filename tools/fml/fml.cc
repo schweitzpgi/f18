@@ -103,7 +103,7 @@ struct DriverOptions {
   bool forcedForm{false};  // -Mfixed or -Mfree appeared
   bool warnOnNonstandardUsage{false};  // -Mstandard
   bool warningsAreErrors{false};  // -Werror
-  Fortran::parser::Encoding encoding{Fortran::parser::Encoding::UTF8};
+  Fortran::parser::Encoding encoding{Fortran::parser::Encoding::UTF_8};
   bool parseOnly{false};
   bool dumpProvenance{false};
   bool dumpCookedChars{false};
@@ -265,8 +265,8 @@ std::string CompileFortran(std::string path, Fortran::parser::Options options,
 
   // MLIR+FIR
   auto ctxt{Br::getFortranMLIRContext()};
-  std::unique_ptr<mlir::Module> mlirModule =
-      Br::MLIRViaduct(*ctxt, parseTree, semanticsContext);
+  Br::setDefaultKinds(semanticsContext.defaultKinds());
+  std::unique_ptr<mlir::Module> mlirModule = Br::MLIRViaduct(*ctxt, parseTree);
   mlir::PassManager pm;
   if (driver.dumpHLFIR) {
     llvm::outs() << ";== 1 ==\n";
@@ -295,7 +295,8 @@ std::string CompileFortran(std::string path, Fortran::parser::Options options,
 std::string CompileFir(std::string path, Fortran::parser::Options options,
     DriverOptions &driver,
     Fortran::semantics::SemanticsContext &semanticsContext) {
-  auto ctxt = Br::getFortranMLIRContext();
+  auto ctxt{Br::getFortranMLIRContext()};
+  Br::setDefaultKinds(semanticsContext.defaultKinds());
   mlir::MLIRContext &context = *ctxt.get();
 
   // check that there is a file to load
@@ -566,12 +567,9 @@ int main(int argc, char *const argv[]) {
         args.pop_front();
       } else if (arg.substr(0, 2) == "-I") {
         driver.searchDirectories.push_back(arg.substr(2));
-      } else if (arg == "-Mx,125,4") {  // PGI "all Kanji" mode
-        options.encoding = Fortran::parser::Encoding::EUC_JP;
       }
     }
   }
-  driver.encoding = options.encoding;
 
   if (driver.warnOnNonstandardUsage) {
     options.features.WarnOnAllNonstandard();

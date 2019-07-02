@@ -20,7 +20,7 @@
 /// all `fir.apply_expr` and `fir.locate_expr` will be erased.
 
 namespace llvm {
-template<typename A> class ArrayRef;
+template<typename> class ArrayRef;
 }
 
 namespace mlir {

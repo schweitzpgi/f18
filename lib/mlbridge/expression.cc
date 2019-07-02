@@ -49,7 +49,6 @@ namespace {
 /// data flow between Fortran expressions.
 class TreeArgsBuilder {
   FIRBuilder *builder;
-  Se::SemanticsContext &semanCtx;
   Args results;
   Dict dictionary;
   ExprType visited{ET_NONE};
@@ -70,8 +69,7 @@ class TreeArgsBuilder {
   M::Location dummyLoc() { return M::UnknownLoc::get(builder->getContext()); }
 
 public:
-  explicit TreeArgsBuilder(FIRBuilder *builder, Se::SemanticsContext &sc)
-    : builder{builder}, semanCtx{sc} {}
+  explicit TreeArgsBuilder(FIRBuilder *builder) : builder{builder} {}
 
   // FIXME: what we generate for a `Symbol` depends on the category of the
   // symbol
@@ -97,13 +95,11 @@ public:
     visited = ET_Symbol;
   }
 
-  // FIXME - need to handle the different cases
   template<typename A> void gen(const Ev::Designator<A> &des, bool asAddr) {
     std::visit(Co::visitors{
                    [&](const Se::Symbol *x) {
                      auto *ctx{builder->getContext()};
-                     M::Type ty{
-                         translateDesignatorToFIRType(ctx, semanCtx, des)};
+                     M::Type ty{translateDesignatorToFIRType(ctx, des)};
                      gen(x, ty, asAddr);
                    },
                    [&](const auto &x) { gen(x, asAddr); },
@@ -124,7 +120,7 @@ public:
     std::visit(Co::visitors{
                    [&](const Se::Symbol *x) {
                      auto *ctx{builder->getContext()};
-                     M::Type ty{translateDataRefToFIRType(ctx, semanCtx, dref)};
+                     M::Type ty{translateDataRefToFIRType(ctx, dref)};
                      gen(x, ty, asAddr);
                    },
                    [&](const auto &x) { gen(x, asAddr); },
@@ -132,31 +128,39 @@ public:
         dref.u);
   }
 
+  // Note that `NamedEntity` hides its variant member
+  void gen(const Ev::NamedEntity &ne, bool asAddr) {
+    if (ne.IsSymbol()) {
+      // GetFirstSymbol recovers the Symbol* variant
+      const Se::Symbol *x = &ne.GetFirstSymbol();
+      auto *ctx{builder->getContext()};
+      M::Type ty{translateSymbolToFIRType(ctx, x)};
+      gen(x, ty, asAddr);
+    } else {
+      gen(ne.GetComponent(), asAddr);
+    }
+  }
+
+  // Common pattern for all optional<A>
+  template<typename A> void gen(const std::optional<A> &opt, bool asAddr) {
+    if (opt.has_value()) {
+      gen(opt.value(), asAddr);
+    }
+  }
+
   void gen(const Ev::Triplet &triplet, bool asAddr) {
-    if (triplet.lower().has_value()) {
-      gen(triplet.lower().value(), asAddr);
-    }
-    if (triplet.upper().has_value()) {
-      gen(triplet.upper().value(), asAddr);
-    }
+    gen(triplet.lower(), asAddr);
+    gen(triplet.upper(), asAddr);
     gen(triplet.stride(), asAddr);
   }
 
-  /// Lower an array reference
+  /// Lower an array reference (implies address arithmetic)
   ///
   /// Visit each of the expressions in each dimension of the array access so as
   /// to add them to the data flow.
   void gen(const Ev::ArrayRef &aref, bool asAddr) {
     // add the base
-    std::visit(Co::visitors{
-                   [&](const Ev::Component &x) { gen(x, true); },
-                   [&](const Se::Symbol *x) {
-                     auto *ctx{builder->getContext()};
-                     M::Type ty{translateSymbolToFIRType(ctx, semanCtx, x)};
-                     gen(x, ty, true);
-                   },
-               },
-        aref.base());
+    gen(aref.base(), true);
     // add each expression
     for (int i = 0, e = aref.size(); i < e; ++i)
       std::visit(Co::visitors{
@@ -170,10 +174,11 @@ public:
   }
 
   void gen(const Ev::NullPointer &, bool) { visited = ET_NullPointer; }
+
+  // implies address arithmetic (and inter-image communication)
   void gen(const Ev::CoarrayRef &coref, bool asAddr) {
     for (auto *sym : coref.base()) {
-      M::Type ty{};  // FIXME
-      gen(sym, ty, true);
+      gen(sym, translateSymbolToFIRType(builder->getContext(), sym), true);
     }
     for (auto &subs : coref.subscript()) {
       std::visit(Co::visitors{
@@ -189,19 +194,24 @@ public:
     }
     visited = ET_CoarrayRef;
   }
+
+  // implies address arithmetic
   void gen(const Ev::Component &cmpt, bool) {
     gen(cmpt.base(), true);
     visited = ET_Component;
   }
-  void gen(const Ev::Substring &subs, bool) {
-    gen(subs.lower(), true);
-    gen(subs.upper(), true);
+
+  void gen(const Ev::Substring &subs, bool asAddr) {
+    gen(subs.lower(), asAddr);
+    gen(subs.upper(), asAddr);
     visited = ET_Substring;
   }
+
   void gen(const Ev::ComplexPart &, bool) { visited = ET_ComplexPart; }
   void gen(const Ev::ImpliedDoIndex &, bool) {
     // do nothing
   }
+
   void gen(const Ev::StructureConstructor &, bool) {
     visited = ET_StructureCtor;
   }
@@ -216,13 +226,10 @@ public:
     TODO();
     visited = ET_DescriptorInquiry;
   }
+
   template<int KIND>
   void gen(const Ev::TypeParamInquiry<KIND> &inquiry, bool asAddr) {
-    std::visit(Co::visitors{
-                   [&](const Se::Symbol *x) {},  // FIXME
-                   [&](auto &x) { gen(x, asAddr); },
-               },
-        inquiry.base());
+    gen(inquiry.base(), asAddr);
     visited = ET_TypeParamInquiry;
   }
 
@@ -235,23 +242,26 @@ public:
           gen(*x, asAddr);
         } else {
           auto *sym{xarg.GetAssumedTypeDummy()};
-          gen(sym, M::Type{} /*FIXME*/, asAddr);
+          auto *ctx{builder->getContext()};
+          gen(sym, translateSymbolToFIRType(ctx, sym), asAddr);
         }
       }
     }
   }
 
   void gen(const Ev::ProcedureDesignator &des, bool asAddr) {
-    std::visit(
-        Co::visitors{
-            [&](const Ev::SpecificIntrinsic &) {
-              // do nothing
-            },
-            [&](const Se::Symbol *sym) { gen(sym, M::Type{} /*FIXME*/, true); },
-            [&](const Co::CopyableIndirection<Ev::Component> &x) {
-              gen(x.value(), true);
-            },
-        },
+    std::visit(Co::visitors{
+                   [&](const Ev::SpecificIntrinsic &) {
+                     // do nothing
+                   },
+                   [&](const Se::Symbol *sym) {
+                     auto *ctx{builder->getContext()};
+                     gen(sym, translateSymbolToFIRType(ctx, sym), true);
+                   },
+                   [&](const Co::CopyableIndirection<Ev::Component> &x) {
+                     gen(x.value(), true);
+                   },
+               },
         des.u);
   }
 
@@ -264,11 +274,11 @@ public:
                          return M::Type{};
                        },
                        [&](const Se::Symbol *x) {
-                         return translateSymbolToFIRType(ctx, semanCtx, x);
+                         return translateSymbolToFIRType(ctx, x);
                        },
                        [&](const Co::CopyableIndirection<Ev::Component> &x) {
                          auto *sym{&x.value().GetLastSymbol()};
-                         return translateSymbolToFIRType(ctx, semanCtx, sym);
+                         return translateSymbolToFIRType(ctx, sym);
                        },
                    },
             proc.u)};
@@ -307,9 +317,9 @@ public:
     for (auto &arg : funref.arguments()) {
       if (arg.has_value()) {
         if (auto *aa{arg->UnwrapExpr()}) {
-          auto eops{translateSomeExpr(builder, semanCtx, aa)};
-          auto aaType{FIRReferenceType::get(
-              translateSomeExprToFIRType(context, semanCtx, aa))};
+          auto eops{translateSomeExpr(builder, aa)};
+          auto aaType{
+              FIRReferenceType::get(translateSomeExprToFIRType(context, aa))};
           M::Value *toLoc{nullptr};
           auto *defOp{getArgs(eops)[0]->getDefiningOp()};
           if (auto load = M::dyn_cast<LoadExpr>(defOp)) {
@@ -323,7 +333,7 @@ public:
         } else {
           auto *x{arg->GetAssumedTypeDummy()};
           // FIXME: can argument not be passed by reference?
-          gen(x, translateSymbolToFIRType(context, semanCtx, x), true);
+          gen(x, translateSymbolToFIRType(context, x), true);
         }
       } else {
         assert(false && "argument is std::nullopt?");
@@ -336,11 +346,12 @@ public:
     visited = ET_FunctionRef;
   }
 
-  template<typename A> void gen(const Ev::ImpliedDo<A> &ido, bool) {
-    gen(ido.lower(), false);
-    gen(ido.upper(), false);
-    gen(ido.stride(), false);
+  template<typename A> void gen(const Ev::ImpliedDo<A> &ido, bool asAddr) {
+    gen(ido.lower(), asAddr);
+    gen(ido.upper(), asAddr);
+    gen(ido.stride(), asAddr);
   }
+
   template<typename A>
   void gen(const Ev::ArrayConstructor<A> &arrayCtor, bool asAddr) {
     for (auto i{arrayCtor.begin()}, end{arrayCtor.end()}; i != end; ++i) {
@@ -354,6 +365,7 @@ public:
     gen(op.right(), asAddr);
     visited = ET_Relational;
   }
+
   void gen(const Ev::Relational<Ev::SomeType> &op, bool asAddr) {
     std::visit([&](const auto &x) { gen(x, asAddr); }, op.u);
   }
@@ -370,9 +382,8 @@ public:
 // Builds the `([results], [inputs], {dict})` pair for constructing both
 // `fir.apply_expr` and `fir.locate_expr` operations.
 template<bool AddressResult>
-inline Values translateToFIR(
-    FIRBuilder *bldr, Se::SemanticsContext &semanCtx, const SomeExpr *exp) {
-  TreeArgsBuilder ab{bldr, semanCtx};
+inline Values translateToFIR(FIRBuilder *bldr, const SomeExpr *exp) {
+  TreeArgsBuilder ab{bldr};
   ab.gen(*exp, AddressResult);
   return {ab.getResults(), ab.getDictionary(), ab.getExprType()};
 }
@@ -380,13 +391,11 @@ inline Values translateToFIR(
 }  // namespace
 
 // `fir.apply_expr` builder
-Values Br::translateSomeExpr(
-    FIRBuilder *bldr, Se::SemanticsContext &semanCtx, const SomeExpr *exp) {
-  return translateToFIR<false>(bldr, semanCtx, exp);
+Values Br::translateSomeExpr(FIRBuilder *bldr, const SomeExpr *exp) {
+  return translateToFIR<false>(bldr, exp);
 }
 
 // `fir.locate_expr` builder
-Values Br::translateSomeAddrExpr(
-    FIRBuilder *bldr, Se::SemanticsContext &semanCtx, const SomeExpr *exp) {
-  return translateToFIR<true>(bldr, semanCtx, exp);
+Values Br::translateSomeAddrExpr(FIRBuilder *bldr, const SomeExpr *exp) {
+  return translateToFIR<true>(bldr, exp);
 }

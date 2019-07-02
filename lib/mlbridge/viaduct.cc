@@ -47,6 +47,8 @@ namespace {
 
 using SomeExpr = Ev::Expr<Ev::SomeType>;
 
+const Co::IntrinsicTypeDefaultKinds *defaultKinds{nullptr};
+
 constexpr bool isStopStmt(Pa::StopStmt::Kind kind) {
   return kind == Pa::StopStmt::Kind::Stop;
 }
@@ -64,7 +66,6 @@ class MLIRConverter {
   };
 
   M::MLIRContext &mlirContext;
-  Se::SemanticsContext &semanticsContext;
   std::unique_ptr<M::Module> module;
   std::unique_ptr<FIRBuilder> builder;
   LabelMapType blockMap;  // map from flattened labels to MLIR blocks
@@ -81,30 +82,28 @@ class MLIRConverter {
 
   /// Construct the type of an Expr<A> expression
   M::Type exprType(const SomeExpr *expr) {
-    return translateSomeExprToFIRType(&mlirContext, semanticsContext, expr);
+    return translateSomeExprToFIRType(&mlirContext, expr);
   }
   M::Type refExprType(const SomeExpr *expr) {
-    auto type{translateSomeExprToFIRType(&mlirContext, semanticsContext, expr)};
+    auto type{translateSomeExprToFIRType(&mlirContext, expr)};
     return FIRReferenceType::get(type);
   }
 
   int getDefaultIntegerKind() {
-    return Ev::ExpressionAnalyzer{semanticsContext}.GetDefaultKind(
-        Co::TypeCategory::Integer);
+    return getDefaultKinds().GetDefaultKind(Co::TypeCategory::Integer);
   }
   M::Type getDefaultIntegerType() {
     return M::IntegerType::get(8 * getDefaultIntegerKind(), &mlirContext);
   }
   int getDefaultLogicalKind() {
-    return Ev::ExpressionAnalyzer{semanticsContext}.GetDefaultKind(
-        Co::TypeCategory::Logical);
+    return getDefaultKinds().GetDefaultKind(Co::TypeCategory::Logical);
   }
   M::Type getDefaultLogicalType() {
     return FIRLogicalType::get(&mlirContext, getDefaultLogicalKind());
   }
 
   M::Value *createFIRExpr(M::Location loc, const SomeExpr *expr) {
-    auto exprOps{translateSomeExpr(builder.get(), semanticsContext, expr)};
+    auto exprOps{translateSomeExpr(builder.get(), expr)};
     if (getExprType(exprOps) == ET_FunctionRef) {
       const auto &args{getArgs(exprOps)};
       if (args.size() == 1) {
@@ -480,7 +479,7 @@ class MLIRConverter {
     auto *rhs{Se::GetExpr(std::get<Pa::Expr>(stmt.t))};
     auto *value{createFIRExpr(loc, rhs)};
     auto *lhs{Se::GetExpr(std::get<Pa::Variable>(stmt.t))};
-    auto lhsOps{translateSomeAddrExpr(builder.get(), semanticsContext, lhs)};
+    auto lhsOps{translateSomeAddrExpr(builder.get(), lhs)};
     M::Value *toLoc{nullptr};
     auto defOps{getArgs(lhsOps)};
     if (defOps.size() == 1)
@@ -608,9 +607,8 @@ class MLIRConverter {
   }
 
 public:
-  MLIRConverter(M::MLIRContext &mlirCtxt, Se::SemanticsContext &semCtxt)
-    : mlirContext{mlirCtxt}, semanticsContext{semCtxt},
-      module{llvm::make_unique<M::Module>(&mlirCtxt)} {}
+  MLIRConverter(M::MLIRContext &mlirCtxt)
+    : mlirContext{mlirCtxt}, module{llvm::make_unique<M::Module>(&mlirCtxt)} {}
   MLIRConverter() = delete;
 
   std::unique_ptr<M::Module> acquireModule() { return std::move(module); }
@@ -892,15 +890,13 @@ void MLIRConverter::translateRoutine(const A &routine, const std::string &name,
     if (funcSym) {
       if (auto *details{funcSym->detailsIf<Se::SubprogramDetails>()}) {
         for (auto a : details->dummyArgs()) {
-          auto type{
-              translateSymbolToFIRType(&mlirContext, semanticsContext, a)};
+          auto type{translateSymbolToFIRType(&mlirContext, a)};
           args.push_back(FIRReferenceType::get(type));
         }
         if (details->isFunction()) {
           // FIXME: handle subroutines that return magic values
           auto *result{&details->result()};
-          results.push_back(
-              translateSymbolToFIRType(&mlirContext, semanticsContext, result));
+          results.push_back(translateSymbolToFIRType(&mlirContext, result));
         }
       } else {
         llvm::errs() << "Symbol: " << funcSym->name().ToString() << " @ "
@@ -939,9 +935,9 @@ void MLIRConverter::translateRoutine(const A &routine, const std::string &name,
 
 }  // namespace
 
-std::unique_ptr<M::Module> Br::MLIRViaduct(M::MLIRContext &mlirCtxt,
-    const Pa::Program &prg, Se::SemanticsContext &semCtxt) {
-  MLIRConverter converter{mlirCtxt, semCtxt};
+std::unique_ptr<M::Module> Br::MLIRViaduct(
+    M::MLIRContext &mlirCtxt, const Pa::Program &prg) {
+  MLIRConverter converter{mlirCtxt};
   Walk(prg, converter);
   return converter.acquireModule();
 }
@@ -953,4 +949,13 @@ std::unique_ptr<llvm::Module> Br::LLVMViaduct(M::Module &module) {
 std::unique_ptr<M::MLIRContext> Br::getFortranMLIRContext() {
   M::registerDialect<FIROpsDialect>();
   return std::make_unique<M::MLIRContext>();
+}
+
+void Br::setDefaultKinds(const Co::IntrinsicTypeDefaultKinds &defKinds) {
+  defaultKinds = &defKinds;
+}
+
+const Co::IntrinsicTypeDefaultKinds &Br::getDefaultKinds() {
+  assert(defaultKinds && "must call setDefaultKinds() before MLIR bridge");
+  return *defaultKinds;
 }

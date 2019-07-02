@@ -34,7 +34,11 @@ using KindTy = int;
 // LLVM/MLIR coding standards
 
 namespace detail {
+struct FIRBoxTypeStorage;
+struct FIRBoxCharTypeStorage;
+struct FIRBoxProcTypeStorage;
 struct FIRCharacterTypeStorage;
+struct FIRDimsTypeStorage;
 struct FIRFieldTypeStorage;
 struct FIRLogicalTypeStorage;
 struct FIRRealTypeStorage;
@@ -58,7 +62,11 @@ struct FIRTypeDescTypeStorage;
 enum FIRTypeKind {
   // The enum starts at the range reserved for this dialect.
   FIR_TYPE = mlir::Type::FIRST_FIR_TYPE,
+  FIR_BOX,
+  FIR_BOXCHAR,
+  FIR_BOXPROC,
   FIR_CHARACTER,
+  FIR_DIMS,
   FIR_FIELD,
   FIR_LOGICAL,
   FIR_REAL,
@@ -124,6 +132,56 @@ public:
 };
 
 // FIR support types
+
+/// Boxed object (a Fortran descriptor)
+///
+/// A boxed object is a Fortran descriptor. An descriptor is a tuple of
+/// information that describes objects that are arrays, allocatables, or
+/// pointers. The tuple is of the form: (base-addr, type-descriptor, attributes,
+/// dims).  Element-size and rank can be derived.
+class FIRBoxType : public mlir::Type::TypeBase<FIRBoxType, mlir::Type,
+                       detail::FIRBoxTypeStorage> {
+public:
+  using Base::Base;
+  static FIRBoxType get(mlir::Type eleTy);
+  static bool kindof(unsigned kind) { return kind == FIRTypeKind::FIR_BOX; }
+  mlir::Type getEleTy() const;
+};
+
+/// Boxed CHARACTER object type
+///
+/// A boxed character object is an object with a pair of values:
+/// (pointer-of-buffer, length-of-buffer)
+class FIRBoxCharType : public mlir::Type::TypeBase<FIRBoxCharType, mlir::Type,
+                           detail::FIRBoxCharTypeStorage> {
+public:
+  using Base::Base;
+  static FIRBoxCharType get(FIRCharacterType charTy);
+  static bool kindof(unsigned kind) { return kind == FIRTypeKind::FIR_BOXCHAR; }
+  FIRCharacterType getEleTy() const;
+};
+
+/// Boxed PROCEDURE POINTER object type
+///
+/// A boxed procedure pointer object is an object with a pair of values:
+/// (pointer-to-function, opt-pointer-to-host-context)
+class FIRBoxProcType : public mlir::Type::TypeBase<FIRBoxProcType, mlir::Type,
+                           detail::FIRBoxProcTypeStorage> {
+public:
+  using Base::Base;
+  static FIRBoxProcType get(mlir::Type eleTy);
+  static bool kindof(unsigned kind) { return kind == FIRTypeKind::FIR_BOXPROC; }
+  mlir::Type getEleTy() const;
+};
+
+class FIRDimsType : public mlir::Type::TypeBase<FIRDimsType, mlir::Type,
+                        detail::FIRDimsTypeStorage> {
+public:
+  using Base::Base;
+  static FIRDimsType get(mlir::MLIRContext *ctx, unsigned rank);
+  static bool kindof(unsigned kind) { return kind == FIRTypeKind::FIR_DIMS; }
+  unsigned getRank() const;
+};
 
 /// Pointer-like objects
 ///

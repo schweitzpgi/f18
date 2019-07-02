@@ -15,6 +15,7 @@
 #include "fir-dialect.h"
 #include "fir-type.h"
 #include "../evaluate/expression.h"
+#include "mlir/IR/StandardTypes.h"
 #include "mlir/LLVMIR/LLVMDialect.h"
 
 namespace Br = Fortran::mlbridge;
@@ -50,12 +51,16 @@ void selectBuild(M::OpBuilder *builder, M::OperationState *result,
 }  // namespace
 
 Br::FIROpsDialect::FIROpsDialect(M::MLIRContext *ctx) : M::Dialect("fir", ctx) {
-  addTypes<FIRCharacterType, FIRFieldType, FIRLogicalType, FIRRealType,
-      FIRReferenceType, FIRSequenceType, FIRTupleType, FIRTypeDescType>();
-  addOperations<AddressOp, AllocaExpr, AllocMemOp, ApplyExpr, ConvertOp,
-      ExtractValueOp, FieldValueOp, FreeMemOp, GlobalExpr, InsertValueOp,
-      LoadExpr, LocateExpr, SelectOp, SelectCaseOp, SelectRankOp, SelectTypeOp,
-      StoreExpr, UndefOp, UnreachableOp>();
+  addTypes<FIRBoxType, FIRBoxCharType, FIRBoxProcType, FIRCharacterType,
+      FIRDimsType, FIRFieldType, FIRLogicalType, FIRRealType, FIRReferenceType,
+      FIRSequenceType, FIRTupleType, FIRTypeDescType>();
+  addOperations<AllocaExpr, AllocMemOp, ApplyExpr, BoxAddrOp, BoxCharLenOp,
+      BoxDimsOp, BoxEleSizeOp, BoxIsAllocOp, BoxIsPtrOp, BoxProcHostOp,
+      BoxRankOp, BoxTDescOp, ConvertOp, CoordinateOp, EmboxOp, EmboxCharOp,
+      EmboxProcOp, ExtractValueOp, FieldValueOp, FreeMemOp, GenDimsOp,
+      GlobalExpr, InsertValueOp, LoadExpr, LocateExpr, SelectOp, SelectCaseOp,
+      SelectRankOp, SelectTypeOp, StoreExpr, UnboxOp, UnboxCharOp, UnboxProcOp,
+      UndefOp, UnreachableOp>();
 }
 
 // anchor the class vtable
@@ -98,6 +103,20 @@ void Br::FIROpsDialect::printType(M::Type ty, llvm::raw_ostream &os) const {
     os << '>';
   } else if (auto type = ty.dyn_cast<FIRFieldType>()) {
     os << "field";
+  } else if (auto type = ty.dyn_cast<FIRBoxType>()) {
+    os << "box<";
+    type.getEleTy().print(os);
+    os << '>';
+  } else if (auto type = ty.dyn_cast<FIRBoxCharType>()) {
+    os << "boxchar<";
+    type.getEleTy().print(os);
+    os << '>';
+  } else if (auto type = ty.dyn_cast<FIRBoxProcType>()) {
+    os << "boxproc<";
+    type.getEleTy().print(os);
+    os << '>';
+  } else if (auto type = ty.dyn_cast<FIRDimsType>()) {
+    os << "dims<" << type.getRank() << '>';
   } else if (auto type = ty.dyn_cast<FIRSequenceType>()) {
     os << "array<";
     std::visit(Co::visitors{
@@ -145,16 +164,6 @@ M::Attribute Br::FIROpsDialect::parseAttribute(
 void Br::FIROpsDialect::printAttribute(
     M::Attribute attr, llvm::raw_ostream &os) const {
   os << '?';
-}
-
-/// AddressOp
-M::LogicalResult Br::AddressOp::verify() { return M::success(); }
-
-void Br::AddressOp::build(mlir::OpBuilder *builder,
-    mlir::OperationState *result, llvm::ArrayRef<mlir::Value *> operands,
-    M::Type opTy) {
-  result->addOperands(operands);
-  result->addTypes(FIRReferenceType::get(opTy));
 }
 
 /// AllocaExpr
@@ -208,6 +217,144 @@ std::map<unsigned, void *> *Br::ApplyExpr::getDict() {
   return reinterpret_cast<std::map<unsigned, void *> *>(barePtr);
 }
 
+// FIXME
+inline llvm::ArrayRef<M::Value *> getODSOperands(int) { return {}; }
+
+/// BoxAddr
+void Br::BoxAddrOp::build(
+    M::OpBuilder *builder, M::OperationState *result, M::Value *operand) {
+  result->addOperands(operand);
+}
+M::LogicalResult Br::BoxAddrOp::verify() {
+  for (M::Value *v : getODSOperands(0)) {
+    if (!(v->getType().isa<FIRBoxType>() ||
+            v->getType().isa<FIRBoxCharType>() ||
+            v->getType().isa<FIRBoxProcType>())) {
+      return emitOpError("operand #0 must be a FIR box type");
+    }
+  }
+  return M::success();
+}
+
+/// BoxCharLen
+void Br::BoxCharLenOp::build(
+    M::OpBuilder *builder, M::OperationState *result, M::Value *operand) {
+  result->addOperands(operand);
+  result->addTypes(M::IntegerType::get(64, builder->getContext()));
+}
+M::LogicalResult Br::BoxCharLenOp::verify() {
+  for (M::Value *v : getODSOperands(0)) {
+    if (!(v->getType().isa<FIRBoxCharType>())) {
+      return emitOpError("operand #0 must be a FIR boxchar type");
+    }
+  }
+  return M::success();
+}
+
+/// BoxDims
+void Br::BoxDimsOp::build(M::OpBuilder *builder, M::OperationState *result,
+    llvm::ArrayRef<M::Value *> operand) {
+  result->addOperands(operand);
+}
+M::LogicalResult Br::BoxDimsOp::verify() {
+  for (M::Value *v : getODSOperands(0)) {
+    if (!(v->getType().isa<FIRBoxType>())) {
+      return emitOpError("operand #0 must be a FIR box type");
+    }
+  }
+  return M::success();
+}
+
+/// BoxEleSize
+void Br::BoxEleSizeOp::build(
+    M::OpBuilder *builder, M::OperationState *result, M::Value *operand) {
+  result->addOperands(operand);
+  result->addTypes(M::IntegerType::get(64, builder->getContext()));
+}
+M::LogicalResult Br::BoxEleSizeOp::verify() {
+  for (M::Value *v : getODSOperands(0)) {
+    if (!(v->getType().isa<FIRBoxType>())) {
+      return emitOpError("operand #0 must be a FIR box type");
+    }
+  }
+  return M::success();
+}
+
+/// BoxIsAlloc
+void Br::BoxIsAllocOp::build(
+    M::OpBuilder *builder, M::OperationState *result, M::Value *operand) {
+  result->addOperands(operand);
+  result->addTypes(M::IntegerType::get(1, builder->getContext()));
+}
+M::LogicalResult Br::BoxIsAllocOp::verify() {
+  for (M::Value *v : getODSOperands(0)) {
+    if (!(v->getType().isa<FIRBoxType>())) {
+      return emitOpError("operand #0 must be a FIR box type");
+    }
+  }
+  return M::success();
+}
+
+/// BoxIsPtr
+void Br::BoxIsPtrOp::build(
+    M::OpBuilder *builder, M::OperationState *result, M::Value *operand) {
+  result->addOperands(operand);
+  result->addTypes(M::IntegerType::get(1, builder->getContext()));
+}
+M::LogicalResult Br::BoxIsPtrOp::verify() {
+  for (M::Value *v : getODSOperands(0)) {
+    if (!(v->getType().isa<FIRBoxType>())) {
+      return emitOpError("operand #0 must be a FIR box type");
+    }
+  }
+  return M::success();
+}
+
+/// BoxProcHost
+void Br::BoxProcHostOp::build(
+    M::OpBuilder *builder, M::OperationState *result, M::Value *operand) {
+  result->addOperands(operand);
+}
+M::LogicalResult Br::BoxProcHostOp::verify() {
+  for (M::Value *v : getODSOperands(0)) {
+    if (!(v->getType().isa<FIRBoxProcType>())) {
+      return emitOpError("operand #0 must be a FIR boxproc type");
+    }
+  }
+  return M::success();
+}
+
+/// BoxRank
+void Br::BoxRankOp::build(
+    M::OpBuilder *builder, M::OperationState *result, M::Value *operand) {
+  result->addOperands(operand);
+  result->addTypes(M::IntegerType::get(16, builder->getContext()));
+}
+M::LogicalResult Br::BoxRankOp::verify() {
+  for (M::Value *v : getODSOperands(0)) {
+    if (!(v->getType().isa<FIRBoxType>())) {
+      return emitOpError("operand #0 must be a FIR box type");
+    }
+  }
+  return M::success();
+}
+
+/// BoxTDesc
+void Br::BoxTDescOp::build(
+    M::OpBuilder *builder, M::OperationState *result, M::Value *operand) {
+  result->addOperands(operand);
+  FIRBoxType boxTy{operand->getType().cast<FIRBoxType>()};
+  result->addTypes(FIRTypeDescType::get(boxTy.getEleTy()));
+}
+M::LogicalResult Br::BoxTDescOp::verify() {
+  for (M::Value *v : getODSOperands(0)) {
+    if (!(v->getType().isa<FIRBoxType>())) {
+      return emitOpError("operand #0 must be a FIR box type");
+    }
+  }
+  return M::success();
+}
+
 /// ConvertOp
 M::LogicalResult Br::ConvertOp::verify() { return M::success(); }
 
@@ -216,6 +363,37 @@ void Br::ConvertOp::build(mlir::OpBuilder *builder,
   result->addOperands({val});
   result->addTypes(toType);
 }
+
+/// CoordinateOp
+M::LogicalResult Br::CoordinateOp::verify() { return M::success(); }
+
+void Br::CoordinateOp::build(mlir::OpBuilder *builder,
+    mlir::OperationState *result, llvm::ArrayRef<mlir::Value *> operands,
+    M::Type opTy) {
+  result->addOperands(operands);
+  result->addTypes(FIRReferenceType::get(opTy));
+}
+
+/// Embox
+void Br::EmboxOp::build(M::OpBuilder *builder, M::OperationState *result,
+    llvm::ArrayRef<M::Value *> operands) {
+  result->addOperands(operands);
+}
+M::LogicalResult Br::EmboxOp::verify() { return M::success(); }
+
+/// EmboxChar
+void Br::EmboxCharOp::build(M::OpBuilder *builder, M::OperationState *result,
+    llvm::ArrayRef<M::Value *> operands) {
+  result->addOperands(operands);
+}
+M::LogicalResult Br::EmboxCharOp::verify() { return M::success(); }
+
+/// EmboxProc
+void Br::EmboxProcOp::build(M::OpBuilder *builder, M::OperationState *result,
+    llvm::ArrayRef<M::Value *> operands) {
+  result->addOperands(operands);
+}
+M::LogicalResult Br::EmboxProcOp::verify() { return M::success(); }
 
 /// ExtractValue
 M::LogicalResult Br::ExtractValueOp::verify() { return M::success(); }
@@ -238,6 +416,27 @@ void Br::FieldValueOp::build(mlir::OpBuilder *builder,
 
 /// FreeMem
 M::LogicalResult Br::FreeMemOp::verify() { return M::success(); }
+
+/// GenDims
+M::LogicalResult Br::GenDimsOp::verify() { return M::success(); }
+
+void Br::GenDimsOp::build(M::OpBuilder *builder, M::OperationState *result,
+    llvm::ArrayRef<M::Value *> args) {
+  assert(args.size() % 3 == 0);
+  unsigned rank = args.size() / 3;
+  result->addOperands(args);
+  result->addTypes(FIRDimsType::get(builder->getContext(), rank));
+}
+
+llvm::ArrayRef<M::Value *> Br::GenDimsOp::getDim(unsigned dim) {
+  M::Operation *op = getOperation();
+  llvm::SmallVector<M::Value *, 3> result;
+  assert(dim < op->getNumOperands() / 3);
+  for (unsigned i = dim * 3, end = dim * 3 + 2; i < end; ++i) {
+    result.push_back(op->getOperand(i));
+  }
+  return result;
+}
 
 /// GlobalExpr
 M::LogicalResult Br::GlobalExpr::verify() { return M::success(); }
@@ -345,6 +544,27 @@ void Br::StoreExpr::build(M::OpBuilder *builder, M::OperationState *result,
 }
 
 M::LogicalResult Br::StoreExpr::verify() { return M::success(); }
+
+/// Unbox
+void Br::UnboxOp::build(
+    M::OpBuilder *builder, M::OperationState *result, M::Value *operand) {
+  result->addOperands(operand);
+}
+M::LogicalResult Br::UnboxOp::verify() { return M::success(); }
+
+/// UnboxChar
+void Br::UnboxCharOp::build(
+    M::OpBuilder *builder, M::OperationState *result, M::Value *operand) {
+  result->addOperands(operand);
+}
+M::LogicalResult Br::UnboxCharOp::verify() { return M::success(); }
+
+/// UnboxProc
+void Br::UnboxProcOp::build(
+    M::OpBuilder *builder, M::OperationState *result, M::Value *operand) {
+  result->addOperands(operand);
+}
+M::LogicalResult Br::UnboxProcOp::verify() { return M::success(); }
 
 /// Undef
 M::LogicalResult Br::UndefOp::verify() { return M::success(); }

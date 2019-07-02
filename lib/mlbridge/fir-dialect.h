@@ -58,30 +58,6 @@ public:
 
 // FIR dialect operations
 
-/// The "fir.address" operation is used to compute the address of a well-typed
-/// expression.  The first argument is the base object.  This is compositional
-/// so multiple "fir.address" operations can be chained.  "fir.address" with
-/// a single argument devolves to a NOP.
-///
-///   %45 = ... : !fir.ref<!fir.type<"T", {"A" : !fir.array<1 10 1:i64>}>>
-///   %46 = "fir.field_value"("A") : !fir.field_type
-///   %47 = ... : i32   ; index `i` into array `A`
-///   %48 = "fir.address"(%45, %46, %47) : !fir.ref<i64>
-class AddressOp
-  : public mlir::Op<AddressOp, mlir::OpTrait::VariadicOperands,
-        mlir::OpTrait::HasNoSideEffect, mlir::OpTrait::OneResult> {
-public:
-  using Op::Op;
-
-  static llvm::StringRef getOperationName() { return "fir.address"; }
-
-  mlir::LogicalResult verify();
-
-  // `opTy` will be wrapped with !fir.ref in `build`
-  static void build(mlir::OpBuilder *builder, mlir::OperationState *result,
-      llvm::ArrayRef<mlir::Value *> operands, mlir::Type opTy);
-};
-
 /// The "fir.alloca_expr" operation is used to allocate local temporary space
 /// for object of a specified type.  The result of "fir.alloca_expr" is a
 /// pointer to an uninitialized ssa-object of the designated type.  Together
@@ -154,6 +130,138 @@ public:
   std::map<unsigned, void *> *getDict();
 };
 
+// Operations on box type objects
+//
+// These operations are a way to discriminantly extract the element values from
+// ssa-values with box types. See also the unbox operations.
+
+/// extract the base address from any box type
+class BoxAddrOp
+  : public mlir::Op<BoxAddrOp, mlir::OpTrait::OneOperand,
+        mlir::OpTrait::OneResult, mlir::OpTrait::HasNoSideEffect> {
+public:
+  using Op::Op;
+
+  static llvm::StringRef getOperationName() { return "fir.box_addr"; }
+
+  mlir::LogicalResult verify();
+  static void build(
+      mlir::OpBuilder *builder, mlir::OperationState *result, mlir::Value *val);
+};
+
+/// extract the element size from the fir.box descriptor
+class BoxEleSizeOp
+  : public mlir::Op<BoxEleSizeOp, mlir::OpTrait::OneOperand,
+        mlir::OpTrait::OneResult, mlir::OpTrait::HasNoSideEffect> {
+public:
+  using Op::Op;
+
+  static llvm::StringRef getOperationName() { return "fir.box_elesize"; }
+
+  mlir::LogicalResult verify();
+  static void build(
+      mlir::OpBuilder *builder, mlir::OperationState *result, mlir::Value *val);
+};
+
+/// extract the rank from the fir.box descriptor
+class BoxRankOp
+  : public mlir::Op<BoxRankOp, mlir::OpTrait::OneOperand,
+        mlir::OpTrait::OneResult, mlir::OpTrait::HasNoSideEffect> {
+public:
+  using Op::Op;
+
+  static llvm::StringRef getOperationName() { return "fir.box_rank"; }
+
+  mlir::LogicalResult verify();
+  static void build(
+      mlir::OpBuilder *builder, mlir::OperationState *result, mlir::Value *val);
+};
+
+/// extract the type descriptor object from a fir.box descriptor
+class BoxTDescOp
+  : public mlir::Op<BoxTDescOp, mlir::OpTrait::OneOperand,
+        mlir::OpTrait::OneResult, mlir::OpTrait::HasNoSideEffect> {
+public:
+  using Op::Op;
+
+  static llvm::StringRef getOperationName() { return "fir.box_tdesc"; }
+
+  mlir::LogicalResult verify();
+  static void build(
+      mlir::OpBuilder *builder, mlir::OperationState *result, mlir::Value *val);
+};
+
+/// extract the dim structure at position `n` from a fir.box descriptor
+class BoxDimsOp
+  : public mlir::Op<BoxDimsOp, mlir::OpTrait::NOperands<2>::Impl,
+        mlir::OpTrait::NResults<3>::Impl, mlir::OpTrait::HasNoSideEffect> {
+public:
+  using Op::Op;
+
+  static llvm::StringRef getOperationName() { return "fir.box_dims"; }
+
+  mlir::LogicalResult verify();
+  static void build(mlir::OpBuilder *builder, mlir::OperationState *result,
+      llvm::ArrayRef<mlir::Value *> val);
+};
+
+/// extract the POINTER attribute from a fir.box descriptor
+class BoxIsPtrOp
+  : public mlir::Op<BoxIsPtrOp, mlir::OpTrait::OneOperand,
+        mlir::OpTrait::OneResult, mlir::OpTrait::HasNoSideEffect> {
+public:
+  using Op::Op;
+
+  static llvm::StringRef getOperationName() { return "fir.box_isptr"; }
+
+  mlir::LogicalResult verify();
+  static void build(
+      mlir::OpBuilder *builder, mlir::OperationState *result, mlir::Value *val);
+};
+
+/// extract the ALLOCATABLE attribute from a fir.box descriptor
+class BoxIsAllocOp
+  : public mlir::Op<BoxIsAllocOp, mlir::OpTrait::OneOperand,
+        mlir::OpTrait::OneResult, mlir::OpTrait::HasNoSideEffect> {
+public:
+  using Op::Op;
+
+  static llvm::StringRef getOperationName() { return "fir.box_isalloc"; }
+
+  mlir::LogicalResult verify();
+  static void build(
+      mlir::OpBuilder *builder, mlir::OperationState *result, mlir::Value *val);
+};
+
+/// extract the LEN from a fir.boxchar object
+class BoxCharLenOp
+  : public mlir::Op<BoxCharLenOp, mlir::OpTrait::OneOperand,
+        mlir::OpTrait::OneResult, mlir::OpTrait::HasNoSideEffect> {
+public:
+  using Op::Op;
+
+  static llvm::StringRef getOperationName() { return "fir.boxchar_len"; }
+
+  mlir::LogicalResult verify();
+  static void build(
+      mlir::OpBuilder *builder, mlir::OperationState *result, mlir::Value *val);
+};
+
+/// extract the optional host context pointer from a fir.boxproc object
+class BoxProcHostOp
+  : public mlir::Op<BoxProcHostOp, mlir::OpTrait::OneOperand,
+        mlir::OpTrait::OneResult, mlir::OpTrait::HasNoSideEffect> {
+public:
+  using Op::Op;
+
+  static llvm::StringRef getOperationName() { return "fir.boxproc_host"; }
+
+  mlir::LogicalResult verify();
+  static void build(
+      mlir::OpBuilder *builder, mlir::OperationState *result, mlir::Value *val);
+};
+
+/// The "fir.convert" operation converts from one type to another
 class ConvertOp
   : public mlir::Op<ConvertOp, mlir::OpTrait::OneOperand,
         mlir::OpTrait::OneResult, mlir::OpTrait::HasNoSideEffect> {
@@ -165,6 +273,73 @@ public:
   mlir::LogicalResult verify();
   static void build(mlir::OpBuilder *builder, mlir::OperationState *result,
       mlir::Value *val, mlir::Type toType);
+};
+
+/// The "fir.coordinate_of" operation is used to compute the address of a
+/// well-typed expression.  The first argument is the base object.  This is
+/// compositional so multiple "fir.coordinate_of" operations can be chained.
+/// "fir.coordinate_of" with a single argument devolves to a NOP.
+///
+///   %45 = ... : !fir.ref<!fir.type<"T", {"A" : !fir.array<1 10 1:i64>}>>
+///   %46 = "fir.field_value"("A") : !fir.field_type
+///   %47 = ... : i32   ; index `i` into array `A`
+///   %48 = "fir.coordinate_of"(%45, %46, %47) : !fir.ref<i64>
+class CoordinateOp
+  : public mlir::Op<CoordinateOp, mlir::OpTrait::VariadicOperands,
+        mlir::OpTrait::HasNoSideEffect, mlir::OpTrait::OneResult> {
+public:
+  using Op::Op;
+
+  static llvm::StringRef getOperationName() { return "fir.coordinate_of"; }
+
+  mlir::LogicalResult verify();
+
+  // `opTy` will be wrapped with !fir.ref in `build`
+  static void build(mlir::OpBuilder *builder, mlir::OperationState *result,
+      llvm::ArrayRef<mlir::Value *> operands, mlir::Type opTy);
+};
+
+// Embox operations
+
+class EmboxOp
+  : public mlir::Op<EmboxOp, mlir::OpTrait::HasNoSideEffect,
+        mlir::OpTrait::AtLeastNOperands<1>::Impl, mlir::OpTrait::OneResult> {
+public:
+  using Op::Op;
+
+  static llvm::StringRef getOperationName() { return "fir.embox"; }
+
+  mlir::LogicalResult verify();
+  static void build(mlir::OpBuilder *builder, mlir::OperationState *result,
+      llvm::ArrayRef<mlir::Value *> arg);
+  static void build(mlir::OpBuilder *builder, mlir::OperationState *result,
+      bool isPointer, bool isAllocatable, llvm::ArrayRef<mlir::Value *> arg);
+};
+
+class EmboxCharOp
+  : public mlir::Op<EmboxCharOp, mlir::OpTrait::HasNoSideEffect,
+        mlir::OpTrait::NOperands<2>::Impl, mlir::OpTrait::OneResult> {
+public:
+  using Op::Op;
+
+  static llvm::StringRef getOperationName() { return "fir.emboxchar"; }
+
+  mlir::LogicalResult verify();
+  static void build(mlir::OpBuilder *builder, mlir::OperationState *result,
+      llvm::ArrayRef<mlir::Value *> arg);
+};
+
+class EmboxProcOp
+  : public mlir::Op<EmboxProcOp, mlir::OpTrait::HasNoSideEffect,
+        mlir::OpTrait::NOperands<2>::Impl, mlir::OpTrait::OneResult> {
+public:
+  using Op::Op;
+
+  static llvm::StringRef getOperationName() { return "fir.emboxproc"; }
+
+  mlir::LogicalResult verify();
+  static void build(mlir::OpBuilder *builder, mlir::OperationState *result,
+      llvm::ArrayRef<mlir::Value *> arg);
 };
 
 class ExtractValueOp
@@ -212,6 +387,23 @@ public:
 
   mlir::Type getAllocatedType();
   llvm::StringRef getExpr();
+};
+
+class GenDimsOp
+  : public mlir::Op<GenDimsOp, mlir::OpTrait::HasNoSideEffect,
+        mlir::OpTrait::OneResult, mlir::OpTrait::VariadicOperands> {
+public:
+  using Op::Op;
+
+  static llvm::StringRef getOperationName() { return "fir.gendims"; }
+
+  mlir::LogicalResult verify();
+  static void build(mlir::OpBuilder *builder, mlir::OperationState *result,
+      llvm::ArrayRef<mlir::Value *> args);
+
+  // Get a triple (lower, extent, stride) for dimension `dim` as numbered from
+  // row=0 to column=rank-1.
+  llvm::ArrayRef<mlir::Value *> getDim(unsigned dim);
 };
 
 /// The "fir.global_expr" operation is used to access global space for specified
@@ -465,6 +657,57 @@ public:
       llvm::ArrayRef<mlir::Value *> operands);
   static void build(mlir::OpBuilder *builder, mlir::OperationState *result,
       mlir::Value *value, mlir::Value *store);
+};
+
+// Unbox operations
+
+/// The "fir.unbox" op yields a tuple:
+///    (base-addr, element-size, rank, typedesc, attributes, dims)
+/// This information shall be directly adaptable to the Fortran runtime to build
+/// a descriptor object, argument type conversion, object inlining, etc.
+class UnboxOp
+  : public mlir::Op<UnboxOp, mlir::OpTrait::HasNoSideEffect,
+        mlir::OpTrait::OneOperand, mlir::OpTrait::NResults<6>::Impl> {
+public:
+  using Op::Op;
+
+  static llvm::StringRef getOperationName() { return "fir.unbox"; }
+
+  mlir::LogicalResult verify();
+  static void build(
+      mlir::OpBuilder *builder, mlir::OperationState *result, mlir::Value *arg);
+};
+
+/// The "fir.unboxchar" op yields a pair: (base-addr, length)
+/// This information shall be directly adaptable to lowering to procedure
+/// arguments, constant folding, etc.
+class UnboxCharOp
+  : public mlir::Op<UnboxCharOp, mlir::OpTrait::HasNoSideEffect,
+        mlir::OpTrait::OneOperand, mlir::OpTrait::NResults<2>::Impl> {
+public:
+  using Op::Op;
+
+  static llvm::StringRef getOperationName() { return "fir.unboxchar"; }
+
+  mlir::LogicalResult verify();
+  static void build(
+      mlir::OpBuilder *builder, mlir::OperationState *result, mlir::Value *arg);
+};
+
+/// The "fir.unboxproc" op yields a pair: (proc-ptr, opt-host-ctx-ptr)
+/// This information shall be directly adaptable to lowering to a thunk call,
+/// an indirect call, or a direct call.
+class UnboxProcOp
+  : public mlir::Op<UnboxProcOp, mlir::OpTrait::HasNoSideEffect,
+        mlir::OpTrait::OneOperand, mlir::OpTrait::NResults<2>::Impl> {
+public:
+  using Op::Op;
+
+  static llvm::StringRef getOperationName() { return "fir.unboxproc"; }
+
+  mlir::LogicalResult verify();
+  static void build(
+      mlir::OpBuilder *builder, mlir::OperationState *result, mlir::Value *arg);
 };
 
 /// The "fir.undefined" operation is used to create an LLVM::UndefOp.

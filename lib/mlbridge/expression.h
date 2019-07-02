@@ -40,9 +40,6 @@ namespace Fortran::evaluate {
 template<typename> class Expr;
 struct SomeType;
 }
-namespace Fortran::semantics {
-class SemanticsContext;
-}
 
 namespace Fortran::mlbridge {
 
@@ -90,11 +87,9 @@ inline ExprType getExprType(const Values &values) {
 }
 
 /// Convert an Expr<T> in its implicit dataflow arguments
-Values translateSomeExpr(
-    FIRBuilder *bldr, semantics::SemanticsContext &sc, const SomeExpr *exp);
+Values translateSomeExpr(FIRBuilder *bldr, const SomeExpr *exp);
 
-Values translateSomeAddrExpr(
-    FIRBuilder *bldr, semantics::SemanticsContext &sc, const SomeExpr *exp);
+Values translateSomeAddrExpr(FIRBuilder *bldr, const SomeExpr *exp);
 
 }  // Fortran::mlbridge
 

@@ -20,12 +20,12 @@
 // Implement the viaduct from Fortran to MLIR
 // https://github.com/tensorflow/mlir
 
-namespace Fortran::parser {
-struct Program;
+namespace Fortran::common {
+class IntrinsicTypeDefaultKinds;
 }
 
-namespace Fortran::semantics {
-class SemanticsContext;
+namespace Fortran::parser {
+struct Program;
 }
 
 namespace mlir {
@@ -43,14 +43,19 @@ namespace Fortran::mlbridge {
 // LLVM/MLIR coding standards
 
 /// Viaduct from Fortran parse-tree, etc. to MLIR
-std::unique_ptr<mlir::Module> MLIRViaduct(mlir::MLIRContext &context,
-    const parser::Program &program,
-    semantics::SemanticsContext &semanticsContext);
+std::unique_ptr<mlir::Module> MLIRViaduct(
+    mlir::MLIRContext &context, const parser::Program &program);
 
 /// Viaduct from MLIR to LLVM-IR
 std::unique_ptr<llvm::Module> LLVMViaduct(mlir::Module &module);
 
 std::unique_ptr<mlir::MLIRContext> getFortranMLIRContext();
+
+/// set the default kinds for the MLIR bridge
+void setDefaultKinds(const common::IntrinsicTypeDefaultKinds &defaultKinds);
+
+/// access to the default kinds class (for MLIR bridge)
+const common::IntrinsicTypeDefaultKinds &getDefaultKinds();
 
 }  // Fortran::mlbridge
 

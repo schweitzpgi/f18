@@ -42,7 +42,6 @@ class CharBlock;
 }
 
 namespace Fortran::semantics {
-class SemanticsContext;
 class Symbol;
 }
 
@@ -68,31 +67,29 @@ mlir::Location parserPosToLoc(
 
 mlir::Type genTypeFromCategoryAndKind(
     mlir::MLIRContext *ctxt, common::TypeCategory tc, int kind);
-mlir::Type genTypeFromCategory(mlir::MLIRContext *ctxt,
-    semantics::SemanticsContext &sc, common::TypeCategory tc);
+mlir::Type genTypeFromCategory(
+    mlir::MLIRContext *ctxt, common::TypeCategory tc);
 
-mlir::Type translateDataRefToFIRType(mlir::MLIRContext *ctxt,
-    semantics::SemanticsContext &sc, const evaluate::DataRef &dataRef);
+mlir::Type translateDataRefToFIRType(
+    mlir::MLIRContext *ctxt, const evaluate::DataRef &dataRef);
 
 template<common::TypeCategory TC, int KIND>
 inline mlir::Type translateDesignatorToFIRType(mlir::MLIRContext *ctxt,
-    semantics::SemanticsContext &,
     const evaluate::Designator<evaluate::Type<TC, KIND>> &) {
   return genTypeFromCategoryAndKind(ctxt, TC, KIND);
 }
 
 template<common::TypeCategory TC>
 inline mlir::Type translateDesignatorToFIRType(mlir::MLIRContext *ctxt,
-    semantics::SemanticsContext &sc,
     const evaluate::Designator<evaluate::SomeKind<TC>> &) {
-  return genTypeFromCategory(ctxt, sc, TC);
+  return genTypeFromCategory(ctxt, TC);
 }
 
-mlir::Type translateSomeExprToFIRType(mlir::MLIRContext *ctxt,
-    semantics::SemanticsContext &sc, const SomeExpr *expr);
+mlir::Type translateSomeExprToFIRType(
+    mlir::MLIRContext *ctxt, const SomeExpr *expr);
 
-mlir::Type translateSymbolToFIRType(mlir::MLIRContext *ctxt,
-    semantics::SemanticsContext &sc, const semantics::Symbol *symbol);
+mlir::Type translateSymbolToFIRType(
+    mlir::MLIRContext *ctxt, const semantics::Symbol *symbol);
 
 mlir::Type convertReal(int KIND, mlir::MLIRContext *context);
 
