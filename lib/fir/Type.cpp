@@ -12,9 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "fir-type.h"
-#include "fir-dialect.h"
-#include "../common/idioms.h"
+#include "fir/Type.h"
+#include "fir/Dialect.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/Twine.h"
 #include "mlir/IR/Diagnostics.h"
@@ -22,13 +21,10 @@
 #include "mlir/IR/StandardTypes.h"
 #include "mlir/Parser.h"
 
-namespace Br = Fortran::mlbridge;
-namespace Co = Fortran::common;
 namespace L = llvm;
 namespace M = mlir;
 
-using namespace Fortran;
-using namespace Fortran::mlbridge;
+using namespace fir;
 
 namespace {
 
@@ -179,7 +175,7 @@ Token Lexer::lexString(const char *tokStart) {
 }
 
 Token Lexer::lexIdent(const char *tokStart) {
-  while (!atEnd() && (std::isalpha(*srcPtr) || std::isdigit(*srcPtr))) {
+  while (!atEnd() && (std::isalnum(*srcPtr) || *srcPtr == '_')) {
     ++srcPtr;
   }
   return formToken(TokenKind::ident, tokStart);
@@ -213,8 +209,8 @@ public:
   M::Type parseType();
 
 protected:
-  void emitError(M::Location loc, const L::Twine &msg) {
-    getContext()->emitError(loc, msg);
+  inline void emitError(M::Location loc, const L::Twine &msg) {
+    M::emitError(loc, msg);
   }
 
   bool consumeToken(TokenKind tk, const L::Twine &msg) {
@@ -300,70 +296,58 @@ protected:
   }
 
   // `box` `<` type `>`
-  FIRBoxType parseBox() { return parseTypeSingleton<FIRBoxType>(); }
+  BoxType parseBox() { return parseTypeSingleton<BoxType>(); }
 
-  // `boxchar` `<` fir-character-type `>`
-  FIRBoxCharType parseBoxChar() {
-    if (consumeToken(TokenKind::leftang, "expected '<' in type")) {
-      return {};
-    }
-    auto ofTy = parseNextType();
-    if (!ofTy) {
-      emitError(loc, "expected type parameter");
-      return {};
-    }
-    if (consumeToken(TokenKind::rightang, "expected '>' in type")) {
-      return {};
-    }
-    if (checkAtEnd()) return {};
-    if (auto eleTy{ofTy.dyn_cast<FIRCharacterType>()}) {
-      return FIRBoxCharType::get(eleTy);
-    }
-    emitError(loc, "subtype must be !fir.char<K>");
-    return {};
-  }
+  // `boxchar` `<` kind `>`
+  BoxCharType parseBoxChar() { return parseKindSingleton<BoxCharType>(); }
 
   // `boxproc` `<` return-type `>`
-  FIRBoxProcType parseBoxProc() { return parseTypeSingleton<FIRBoxProcType>(); }
+  BoxProcType parseBoxProc() { return parseTypeSingleton<BoxProcType>(); }
 
   // `char` `<` kind `>`
-  FIRCharacterType parseCharacter() {
-    return parseKindSingleton<FIRCharacterType>();
-  }
+  CharacterType parseCharacter() { return parseKindSingleton<CharacterType>(); }
 
   // `dims` `<` rank `>`
-  FIRDimsType parseDims() { return parseRankSingleton<FIRDimsType>(); }
+  DimsType parseDims() { return parseRankSingleton<DimsType>(); }
 
   // `field`
-  FIRFieldType parseField() {
+  FieldType parseField() {
     if (checkAtEnd()) return {};
-    return FIRFieldType::get(getContext());
+    return FieldType::get(getContext());
   }
 
   // `logical` `<` kind `>`
-  FIRLogicalType parseLogical() { return parseKindSingleton<FIRLogicalType>(); }
+  LogicalType parseLogical() { return parseKindSingleton<LogicalType>(); }
+
+  // `int` `<` kind `>`
+  IntType parseInteger() { return parseKindSingleton<IntType>(); }
+
+  // `complex` `<` kind `>`
+  CplxType parseComplex() { return parseKindSingleton<CplxType>(); }
 
   // `real` `<` kind `>`
-  FIRRealType parseReal() { return parseKindSingleton<FIRRealType>(); }
+  RealType parseReal() { return parseKindSingleton<RealType>(); }
 
   // `ref` `<` type `>`
-  FIRReferenceType parseReference() {
-    return parseTypeSingleton<FIRReferenceType>();
-  }
+  ReferenceType parseReference() { return parseTypeSingleton<ReferenceType>(); }
 
-  FIRSequenceType::Shape parseShape();
-  FIRSequenceType parseSequence();
+  // `ptr` `<` type `>`
+  PointerType parsePointer() { return parseTypeSingleton<PointerType>(); }
 
-  FIRTupleType::TypeList parseTypeList();
-  FIRTupleType::KindList parseKindList();
-  FIRTupleType parseTuple();
+  // `heap` `<` type `>`
+  HeapType parseHeap() { return parseTypeSingleton<HeapType>(); }
+
+  SequenceType::Shape parseShape();
+  SequenceType parseSequence();
+
+  RecordType::TypeList parseTypeList();
+  RecordType::TypeList parseLenParamList();
+  RecordType parseDerived();
 
   // `tdesc` `<` type `>`
-  FIRTypeDescType parseTypeDesc() {
-    return parseTypeSingleton<FIRTypeDescType>();
-  }
+  TypeDescType parseTypeDesc() { return parseTypeSingleton<TypeDescType>(); }
 
-  // `void` ==> `std.tuple` `<` `>`
+  // `void`
   M::Type parseVoid() {
     if (checkAtEnd()) return {};
     return M::TupleType::get(getContext());
@@ -464,6 +448,7 @@ std::pair<bool, M::Type> FIRTypeParser::advanceNonFuncType(
 
 // If this is a `!fir.x` type then recursively parse it now, otherwise figure
 // out its extent and call into the standard type parser.
+// FIXME: advance by tracking matching pairs as in Parser.cpp
 M::Type FIRTypeParser::parseNextType() {
   const char *marker = lexer.getMarker();
   Token token = lexer.lexToken();
@@ -482,10 +467,10 @@ M::Type FIRTypeParser::parseNextType() {
 }
 
 // Parses either `*` `:`
-//            or (int int int | `?`) (`,` (int int int | `?`))* `:`
-FIRSequenceType::Shape FIRTypeParser::parseShape() {
-  FIRSequenceType::Bounds bounds;
-  int lower, extent, stride;
+//            or (int | `?`) (`x` (int | `?`))* `:`
+SequenceType::Shape FIRTypeParser::parseShape() {
+  SequenceType::Bounds bounds;
+  int extent;
   Token token = lexer.lexToken();
   if (token.kind == TokenKind::star) {
     token = lexer.lexToken();
@@ -493,40 +478,28 @@ FIRSequenceType::Shape FIRTypeParser::parseShape() {
       emitError(loc, "expected '*' to be followed by ':'");
       return {};
     }
-    return {FIRSequenceType::Unknown{}};
+    return SequenceType::Shape();
   }
   while (true) {
     if (token.kind != TokenKind::eroteme) {
       goto shape_spec;
     }
-    bounds.emplace_back(FIRSequenceType::Unknown{});
-    goto check_comma;
+    bounds.emplace_back(false, 0);
+    goto check_xchar;
   shape_spec:
     if (token.kind != TokenKind::intlit) {
       emitError(loc, "expected an integer or '?' in shape specification");
       return {};
     }
-    token.text.getAsInteger(10, lower);
-    token = lexer.lexToken();
-    if (token.kind != TokenKind::intlit) {
-      emitError(loc, "expected a second integer");
-      return {};
-    }
     token.text.getAsInteger(10, extent);
-    token = lexer.lexToken();
-    if (token.kind != TokenKind::intlit) {
-      emitError(loc, "expected a third integer");
-      return {};
-    }
-    token.text.getAsInteger(10, stride);
-    bounds.emplace_back(FIRSequenceType::BoundInfo{lower, extent, stride});
-  check_comma:
+    bounds.emplace_back(true, extent);
+  check_xchar:
     token = lexer.lexToken();
     if (token.kind == TokenKind::colon) {
-      return {bounds};
+      return SequenceType::Shape(bounds);
     }
-    if (token.kind != TokenKind::comma) {
-      emitError(loc, "expected a ',' or ':' after integer-triple");
+    if ((token.kind != TokenKind::ident) || (token.text != std::string("x"))) {
+      emitError(loc, "expected an 'x' or ':' after integer");
       return {};
     }
     token = lexer.lexToken();
@@ -535,7 +508,7 @@ FIRSequenceType::Shape FIRTypeParser::parseShape() {
 
 // bounds ::= lo extent stride | `?`
 // `array` `<` bounds (`,` bounds)* `:` type `>`
-FIRSequenceType FIRTypeParser::parseSequence() {
+SequenceType FIRTypeParser::parseSequence() {
   if (consumeToken(TokenKind::leftang, "expected '<' in array type")) {
     return {};
   }
@@ -551,16 +524,16 @@ FIRSequenceType FIRTypeParser::parseSequence() {
   if (checkAtEnd()) {
     return {};
   }
-  return FIRSequenceType::get(shape, eleTy);
+  return SequenceType::get(shape, eleTy);
 }
 
 // Parses: string `:` type (',' string `:` type)* '}'
-FIRTupleType::TypeList FIRTypeParser::parseTypeList() {
-  FIRTupleType::TypeList result;
+RecordType::TypeList FIRTypeParser::parseTypeList() {
+  RecordType::TypeList result;
   while (true) {
     auto name{lexer.lexToken()};
-    if (name.kind != TokenKind::string) {
-      emitError(loc, "expected string");
+    if (name.kind != TokenKind::ident) {
+      emitError(loc, "expected identifier");
       return {};
     }
     if (consumeToken(TokenKind::colon, "expected colon")) {
@@ -579,28 +552,22 @@ FIRTupleType::TypeList FIRTypeParser::parseTypeList() {
   }
 }
 
-// Parses: string `:` integer (',' string `:` integer)* ']'
-FIRTupleType::KindList FIRTypeParser::parseKindList() {
-  FIRTupleType::KindList result;
+// Parses: string `:` int-type (',' string `:` int-type)* ')'
+RecordType::TypeList FIRTypeParser::parseLenParamList() {
+  RecordType::TypeList result;
   while (true) {
     auto name{lexer.lexToken()};
-    if (name.kind != TokenKind::string) {
-      emitError(loc, "expected string");
+    if (name.kind != TokenKind::ident) {
+      emitError(loc, "expected identifier");
       return {};
     }
     if (consumeToken(TokenKind::colon, "expected colon")) {
       return {};
     }
-    Token kind = lexer.lexToken();
-    KindTy kindValue;
-    if ((kind.kind != TokenKind::intlit) ||
-        kind.text.getAsInteger(0, kindValue)) {
-      emitError(loc, "expected integer constant");
-      return {};
-    }
-    result.emplace_back(name.text, kindValue);
+    auto memTy{parseNextType()};
+    result.emplace_back(name.text, memTy);
     auto token{lexer.lexToken()};
-    if (token.kind == TokenKind::rightbracket) {
+    if (token.kind == TokenKind::rightparen) {
       return result;
     }
     if (token.kind != TokenKind::comma) {
@@ -612,42 +579,34 @@ FIRTupleType::KindList FIRTypeParser::parseKindList() {
 
 // Fortran derived type
 // `type` `<` name
-//           (`,` `{` id `:` type (`,` id `:` type)* `}`)?
-//           (`,` `[` id `:` kind (`,` id `:` kind)* `]`)? '>'
-FIRTupleType FIRTypeParser::parseTuple() {
+//           (`(` id `:` type (`,` id `:` type)* `)`)?
+//           (`{` id `:` type (`,` id `:` type)* `}`)? '>'
+RecordType FIRTypeParser::parseDerived() {
   if (consumeToken(TokenKind::leftang, "expected '<' in type type")) {
     return {};
   }
   auto name{lexer.lexToken()};
-  if (name.kind != TokenKind::string) {
-    emitError(loc, "expected a \"string\" as name of derived type");
+  if (name.kind != TokenKind::ident) {
+    emitError(loc, "expected a identifier as name of derived type");
     return {};
   }
   auto token = lexer.lexToken();
-  FIRTupleType::TypeList typeList;
-  FIRTupleType::KindList kindList;
-  if (token.kind != TokenKind::comma) {
-    // neither optional list present
+  RecordType::TypeList kindList;
+  RecordType::TypeList typeList;
+  if (token.kind == TokenKind::leftbrace) {
+    goto parse_fields;
+  } else if (token.kind != TokenKind::leftparen) {
+    // degenerate case?
     goto check_close;
   }
+  kindList = parseLenParamList();
   token = lexer.lexToken();
   if (token.kind != TokenKind::leftbrace) {
-    // {type-list} not present, must be a [kind-list]
-    goto check_kind_list;
-  }
-  typeList = parseTypeList();
-  token = lexer.lexToken();
-  if (token.kind != TokenKind::comma) {
-    // no [kind-list]
+    // no fields?
     goto check_close;
   }
-  token = lexer.lexToken();
-check_kind_list:
-  if (token.kind != TokenKind::leftbracket) {
-    emitError(loc, "expected {type-list} or [kind-list] after ','");
-    return {};
-  }
-  kindList = parseKindList();
+parse_fields:
+  typeList = parseTypeList();
   token = lexer.lexToken();
 check_close:
   if (token.kind != TokenKind::rightang) {
@@ -657,7 +616,7 @@ check_close:
   if (checkAtEnd()) {
     return {};
   }
-  return FIRTupleType::get(getContext(), name.text, kindList, typeList);
+  return RecordType::get(getContext(), name.text, kindList, typeList);
 }
 
 M::Type FIRTypeParser::parseType() {
@@ -669,13 +628,17 @@ M::Type FIRTypeParser::parseType() {
     if (token.text == "char") return parseCharacter();
     if (token.text == "logical") return parseLogical();
     if (token.text == "real") return parseReal();
-    if (token.text == "type") return parseTuple();
+    if (token.text == "type") return parseDerived();
     if (token.text == "box") return parseBox();
     if (token.text == "boxchar") return parseBoxChar();
     if (token.text == "boxproc") return parseBoxProc();
+    if (token.text == "ptr") return parsePointer();
+    if (token.text == "heap") return parseHeap();
     if (token.text == "dims") return parseDims();
     if (token.text == "tdesc") return parseTypeDesc();
     if (token.text == "field") return parseField();
+    if (token.text == "int") return parseInteger();
+    if (token.text == "complex") return parseComplex();
     if (token.text == "void") return parseVoid();
     emitError(loc, "not a known fir type");
     return {};
@@ -684,9 +647,16 @@ M::Type FIRTypeParser::parseType() {
   return {};
 }
 
+// !fir.ptr<X> and !fir.heap<X> where X is !fir.ptr, !fir.heap, or !fir.ref
+// is undefined and disallowed.
+bool singleIndirectionLevel(M::Type ty) {
+  return !(ty.dyn_cast<ReferenceType>() || ty.dyn_cast<PointerType>() ||
+      ty.dyn_cast<HeapType>());
+}
+
 }  // anonymous
 
-namespace Fortran::mlbridge::detail {
+namespace fir::detail {
 
 // Type storage classes
 
@@ -719,22 +689,24 @@ struct FIRDimsTypeStorage : public M::TypeStorage {
 
   static unsigned hashKey(const KeyTy &key) { return L::hash_combine(key); }
 
-  bool operator==(const KeyTy &key) const { return key == getRank(); }
+  bool operator==(const KeyTy &key) const {
+    return key == static_cast<unsigned>(getRank());
+  }
 
   static FIRDimsTypeStorage *construct(
-      M::TypeStorageAllocator &allocator, unsigned rank) {
+      M::TypeStorageAllocator &allocator, int rank) {
     auto *storage = allocator.allocate<FIRDimsTypeStorage>();
     return new (storage) FIRDimsTypeStorage{rank};
   }
 
-  unsigned getRank() const { return rank; }
+  int getRank() const { return rank; }
 
 protected:
-  unsigned rank;
+  int rank;
 
 private:
   FIRDimsTypeStorage() = delete;
-  explicit FIRDimsTypeStorage(unsigned rank) : rank{rank} {}
+  explicit FIRDimsTypeStorage(int rank) : rank{rank} {}
 };
 
 /// The type of a derived type part reference
@@ -778,6 +750,54 @@ protected:
 private:
   FIRLogicalTypeStorage() = delete;
   explicit FIRLogicalTypeStorage(KindTy kind) : kind{kind} {}
+};
+
+/// `INTEGER` storage
+struct FIRIntTypeStorage : public M::TypeStorage {
+  using KeyTy = KindTy;
+
+  static unsigned hashKey(const KeyTy &key) { return L::hash_combine(key); }
+
+  bool operator==(const KeyTy &key) const { return key == getFKind(); }
+
+  static FIRIntTypeStorage *construct(
+      M::TypeStorageAllocator &allocator, KindTy kind) {
+    auto *storage = allocator.allocate<FIRIntTypeStorage>();
+    return new (storage) FIRIntTypeStorage{kind};
+  }
+
+  KindTy getFKind() const { return kind; }
+
+protected:
+  KindTy kind;
+
+private:
+  FIRIntTypeStorage() = delete;
+  explicit FIRIntTypeStorage(KindTy kind) : kind{kind} {}
+};
+
+/// `COMPLEX` storage
+struct FIRCplxTypeStorage : public M::TypeStorage {
+  using KeyTy = KindTy;
+
+  static unsigned hashKey(const KeyTy &key) { return L::hash_combine(key); }
+
+  bool operator==(const KeyTy &key) const { return key == getFKind(); }
+
+  static FIRCplxTypeStorage *construct(
+      M::TypeStorageAllocator &allocator, KindTy kind) {
+    auto *storage = allocator.allocate<FIRCplxTypeStorage>();
+    return new (storage) FIRCplxTypeStorage{kind};
+  }
+
+  KindTy getFKind() const { return kind; }
+
+protected:
+  KindTy kind;
+
+private:
+  FIRCplxTypeStorage() = delete;
+  explicit FIRCplxTypeStorage(KindTy kind) : kind{kind} {}
 };
 
 /// `REAL` storage (for reals of unsupported sizes)
@@ -831,27 +851,31 @@ private:
 
 /// Boxed CHARACTER object type
 struct FIRBoxCharTypeStorage : public M::TypeStorage {
-  using KeyTy = FIRCharacterType;
+  using KeyTy = KindTy;
 
   static unsigned hashKey(const KeyTy &key) { return L::hash_combine(key); }
 
-  bool operator==(const KeyTy &key) const { return key == getElementType(); }
+  bool operator==(const KeyTy &key) const { return key == getFKind(); }
 
   static FIRBoxCharTypeStorage *construct(
-      M::TypeStorageAllocator &allocator, FIRCharacterType charTy) {
-    assert(charTy && "element type is null");
+      M::TypeStorageAllocator &allocator, KindTy kind) {
     auto *storage = allocator.allocate<FIRBoxCharTypeStorage>();
-    return new (storage) FIRBoxCharTypeStorage{charTy};
+    return new (storage) FIRBoxCharTypeStorage{kind};
   }
 
-  FIRCharacterType getElementType() const { return charTy; }
+  KindTy getFKind() const { return kind / 8; }
+
+  // a !fir.boxchar<k> always wraps a !fir.char<k>
+  CharacterType getElementType(M::MLIRContext *ctxt) const {
+    return CharacterType::get(ctxt, getFKind());
+  }
 
 protected:
-  FIRCharacterType charTy;
+  KindTy kind;
 
 private:
   FIRBoxCharTypeStorage() = delete;
-  explicit FIRBoxCharTypeStorage(FIRCharacterType charTy) : charTy{charTy} {}
+  explicit FIRBoxCharTypeStorage(KindTy kind) : kind{kind} {}
 };
 
 /// Boxed PROCEDURE POINTER object type
@@ -904,12 +928,62 @@ private:
   explicit FIRReferenceTypeStorage(M::Type eleTy) : eleTy{eleTy} {}
 };
 
+/// Pointer object storage
+struct FIRPointerTypeStorage : public M::TypeStorage {
+  using KeyTy = M::Type;
+
+  static unsigned hashKey(const KeyTy &key) { return L::hash_combine(key); }
+
+  bool operator==(const KeyTy &key) const { return key == getElementType(); }
+
+  static FIRPointerTypeStorage *construct(
+      M::TypeStorageAllocator &allocator, M::Type eleTy) {
+    assert(eleTy && "element type is null");
+    auto *storage = allocator.allocate<FIRPointerTypeStorage>();
+    return new (storage) FIRPointerTypeStorage{eleTy};
+  }
+
+  M::Type getElementType() const { return eleTy; }
+
+protected:
+  M::Type eleTy;
+
+private:
+  FIRPointerTypeStorage() = delete;
+  explicit FIRPointerTypeStorage(M::Type eleTy) : eleTy{eleTy} {}
+};
+
+/// Heap memory reference object storage
+struct FIRHeapTypeStorage : public M::TypeStorage {
+  using KeyTy = M::Type;
+
+  static unsigned hashKey(const KeyTy &key) { return L::hash_combine(key); }
+
+  bool operator==(const KeyTy &key) const { return key == getElementType(); }
+
+  static FIRHeapTypeStorage *construct(
+      M::TypeStorageAllocator &allocator, M::Type eleTy) {
+    assert(eleTy && "element type is null");
+    auto *storage = allocator.allocate<FIRHeapTypeStorage>();
+    return new (storage) FIRHeapTypeStorage{eleTy};
+  }
+
+  M::Type getElementType() const { return eleTy; }
+
+protected:
+  M::Type eleTy;
+
+private:
+  FIRHeapTypeStorage() = delete;
+  explicit FIRHeapTypeStorage(M::Type eleTy) : eleTy{eleTy} {}
+};
+
 /// Sequence-like object storage
 struct FIRSequenceTypeStorage : public M::TypeStorage {
-  using KeyTy = std::pair<FIRSequenceType::Shape, M::Type>;
+  using KeyTy = std::pair<SequenceType::Shape, M::Type>;
 
   static unsigned hashKey(const KeyTy &key) {
-    auto shapeHash{hash_value(std::get<FIRSequenceType::Shape>(key))};
+    auto shapeHash{hash_value(std::get<SequenceType::Shape>(key))};
     return L::hash_combine(shapeHash, std::get<M::Type>(key));
   }
 
@@ -923,65 +997,61 @@ struct FIRSequenceTypeStorage : public M::TypeStorage {
     return new (storage) FIRSequenceTypeStorage{key.first, key.second};
   }
 
-  FIRSequenceType::Shape getShape() const { return shape; }
+  SequenceType::Shape getShape() const { return shape; }
   M::Type getElementType() const { return eleTy; }
 
 protected:
-  FIRSequenceType::Shape shape;
+  SequenceType::Shape shape;
   M::Type eleTy;
 
 private:
   FIRSequenceTypeStorage() = delete;
   explicit FIRSequenceTypeStorage(
-      const FIRSequenceType::Shape &shape, M::Type eleTy)
+      const SequenceType::Shape &shape, M::Type eleTy)
     : shape{shape}, eleTy{eleTy} {}
 };
 
 /// Derived type storage
-struct FIRTupleTypeStorage : public M::TypeStorage {
-  using KeyTy = std::tuple<L::StringRef, L::ArrayRef<FIRTupleType::KindPair>,
-      L::ArrayRef<FIRTupleType::TypePair>>;
+struct FIRRecordTypeStorage : public M::TypeStorage {
+  using KeyTy = std::tuple<L::StringRef, L::ArrayRef<RecordType::TypePair>,
+      L::ArrayRef<RecordType::TypePair>>;
 
   static unsigned hashKey(const KeyTy &key) {
-    const L::ArrayRef<FIRTupleType::KindPair> &vec =
-        std::get<L::ArrayRef<FIRTupleType::KindPair>>(key);
-    return L::hash_combine(
-        std::get<0>(key).str(), L::hash_combine_range(vec.begin(), vec.end()));
+    return L::hash_combine(std::get<0>(key).str());
   }
 
   bool operator==(const KeyTy &key) const {
-    return std::get<0>(key) == getName() &&
-        std::get<L::ArrayRef<FIRTupleType::KindPair>>(key) == getKindList();
+    return std::get<0>(key) == getName();
   }
 
-  static FIRTupleTypeStorage *construct(
+  static FIRRecordTypeStorage *construct(
       M::TypeStorageAllocator &allocator, const KeyTy &key) {
-    auto *storage = allocator.allocate<FIRTupleTypeStorage>();
+    auto *storage = allocator.allocate<FIRRecordTypeStorage>();
     auto &name = std::get<0>(key);
-    auto &kinds = std::get<L::ArrayRef<FIRTupleType::KindPair>>(key);
-    auto &members = std::get<L::ArrayRef<FIRTupleType::TypePair>>(key);
-    return new (storage) FIRTupleTypeStorage{name, kinds, members};
+    auto &lens = std::get<1>(key);
+    auto &members = std::get<2>(key);
+    return new (storage) FIRRecordTypeStorage{name, lens, members};
   }
 
   L::StringRef getName() const { return name; }
 
   // The KindList must be provided at construction for correct hash-consing
-  L::ArrayRef<FIRTupleType::KindPair> getKindList() const { return kinds; }
+  L::ArrayRef<RecordType::TypePair> getLenParamList() const { return lens; }
 
-  void setTypeList(L::ArrayRef<FIRTupleType::TypePair> list) { types = list; }
-  L::ArrayRef<FIRTupleType::TypePair> getTypeList() const { return types; }
+  void setTypeList(L::ArrayRef<RecordType::TypePair> list) { types = list; }
+  L::ArrayRef<RecordType::TypePair> getTypeList() const { return types; }
 
 protected:
   std::string name;
-  std::vector<FIRTupleType::KindPair> kinds;
-  std::vector<FIRTupleType::TypePair> types;
+  std::vector<RecordType::TypePair> lens;
+  std::vector<RecordType::TypePair> types;
 
 private:
-  FIRTupleTypeStorage() = delete;
-  explicit FIRTupleTypeStorage(L::StringRef name,
-      L::ArrayRef<FIRTupleType::KindPair> kinds,
-      L::ArrayRef<FIRTupleType::TypePair> types)
-    : name{name}, kinds{kinds}, types{types} {}
+  FIRRecordTypeStorage() = delete;
+  explicit FIRRecordTypeStorage(L::StringRef name,
+      L::ArrayRef<RecordType::TypePair> lens,
+      L::ArrayRef<RecordType::TypePair> types)
+    : name{name}, lens{lens}, types{types} {}
 };
 
 /// Type descriptor type storage
@@ -1012,194 +1082,224 @@ private:
 
 }  // detail
 
+template<typename A, typename B> bool inbounds(A v, B lb, B ub) {
+  return v >= lb && v < ub;
+}
+
+bool fir::isa_fir_type(mlir::Type t) {
+  return inbounds(t.getKind(), M::Type::FIRST_FIR_TYPE, M::Type::LAST_FIR_TYPE);
+}
+
+bool fir::isa_std_type(mlir::Type t) {
+  return inbounds(
+      t.getKind(), M::Type::FIRST_STANDARD_TYPE, M::Type::LAST_STANDARD_TYPE);
+}
+
+bool fir::isa_fir_or_std_type(mlir::Type t) {
+  return isa_fir_type(t) || isa_std_type(t);
+}
+
 // CHARACTER
 
-FIRCharacterType Br::FIRCharacterType::get(M::MLIRContext *ctxt, KindTy kind) {
+CharacterType fir::CharacterType::get(M::MLIRContext *ctxt, KindTy kind) {
   return Base::get(ctxt, FIR_CHARACTER, kind * 8);
 }
 
-int Br::FIRCharacterType::getSizeInBits() const {
-  return getImpl()->getFKind();
-}
-
-KindTy Br::FIRCharacterType::getFKind() const { return getSizeInBits() / 8; }
+int fir::CharacterType::getSizeInBits() const { return getImpl()->getFKind(); }
 
 // Dims
 
-FIRDimsType Br::FIRDimsType::get(M::MLIRContext *ctxt, unsigned rank) {
+DimsType fir::DimsType::get(M::MLIRContext *ctxt, unsigned rank) {
   return Base::get(ctxt, FIR_DIMS, rank);
 }
 
-unsigned Br::FIRDimsType::getRank() const { return getImpl()->getRank(); }
+int fir::DimsType::getRank() const { return getImpl()->getRank(); }
 
 // Field
 
-FIRFieldType Br::FIRFieldType::get(M::MLIRContext *ctxt, KindTy) {
+FieldType fir::FieldType::get(M::MLIRContext *ctxt, KindTy) {
   return Base::get(ctxt, FIR_FIELD, 0);
 }
 
 // LOGICAL
 
-FIRLogicalType Br::FIRLogicalType::get(M::MLIRContext *ctxt, KindTy kind) {
+LogicalType fir::LogicalType::get(M::MLIRContext *ctxt, KindTy kind) {
   return Base::get(ctxt, FIR_LOGICAL, kind * 8);
 }
 
-int Br::FIRLogicalType::getSizeInBits() const { return getImpl()->getFKind(); }
+int fir::LogicalType::getSizeInBits() const { return getImpl()->getFKind(); }
 
-KindTy Br::FIRLogicalType::getFKind() const { return getSizeInBits() / 8; }
+// INTEGER
+
+IntType fir::IntType::get(M::MLIRContext *ctxt, KindTy kind) {
+  return Base::get(ctxt, FIR_INT, kind * 8);
+}
+
+int fir::IntType::getSizeInBits() const { return getImpl()->getFKind(); }
+
+// COMPLEX
+
+CplxType fir::CplxType::get(M::MLIRContext *ctxt, KindTy kind) {
+  return Base::get(ctxt, FIR_COMPLEX, kind * 8);
+}
+
+int fir::CplxType::getSizeInBits() const { return getImpl()->getFKind() * 2; }
+KindTy fir::CplxType::getFKind() const { return getImpl()->getFKind() / 8; }
 
 // REAL
 
-FIRRealType Br::FIRRealType::get(M::MLIRContext *ctxt, KindTy kind) {
+RealType fir::RealType::get(M::MLIRContext *ctxt, KindTy kind) {
   return Base::get(ctxt, FIR_REAL, kind * 8);
 }
 
-int Br::FIRRealType::getSizeInBits() const { return getImpl()->getFKind(); }
-
-KindTy Br::FIRRealType::getFKind() const { return getSizeInBits() / 8; }
+int fir::RealType::getSizeInBits() const { return getImpl()->getFKind(); }
 
 // Box<T>
 
-FIRBoxType Br::FIRBoxType::get(M::Type elementType) {
+BoxType fir::BoxType::get(M::Type elementType) {
   return Base::get(elementType.getContext(), FIR_BOX, elementType);
 }
 
-M::Type Br::FIRBoxType::getEleTy() const { return getImpl()->getElementType(); }
+M::Type fir::BoxType::getEleTy() const { return getImpl()->getElementType(); }
 
 // BoxChar<C>
 
-FIRBoxCharType Br::FIRBoxCharType::get(FIRCharacterType elementType) {
-  return Base::get(elementType.getContext(), FIR_BOXCHAR, elementType);
+BoxCharType fir::BoxCharType::get(M::MLIRContext *ctxt, KindTy kind) {
+  return Base::get(ctxt, FIR_BOXCHAR, kind * 8);
 }
 
-FIRCharacterType Br::FIRBoxCharType::getEleTy() const {
-  return getImpl()->getElementType();
+CharacterType fir::BoxCharType::getEleTy() const {
+  return getImpl()->getElementType(getContext());
 }
 
 // BoxProc<T>
 
-FIRBoxProcType Br::FIRBoxProcType::get(M::Type elementType) {
+BoxProcType fir::BoxProcType::get(M::Type elementType) {
   return Base::get(elementType.getContext(), FIR_BOXPROC, elementType);
 }
 
-M::Type Br::FIRBoxProcType::getEleTy() const {
+M::Type fir::BoxProcType::getEleTy() const {
   return getImpl()->getElementType();
 }
 
 // Reference<T>
 
-FIRReferenceType Br::FIRReferenceType::get(M::Type elementType) {
+ReferenceType fir::ReferenceType::get(M::Type elementType) {
   return Base::get(elementType.getContext(), FIR_REFERENCE, elementType);
 }
 
-M::Type Br::FIRReferenceType::getEleTy() const {
+M::Type fir::ReferenceType::getEleTy() const {
   return getImpl()->getElementType();
 }
 
+// Pointer<T>
+
+PointerType fir::PointerType::get(M::Type elementType) {
+  if (!singleIndirectionLevel(elementType)) {
+    assert(false && "FIXME: invalid element type");
+    return {};
+  }
+  return Base::get(elementType.getContext(), FIR_POINTER, elementType);
+}
+
+M::Type fir::PointerType::getEleTy() const {
+  return getImpl()->getElementType();
+}
+
+// Heap<T>
+
+HeapType fir::HeapType::get(M::Type elementType) {
+  if (!singleIndirectionLevel(elementType)) {
+    assert(false && "FIXME: invalid element type");
+    return {};
+  }
+  return Base::get(elementType.getContext(), FIR_HEAP, elementType);
+}
+
+M::Type fir::HeapType::getEleTy() const { return getImpl()->getElementType(); }
+
 // Sequence<T>
 
-FIRSequenceType Br::FIRSequenceType::get(
-    const Shape &shape, M::Type elementType) {
+SequenceType fir::SequenceType::get(const Shape &shape, M::Type elementType) {
   auto *ctxt = elementType.getContext();
   return Base::get(ctxt, FIR_SEQUENCE, shape, elementType);
 }
 
-M::Type Br::FIRSequenceType::getEleTy() const {
+M::Type fir::SequenceType::getEleTy() const {
   return getImpl()->getElementType();
 }
 
-FIRSequenceType::Shape Br::FIRSequenceType::getShape() const {
+SequenceType::Shape fir::SequenceType::getShape() const {
   return getImpl()->getShape();
 }
 
 // compare if two shapes are equivalent
-bool Br::operator==(
-    const FIRSequenceType::Shape &sh_1, const FIRSequenceType::Shape &sh_2) {
-  return std::visit(
-      Co::visitors{
-          [](const FIRSequenceType::Unknown &,
-              const FIRSequenceType::Unknown &) { return true; },
-          [](const FIRSequenceType::Bounds &bnd_1,
-              const FIRSequenceType::Bounds &bnd_2) {
-            if (bnd_1.size() != bnd_2.size()) return false;
-            for (std::size_t i = 0, end = bnd_1.size(); i != end; ++i) {
-              if (!std::visit(
-                      Co::visitors{
-                          [](const FIRSequenceType::Unknown &,
-                              const FIRSequenceType::Unknown &) {
-                            return true;
-                          },
-                          [](const FIRSequenceType::BoundInfo &info_1,
-                              const FIRSequenceType::BoundInfo &info_2) {
-                            return info_1.lower == info_2.lower &&
-                                info_1.count == info_2.count &&
-                                info_1.stride == info_2.stride;
-                          },
-                          [](auto &, auto &) { return false; },
-                      },
-                      bnd_1[i], bnd_2[i])) {
-                return false;
-              }
-            }
-            return true;
-          },
-          [](auto, auto) { return false; },
-      },
-      sh_1, sh_2);
+bool fir::operator==(
+    const SequenceType::Shape &sh_1, const SequenceType::Shape &sh_2) {
+  if (sh_1.known != sh_2.known) {
+    return false;
+  }
+  if (!sh_1.known) {
+    return true;
+  }
+  auto &bnd_1 = sh_1.bounds;
+  auto &bnd_2 = sh_2.bounds;
+  if (bnd_1.size() != bnd_2.size()) {
+    return false;
+  }
+  for (std::size_t i = 0, end = bnd_1.size(); i != end; ++i) {
+    if (bnd_1[i].known != bnd_2[i].known) {
+      return false;
+    }
+    if (bnd_1[i].known && bnd_1[i].bound != bnd_2[i].bound) {
+      return false;
+    }
+  }
+  return true;
 }
 
-// compute the hash of an extent (variant)
-L::hash_code Br::hash_value(const FIRSequenceType::Extent &ext) {
-  return std::visit(
-      Co::visitors{
-          [](const FIRSequenceType::Unknown &) { return L::hash_combine(0); },
-          [](const FIRSequenceType::BoundInfo &info) {
-            return L::hash_combine(info.lower, info.count, info.stride);
-          },
-      },
-      ext);
+// compute the hash of an Extent
+L::hash_code fir::hash_value(const SequenceType::Extent &ext) {
+  return L::hash_combine(ext.known ? ext.bound : 0);
 }
 
-// compute the hash of a shapes (variant)
-L::hash_code Br::hash_value(const FIRSequenceType::Shape &sh) {
-  return std::visit(
-      Co::visitors{
-          [](const FIRSequenceType::Unknown &) { return L::hash_combine(0); },
-          [](const FIRSequenceType::Bounds &bnd) {
-            return L::hash_combine_range(bnd.begin(), bnd.end());
-          },
-      },
-      sh);
+// compute the hash of a Shape
+L::hash_code fir::hash_value(const SequenceType::Shape &sh) {
+  if (sh.known) {
+    return L::hash_combine_range(sh.bounds.begin(), sh.bounds.end());
+  }
+  return L::hash_combine(0);
 }
 
-// Tuple<Ts...>
+// Derived<Ts...>
 
-FIRTupleType Br::FIRTupleType::get(M::MLIRContext *ctxt, L::StringRef name,
-    L::ArrayRef<KindPair> kindList, L::ArrayRef<TypePair> typeList) {
-  return Base::get(ctxt, FIR_TUPLE, name, kindList, typeList);
+RecordType fir::RecordType::get(M::MLIRContext *ctxt, L::StringRef name,
+    L::ArrayRef<TypePair> lenPList, L::ArrayRef<TypePair> typeList) {
+  return Base::get(ctxt, FIR_DERIVED, name, lenPList, typeList);
 }
 
-L::StringRef Br::FIRTupleType::getName() { return getImpl()->getName(); }
+L::StringRef fir::RecordType::getName() { return getImpl()->getName(); }
 
-FIRTupleType::TypeList Br::FIRTupleType::getTypeList() {
+RecordType::TypeList fir::RecordType::getTypeList() {
   return getImpl()->getTypeList();
 }
 
-FIRTupleType::KindList Br::FIRTupleType::getKindList() {
-  return getImpl()->getKindList();
+RecordType::TypeList fir::RecordType::getLenParamList() {
+  return getImpl()->getLenParamList();
 }
 
 // Type descriptor
 
-FIRTypeDescType Br::FIRTypeDescType::get(M::Type ofType) {
+TypeDescType fir::TypeDescType::get(M::Type ofType) {
+  assert(!ofType.dyn_cast<ReferenceType>());
   return Base::get(ofType.getContext(), FIR_TYPEDESC, ofType);
 }
 
-M::Type Br::FIRTypeDescType::getOfTy() const { return getImpl()->getOfType(); }
+M::Type fir::TypeDescType::getOfTy() const { return getImpl()->getOfType(); }
 
 // Implementation of the thin interface from dialect to type parser
 
-M::Type Br::parseFirType(
+M::Type fir::parseFirType(
     FIROpsDialect *dialect, L::StringRef rawData, M::Location loc) {
   FIRTypeParser parser{dialect, rawData, loc};
   return parser.parseType();

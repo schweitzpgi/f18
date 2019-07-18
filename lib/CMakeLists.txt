@@ -15,6 +15,7 @@
 add_subdirectory(common)
 add_subdirectory(decimal)
 add_subdirectory(evaluate)
+add_subdirectory(fir)
+add_subdirectory(mlbridge)
 add_subdirectory(parser)
 add_subdirectory(semantics)
-add_subdirectory(mlbridge)

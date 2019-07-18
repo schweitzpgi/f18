@@ -16,7 +16,7 @@
 #define FORTRAN_PARSER_PARSING_H_
 
 #include "characters.h"
-#include "features.h"
+#include "flang-features.h"
 #include "instrumented-parser.h"
 #include "message.h"
 #include "parse-tree.h"

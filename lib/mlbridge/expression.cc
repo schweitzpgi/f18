@@ -15,12 +15,12 @@
 #include "expression.h"
 #include "builder.h"
 #include "fe-helper.h"
-#include "fir-dialect.h"
-#include "fir-type.h"
 #include "../semantics/expression.h"
 #include "../semantics/symbol.h"
 #include "../semantics/tools.h"
 #include "../semantics/type.h"
+#include "fir/Dialect.h"
+#include "fir/Type.h"
 #include "llvm/Support/raw_ostream.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Builders.h"
@@ -48,11 +48,12 @@ namespace {
 /// embedded evaluate::Expr<T> attributes. These arguments strictly conform to
 /// data flow between Fortran expressions.
 class TreeArgsBuilder {
-  FIRBuilder *builder;
+  M::OpBuilder *builder;
   Args results;
   Dict dictionary;
   ExprType visited{ET_NONE};
   std::set<void *> keys;
+  SymMap &symbolMap;
 
   void addResult(M::Value *v, void *expr) {
     const auto index{results.size()};
@@ -69,19 +70,19 @@ class TreeArgsBuilder {
   M::Location dummyLoc() { return M::UnknownLoc::get(builder->getContext()); }
 
 public:
-  explicit TreeArgsBuilder(FIRBuilder *builder) : builder{builder} {}
+  explicit TreeArgsBuilder(M::OpBuilder *builder, SymMap &map)
+    : builder{builder}, symbolMap{map} {}
 
   // FIXME: what we generate for a `Symbol` depends on the category of the
   // symbol
   void gen(const Se::Symbol *variable, M::Type ty, bool asAddr) {
     if (keys.find(const_cast<Se::Symbol *>(variable)) == keys.end()) {
-      auto *addr = builder->lookupSymbol(variable);
+      auto *addr = symbolMap.lookupSymbol(variable);
       if (!addr) {
         auto ip{builder->getInsertionBlock()};
-        builder->setInsertionPointToStart(
-            &builder->getBlock()->getFunction()->front());
+        builder->setInsertionPointToStart(getEntryBlock(builder));
         addr = builder->create<AllocaExpr>(dummyLoc(), ty);
-        builder->addSymbol(variable, addr);
+        symbolMap.addSymbol(variable, addr);
         builder->setInsertionPointToEnd(ip);
       }
       if (asAddr) {
@@ -303,8 +304,8 @@ public:
 
     // lookup this function
     llvm::StringRef callee = funref.proc().GetName();
-    auto *module{builder->getBlock()->getFunction()->getModule()};
-    auto *func = module->getNamedFunction(callee);
+    auto module{getModule(builder)};
+    auto func = getNamedFunction(callee);
     if (!func) {
       // create new function
       auto funTy{genFunctionType(funref.proc())};
@@ -317,7 +318,7 @@ public:
     for (auto &arg : funref.arguments()) {
       if (arg.has_value()) {
         if (auto *aa{arg->UnwrapExpr()}) {
-          auto eops{translateSomeExpr(builder, aa)};
+          auto eops{translateSomeExpr(builder, aa, symbolMap)};
           auto aaType{
               FIRReferenceType::get(translateSomeExprToFIRType(context, aa))};
           M::Value *toLoc{nullptr};
@@ -382,8 +383,9 @@ public:
 // Builds the `([results], [inputs], {dict})` pair for constructing both
 // `fir.apply_expr` and `fir.locate_expr` operations.
 template<bool AddressResult>
-inline Values translateToFIR(FIRBuilder *bldr, const SomeExpr *exp) {
-  TreeArgsBuilder ab{bldr};
+inline Values translateToFIR(
+    M::OpBuilder *bldr, const SomeExpr *exp, SymMap &map) {
+  TreeArgsBuilder ab{bldr, map};
   ab.gen(*exp, AddressResult);
   return {ab.getResults(), ab.getDictionary(), ab.getExprType()};
 }
@@ -391,11 +393,13 @@ inline Values translateToFIR(FIRBuilder *bldr, const SomeExpr *exp) {
 }  // namespace
 
 // `fir.apply_expr` builder
-Values Br::translateSomeExpr(FIRBuilder *bldr, const SomeExpr *exp) {
-  return translateToFIR<false>(bldr, exp);
+Values Br::translateSomeExpr(
+    M::OpBuilder *bldr, const SomeExpr *exp, SymMap &map) {
+  return translateToFIR<false>(bldr, exp, map);
 }
 
 // `fir.locate_expr` builder
-Values Br::translateSomeAddrExpr(FIRBuilder *bldr, const SomeExpr *exp) {
-  return translateToFIR<true>(bldr, exp);
+Values Br::translateSomeAddrExpr(
+    M::OpBuilder *bldr, const SomeExpr *exp, SymMap &map) {
+  return translateToFIR<true>(bldr, exp, map);
 }

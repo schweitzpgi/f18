@@ -34,9 +34,9 @@ def fir_Type : Type<CPred<"fir::isa_fir_or_std_type($_self)">,
 
 def fir_CharacterType : Type<CPred<"$_self.isa<fir::CharacterType>()">,
     "FIR character type">;
-def fir_ComplexType : Type<CPred<"$_self.isa<fir::ComplexType>()">,
+def fir_ComplexType : Type<CPred<"$_self.isa<fir::CplxType>()">,
     "FIR complex type">;
-def fir_IntegerType : Type<CPred<"$_self.isa<fir::IntegerType>()">,
+def fir_IntegerType : Type<CPred<"$_self.isa<fir::IntType>()">,
     "FIR integer type">;
 def fir_LogicalType : Type<CPred<"$_self.isa<fir::LogicalType>()">,
     "FIR logical type">;
@@ -49,13 +49,14 @@ def AnyLogicalLike : TypeConstraint<Or<[BoolLike.predicate,
     fir_LogicalType.predicate]>, "any logical">;
 def AnyRealLike : TypeConstraint<Or<[FloatLike.predicate,
     fir_RealType.predicate]>, "any real">;
+def AnyIntegerType : Type<AnyIntegerLike.predicate, "any integer">;
 
 def fir_RecordType : Type<CPred<"$_self.isa<fir::RecordType>()">,
     "FIR derived type">;
 def fir_SequenceType : Type<CPred<"$_self.isa<fir::SequenceType>()">,
     "array type">;
 
-def AnyCompositeType : TypeConstraint<Or<[fir_RecordType.predicate,
+def AnyCompositeLike : TypeConstraint<Or<[fir_RecordType.predicate,
     fir_SequenceType.predicate]>, "any composite">;
 
 def fir_ReferenceType : Type<CPred<"$_self.isa<fir::ReferenceType>()">,
@@ -86,8 +87,8 @@ def fir_TypeDescType : Type<CPred<"$_self.isa<fir::TypeDescType>()">,
     "type desc type">;
 def fir_FieldType : Type<CPred<"$_self.isa<fir::FieldType>()">, "field type">;
 
-def AnyCoordinateLike : TypeConstraint<Or<[IntegerLike.predicate,
-    fir_IntegerType.predicate, fir_FieldType.predicate]>,
+def AnyCoordinateLike : TypeConstraint<Or<[AnyInteger.predicate,
+    Index.predicate, fir_IntegerType.predicate, fir_FieldType.predicate]>,
     "any coordinate index">;
 def AnyCoordinateType : Type<AnyCoordinateLike.predicate, "coordinate type">;
 
@@ -96,25 +97,24 @@ class fir_Op<string mnemonic, list<OpTrait> traits>
 
 def fir_AllocateOpBuilder : OpBuilder<
   "Builder *, OperationState *result, Type resultType,"
-  "Value *size = {}, ArrayRef<NamedAttribute> attributes = {}",
+  "ArrayRef<Value *> size = {}, ArrayRef<NamedAttribute> attributes = {}",
   [{
     assert(resultType);
     result->addTypes(resultType);
-    if (size)
-      result->addOperands(size);
+    result->addOperands(size);
     for (auto namedAttr : attributes)
       result->addAttribute(namedAttr.first, namedAttr.second);
   }]>;
 
 def fir_NamedAllocateOpBuilder : OpBuilder<
   "Builder *builder, OperationState *result, Type resultType,"
-  "StringRef name, Value *size = {}, ArrayRef<NamedAttribute> attributes = {}",
+  "StringRef name, ArrayRef<Value *> size = {},"
+  "ArrayRef<NamedAttribute> attributes = {}",
   [{
     assert(resultType);
-    result->addTypes(resultType);
-    if (size)
-      result->addOperands(size);
     result->addAttribute("name", builder->getStringAttr(name));
+    result->addTypes(resultType);
+    result->addOperands(size);
     for (auto namedAttr : attributes)
       result->addAttribute(namedAttr.first, namedAttr.second);
   }]>;
@@ -150,7 +150,8 @@ class fir_AllocatableBaseOp<string mnemonic, list<OpTrait> traits = []> :
 
 class fir_AllocatableOp<string mnemonic, list<OpTrait> traits =[]> :
     fir_AllocatableBaseOp<mnemonic, !listconcat([NoSideEffect], traits)>,
-    fir_TwoBuilders<fir_AllocateOpBuilder, fir_NamedAllocateOpBuilder> {
+    fir_TwoBuilders<fir_AllocateOpBuilder, fir_NamedAllocateOpBuilder>,
+    Arguments<(ins Variadic<Index>:$shape)> {
 }
 
 // Memory SSA operations
@@ -166,13 +167,59 @@ def fir_AllocaExpr : fir_AllocatableOp<"alloca"> {
     a sequence of locations for the specified type.
   }];
 
+  let parser = [{
+    mlir::Type intype;
+    if (parser->parseType(intype))
+      return mlir::failure();
+    auto &builder = parser->getBuilder();
+    result->addAttribute("in_type", builder.getTypeAttr(intype));
+    if (!parser->parseOptionalComma()) {
+      auto loc = parser->getNameLoc();
+      llvm::SmallVector<mlir::Type, 4> typeVec;
+      llvm::SmallVector<mlir::OpAsmParser::OperandType, 4> operands;
+      if (parser->parseOperandList(operands,
+              mlir::OpAsmParser::Delimiter::None) ||
+          parser->resolveOperands(operands, builder.getIndexType(), loc,
+              result->operands))
+        return mlir::failure();
+    }
+    mlir::Type restype;
+    if (parser->parseColonType(restype) ||
+        parser->addTypeToList(restype, result->types))
+      return mlir::failure();
+    return mlir::success();
+  }];
+  let printer = [{
+    *p << getOperationName() << ' ' << getAttr("in_type");
+    for (auto sh : getShapeOperands()) {
+      *p << ", ";
+      p->printOperand(sh);
+    }
+    *p << " : " << getType();
+    p->printOptionalAttrDict(getAttrs(), {"in_type"});
+  }];
+  let verifier = [{
+    mlir::Type inType = getAttrOfType<mlir::TypeAttr>("in_type").getValue();
+    mlir::Type outType = getType();
+    if (auto ref = outType.dyn_cast<fir::ReferenceType>()) {
+      if (inType != ref.getEleTy())
+        return emitOpError("input type and !fir.ref element type mismatch");
+    } else {
+      return emitOpError("must be a !fir.ref type");
+    }
+    return mlir::success();
+  }];
+
   let extraClassDeclaration = [{
     mlir::Type getAllocatedType();
+    operand_range getShapeOperands() {
+      return {operand_begin(), operand_end()};
+    }
   }];
 }
 
 def fir_LoadExpr : fir_OneResultOp<"load", [NoSideEffect]>,
-    Arguments<(ins fir_ReferenceType:$ref)> {
+    Arguments<(ins AnyReferenceLike:$memref)> {
   let summary = "load a value from a memory reference";
 
   let description = [{
@@ -189,16 +236,59 @@ def fir_LoadExpr : fir_OneResultOp<"load", [NoSideEffect]>,
       result->addTypes(refTy.getEleTy());
     }]
   >];
+
+  let parser = [{
+    mlir::Type type;
+    mlir::OpAsmParser::OperandType oper;
+    if (parser->parseOperand(oper) ||
+        parser->parseColonType(type) ||
+        parser->resolveOperand(oper, type, result->operands))
+       return mlir::failure();
+    return mlir::success();
+  }];
+  let printer = [{
+    *p << getOperationName() << ' ';
+    p->printOperand(memref());
+    *p << " : " << memref()->getType();
+    p->printOptionalAttrDict(getAttrs(), {});
+  }];
 }
 
 def fir_StoreExpr : fir_Op<"store", []>,
-    Arguments<(ins AnyType:$val, fir_ReferenceType:$ref)> {
+    Arguments<(ins AnyType:$value, AnyReferenceLike:$memref)> {
   let summary = "store an SSA-value to a memory location";
 
   let description = [{
     Store an ssa-value (virtual register) to a memory reference.  The stored
     value must be of the same type as the referent type of the memory
     reference.
+  }];
+
+  let parser = [{
+    mlir::Type type;
+    mlir::OpAsmParser::OperandType oper;
+    mlir::OpAsmParser::OperandType store;
+    if (parser->parseOperand(oper) ||
+        parser->parseKeyword("to") ||
+        parser->parseOperand(store) ||
+        parser->parseColonType(type) ||
+        parser->resolveOperand(oper, elementType(type),
+          result->operands) ||
+        parser->resolveOperand(store, type, result->operands))
+       return mlir::failure();
+    return mlir::success();
+  }];
+  let printer = [{
+    *p << getOperationName() << ' ';
+    p->printOperand(value());
+    *p << " to ";
+    p->printOperand(memref());
+    *p << " : " << memref()->getType();
+    p->printOptionalAttrDict(getAttrs(), {});
+  }];
+
+  let extraClassDeclaration = [{
+    static mlir::Type elementType(mlir::Type refType);
   }];
 }
 
@@ -209,6 +299,24 @@ def fir_UndefOp : fir_OneResultOp<"undefined", [NoSideEffect]> {
     Constructs an ssa-value of the specified type with an undefined value.
     This operation is typically created internally by the mem2reg conversion
     pass.
+  }];
+
+  let parser = [{
+    mlir::Type intype;
+    if (parser->parseType(intype) ||
+        parser->addTypeToList(intype, result->types))
+      return mlir::failure();
+    auto &builder = parser->getBuilder();
+    result->addAttribute("in_type", builder.getTypeAttr(intype));
+    return mlir::success();
+  }];
+  let printer = [{
+    *p << getOperationName() << ' ' << getAttr("in_type");
+  }];
+  let verifier = [{
+    if (auto ref = getType().dyn_cast<fir::ReferenceType>())
+      return emitOpError("undefined values of type !fir.ref not allowed");
+    return mlir::success();
   }];
 }
 
@@ -221,9 +329,60 @@ def fir_AllocMemOp : fir_AllocatableOp<"allocmem"> {
     The memory object is in an undefined state.  `allocmem` operations must
     be paired with `freemem` operations to avoid memory leaks.
   }];
+
+  let parser = [{
+    mlir::Type intype;
+    if (parser->parseType(intype))
+      return mlir::failure();
+    auto &builder = parser->getBuilder();
+    result->addAttribute("in_type", builder.getTypeAttr(intype));
+    if (!parser->parseOptionalComma()) {
+      auto loc = parser->getNameLoc();
+      llvm::SmallVector<mlir::Type, 4> typeVec;
+      llvm::SmallVector<mlir::OpAsmParser::OperandType, 4> operands;
+      if (parser->parseOperandList(operands,
+              mlir::OpAsmParser::Delimiter::None) ||
+          parser->resolveOperands(operands, builder.getIndexType(), loc,
+              result->operands))
+        return mlir::failure();
+    }
+    mlir::Type restype;
+    if (parser->parseColonType(restype) ||
+        parser->addTypeToList(restype, result->types))
+      return mlir::failure();
+    return mlir::success();
+  }];
+  let printer = [{
+    *p << getOperationName() << ' ' << getAttr("in_type");
+    for (auto sh : getShapeOperands()) {
+      *p << ", ";
+      p->printOperand(sh);
+    }
+    *p << " : " << getType();
+    p->printOptionalAttrDict(getAttrs(), {"in_type"});
+  }];
+  let verifier = [{
+    mlir::Type inType = getAttrOfType<mlir::TypeAttr>("in_type").getValue();
+    mlir::Type outType = getType();
+    if (auto ref = outType.dyn_cast<fir::HeapType>()) {
+      if (inType != ref.getEleTy())
+        return emitOpError("input type and !fir.heap element type mismatch");
+    } else {
+      return emitOpError("must be a !fir.heap type");
+    }
+    return mlir::success();
+  }];
+
+  let extraClassDeclaration = [{
+    mlir::Type getAllocatedType();
+    operand_range getShapeOperands() {
+      return {operand_begin(), operand_end()};
+    }
+  }];
 }
 
-def fir_FreeMemOp : fir_Op<"freemem", []>, Arguments<(ins fir_HeapType)> {
+def fir_FreeMemOp : fir_Op<"freemem", []>,
+    Arguments<(ins fir_HeapType:$heapref)> {
   let summary = "free a heap object";
 
   let description = [{
@@ -231,6 +390,22 @@ def fir_FreeMemOp : fir_Op<"freemem", []>, Arguments<(ins fir_HeapType)> {
     The memory object that is deallocated is placed in an undefined state
     after `fir.freemem`.  Optimizations may treat the loading of an object
     in the undefined state as undefined behavior.
+  }];
+
+  let parser = [{
+    mlir::Type type;
+    mlir::OpAsmParser::OperandType oper;
+    if (parser->parseOperand(oper) ||
+        parser->parseColonType(type) ||
+        parser->resolveOperand(oper, type, result->operands))
+      return mlir::failure();
+    return mlir::success();
+  }];
+  let printer = [{
+    *p << getOperationName() << ' ';
+    p->printOperand(heapref());
+    *p << " : " << getOperand()->getType();
+    p->printOptionalAttrDict(getAttrs(), {});
   }];
 }
 
@@ -240,11 +415,9 @@ class fir_SwitchTerminatorOp<string mnemonic, list<OpTrait> traits = []> :
     fir_Op<mnemonic, !listconcat(traits, [Terminator])>,
     Arguments<(ins Variadic<AnyType>:$args)>, Results<(outs)> {
   let builders = [OpBuilder<
-    "Builder *, OperationState *result, "
-    "Value *selector,"
-    "ArrayRef<Value *> properOperands, "
-    "ArrayRef<Block *> destinations, "
-    "ArrayRef<ArrayRef<Value *>> operands = {}, "
+    "Builder *, OperationState *result, Value *selector,"
+    "ArrayRef<Value *> properOperands, ArrayRef<Block *> destinations,"
+    "ArrayRef<ArrayRef<Value *>> operands = {},"
     "ArrayRef<NamedAttribute> attributes = {}",
     [{
       result->addOperands(selector);
@@ -258,73 +431,97 @@ class fir_SwitchTerminatorOp<string mnemonic, list<OpTrait> traits = []> :
     }]
   >];
 
-  let extraClassDeclaration = [{
+  string extraSwitchClassDeclaration = [{
     using Conditions = mlir::Value *;
-    using BranchTuple = std::tuple<Conditions, mlir::Block *,
-      llvm::ArrayRef<mlir::Value *>>;
+    constexpr static auto AttrName = "cases";
 
     // The number of destination conditions that may be tested
-    unsigned getNumConditions() {
-      return getNumDest();
-    }
+    unsigned getNumConditions() { return getNumDest(); }
 
     // The selector is the value being tested to determine the destination
-    mlir::Value *getSelector() {
-      return getOperand(0);
-    }
-
-    // The value of the `dest`-th destination's condition to test against
-    Conditions getCondition(unsigned dest) {
-      assert(dest < getNumConditions());
-      return getOperand(getDestOperandIndex(dest) - 1);
-    }
+    mlir::Value *getSelector() { return getOperand(0); }
 
     // The number of blocks that may be branched to
-    unsigned getNumDest() {
-      return getOperation()->getNumSuccessors();
-    }
-
-    // The `dest`-th destination block
-    mlir::Block *getDest(unsigned dest) {
-      return getOperation()->getSuccessor(dest);
-    }
-
-    // The number of operands to the `dest`-th destination block
-    unsigned getNumDestOperands(unsigned dest) {
-      return getOperation()->getNumSuccessorOperands(dest);
-    }
-
-    // The `i`-th operand to the `dest`-th destination block
-    mlir::Value *getDestOperand(unsigned dest, unsigned i) {
-      assert(dest < getNumDest());
-      assert(i < getNumDestOperands(dest));
-      return getOperand(getDestOperandIndex(dest) + i);
-    }
-
-    operand_iterator dest_operand_begin(unsigned dest) {
-      return operand_begin() + getDestOperandIndex(dest);
-    }
-
-    operand_iterator dest_operand_end(unsigned dest) {
-      return dest_operand_begin(dest) + getNumDestOperands(dest);
-    }
-
-    operand_range getDestOperands(unsigned dest) {
-      return {dest_operand_begin(dest), dest_operand_end(dest)};
-    }
-
-  private:
-    // Get the argument index of the `dest`-th destination
-    unsigned getDestOperandIndex(unsigned dest) {
-      if (dest == 0) {
-        return 2;
-      }
-      return getNumDestOperands(dest) + getDestOperandIndex(dest - 1);
-    }
+    unsigned getNumDest() { return getOperation()->getNumSuccessors(); }
   }];
 }
 
-def fir_SelectOp : fir_SwitchTerminatorOp<"select"> {
+class fir_IntegralSwitchTerminatorOp<string mnemonic,
+    list<OpTrait> traits = []> : fir_SwitchTerminatorOp<mnemonic, traits> {
+  let parser = [{
+    mlir::OpAsmParser::OperandType selector;
+    mlir::Type type;
+    if (parser->parseOperand(selector) ||
+        parser->parseColonType(type) ||
+        parser->resolveOperand(selector, type, result->operands) ||
+        parser->parseLSquare())
+      return mlir::failure();
+
+    llvm::SmallVector<mlir::Attribute, 4> ivalues;
+    llvm::SmallVector<mlir::Block *, 4> dests;
+    llvm::SmallVector<llvm::SmallVector<mlir::Value *, 4>, 4> destArgs;
+    while (true) {
+      mlir::Attribute ivalue;
+      mlir::Block *dest;
+      llvm::SmallVector<mlir::Value *, 4> destArg;
+      llvm::SmallVector<mlir::NamedAttribute, 1> temp;
+      if (parser->parseAttribute(ivalue, "i", temp) ||
+          parser->parseComma() ||
+          parser->parseSuccessorAndUseList(dest, destArg))
+        return mlir::failure();
+      ivalues.push_back(ivalue);
+      dests.push_back(dest);
+      destArgs.push_back(destArg);
+      if (!parser->parseOptionalRSquare())
+        break;
+      if (parser->parseComma())
+        return mlir::failure();
+    }
+    result->addAttribute(AttrName, parser->getBuilder().getArrayAttr(ivalues));
+    for (unsigned i = 0, count = dests.size(); i != count; ++i)
+      result->addSuccessor(dests[i], destArgs[i]);
+    return mlir::success();
+  }];
+
+  let printer = [{
+    *p << getOperationName() << ' ';
+    p->printOperand(getSelector());
+    *p << " : " << getSelector()->getType() << " [";
+    auto cases = getAttrOfType<mlir::ArrayAttr>(AttrName).getValue();
+    for (unsigned i = 0, count = getNumConditions(); i != count; ++i) {
+      if (i)
+        *p << ", ";
+      auto &attr = cases[i];
+      if (auto intAttr = attr.dyn_cast_or_null<mlir::IntegerAttr>())
+        *p << intAttr.getValue();
+      else
+        p->printAttribute(attr);
+      *p << ", ";
+      p->printSuccessorAndUseList(getOperation(), i);
+    }
+    *p << ']';
+    p->printOptionalAttrDict(getAttrs(), {AttrName});
+  }];
+
+  let verifier = [{
+    auto cases = getAttrOfType<mlir::ArrayAttr>(AttrName).getValue();
+    for (unsigned i = 0, count = getNumConditions(); i != count; ++i) {
+      auto &attr = cases[i];
+      if (attr.dyn_cast_or_null<mlir::IntegerAttr>()) {
+        // ok
+      } else if (attr.dyn_cast_or_null<mlir::UnitAttr>()) {
+        // ok
+      } else {
+        return emitOpError("invalid case alternative");
+      }
+    }
+    return mlir::success();
+  }];
+
+  let extraClassDeclaration = extraSwitchClassDeclaration;
+}
+
+def fir_SelectOp : fir_IntegralSwitchTerminatorOp<"select"> {
   let summary = "a multiway branch";
 
   let description = [{
@@ -332,8 +529,20 @@ def fir_SelectOp : fir_SwitchTerminatorOp<"select"> {
     statement.  A selector value is matched against a list of constants
     of the same type for a match.  When a match is found, control is
     transferred to the corresponding basic block.  A `select` must have
-    at least one basic block with a corresponding `undefined` match, and
+    at least one basic block with a corresponding `unit` match, and
     that block will be selected when all other conditions fail to match.
+  }];
+}
+
+def fir_SelectRankOp : fir_IntegralSwitchTerminatorOp<"select_rank"> {
+  let summary = "Fortran's SELECT RANK statement";
+
+  let description = [{
+    Similar to `select`, `select_rank` provides a way to express Fortran's
+    SELECT RANK construct.  In this case, the rank of the selector value
+    is matched against constants of integer type.  The structure is the
+    same as `select`, but `select_rank` determines the rank of the selector
+    variable at runtime to determine the best match.
   }];
 }
 
@@ -347,17 +556,104 @@ def fir_SelectCaseOp : fir_SwitchTerminatorOp<"select_case"> {
     the same as `select`, but `select_case` allows for the expression of
     more complex match conditions.
   }];
-}
 
-def fir_SelectRankOp : fir_SwitchTerminatorOp<"select_rank"> {
-  let summary = "Fortran's SELECT RANK statement";
+  let parser = [{
+    mlir::OpAsmParser::OperandType selector;
+    mlir::Type type;
+    if (parser->parseOperand(selector) ||
+        parser->parseColonType(type) ||
+        parser->resolveOperand(selector, type, result->operands) ||
+        parser->parseLSquare())
+      return mlir::failure();
 
-  let description = [{
-    Similar to `select`, `select_rank` provides a way to express Fortran's
-    SELECT RANK construct.  In this case, the rank of the selector value
-    is matched against constants of integer type.  The structure is the
-    same as `select`, but `select_rank` determines the rank of the selector
-    variable at runtime to determine the best match.
+    llvm::SmallVector<mlir::Attribute, 4> attrs;
+    llvm::SmallVector<mlir::OpAsmParser::OperandType, 4> opers;
+    llvm::SmallVector<mlir::Block *, 4> dests;
+    llvm::SmallVector<llvm::SmallVector<mlir::Value *, 4>, 4> destArgs;
+    while (true) {
+      mlir::Attribute attr;
+      mlir::Block *dest;
+      llvm::SmallVector<mlir::Value *, 4> destArg;
+      llvm::SmallVector<mlir::NamedAttribute, 1> temp;
+      if (parser->parseAttribute(attr, "a", temp) ||
+          isValidCaseAttr(attr) ||
+          parser->parseComma())
+        return mlir::failure();
+      attrs.push_back(attr);
+      if (attr.dyn_cast_or_null<mlir::UnitAttr>()) {
+      } else if (attr.dyn_cast_or_null<fir::ClosedIntervalAttr>()) {
+        mlir::OpAsmParser::OperandType oper1;
+        mlir::OpAsmParser::OperandType oper2;
+        if (parser->parseOperand(oper1) ||
+            parser->parseComma() ||
+            parser->parseOperand(oper2) ||
+            parser->parseComma())
+          return mlir::failure();
+        opers.push_back(oper1);
+        opers.push_back(oper2);
+      } else {
+        mlir::OpAsmParser::OperandType oper;
+        if (parser->parseOperand(oper) ||
+            parser->parseComma())
+          return mlir::failure();
+        opers.push_back(oper);
+      }
+      if (parser->parseSuccessorAndUseList(dest, destArg))
+        return mlir::failure();
+      dests.push_back(dest);
+      destArgs.push_back(destArg);
+      if (!parser->parseOptionalRSquare())
+        break;
+      if (parser->parseComma())
+        return mlir::failure();
+    }
+    result->addAttribute(AttrName, parser->getBuilder().getArrayAttr(attrs));
+    if (parser->resolveOperands(opers, type, result->operands))
+      return mlir::failure();
+    for (unsigned i = 0, count = dests.size(); i != count; ++i)
+      result->addSuccessor(dests[i], destArgs[i]);
+    return mlir::success();
+  }];
+
+  let printer = [{
+    *p << getOperationName() << ' ';
+    p->printOperand(getSelector());
+    *p << " : " << getSelector()->getType() << " [";
+    auto cases = getAttrOfType<mlir::ArrayAttr>(AttrName).getValue();
+    for (unsigned i = 0, count = getNumConditions(); i != count; ++i) {
+      if (i)
+        *p << ", ";
+      *p << cases[i] << ", ";
+      if (!cases[i].dyn_cast_or_null<mlir::UnitAttr>()) {
+        p->printOperand(getCaseArg(i, 0));
+        *p << ", ";
+        if (cases[i].dyn_cast_or_null<fir::ClosedIntervalAttr>()) {
+          p->printOperand(getCaseArg(i, 1));
+          *p << ", ";
+        }
+      }
+      p->printSuccessorAndUseList(getOperation(), i);
+    }
+    *p << ']';
+    p->printOptionalAttrDict(getAttrs(), {AttrName});
+  }];
+
+  let verifier = [{
+    for (unsigned i = 0, count = getNumConditions(); i != count; ++i) {
+    }
+    return mlir::success();
+  }];
+
+  let extraClassDeclaration = extraSwitchClassDeclaration#[{
+
+    mlir::Value* getCaseArg(unsigned dest, unsigned ele) {
+      assert(ele < 2);
+      assert(dest < getNumConditions());
+      auto cases = getAttrOfType<mlir::ArrayAttr>(AttrName).getValue();
+      assert(cases.size() == getNumConditions());
+      unsigned o = getCaseArgumentOffset(cases, dest);
+      return getOperand(o + 1 + ele);
+    }
   }];
 }
 
@@ -371,6 +667,74 @@ def fir_SelectTypeOp : fir_SwitchTerminatorOp<"select_type"> {
     same as `select`, but `select_type` determines the type of the selector
     variable at runtime to determine the best match.
   }];
+
+  let parser = [{
+    mlir::OpAsmParser::OperandType selector;
+    mlir::Type type;
+    if (parser->parseOperand(selector) ||
+        parser->parseColonType(type) ||
+        parser->resolveOperand(selector, type, result->operands) ||
+        parser->parseLSquare())
+      return mlir::failure();
+
+    llvm::SmallVector<mlir::Attribute, 4> attrs;
+    llvm::SmallVector<mlir::Block *, 4> dests;
+    llvm::SmallVector<llvm::SmallVector<mlir::Value *, 4>, 4> destArgs;
+    while (true) {
+      mlir::Attribute attr;
+      mlir::Block *dest;
+      llvm::SmallVector<mlir::Value *, 4> destArg;
+      llvm::SmallVector<mlir::NamedAttribute, 1> temp;
+      if (parser->parseAttribute(attr, "a", temp) ||
+          parser->parseComma() ||
+          parser->parseSuccessorAndUseList(dest, destArg))
+        return mlir::failure();
+      attrs.push_back(attr);
+      dests.push_back(dest);
+      destArgs.push_back(destArg);
+      if (!parser->parseOptionalRSquare())
+        break;
+      if (parser->parseComma())
+        return mlir::failure();
+    }
+    result->addAttribute(AttrName, parser->getBuilder().getArrayAttr(attrs));
+    for (unsigned i = 0, count = dests.size(); i != count; ++i)
+      result->addSuccessor(dests[i], destArgs[i]);
+    return mlir::success();
+  }];
+
+  let printer = [{
+    *p << getOperationName() << ' ';
+    p->printOperand(getSelector());
+    *p << " : " << getSelector()->getType() << " [";
+    auto cases = getAttrOfType<mlir::ArrayAttr>(AttrName).getValue();
+    for (unsigned i = 0, count = getNumConditions(); i != count; ++i) {
+      if (i)
+        *p << ", ";
+      *p << cases[i] << ", ";
+      p->printSuccessorAndUseList(getOperation(), i);
+    }
+    *p << ']';
+    p->printOptionalAttrDict(getAttrs(), {AttrName});
+  }];
+
+  let verifier = [{
+    auto cases = getAttrOfType<mlir::ArrayAttr>(AttrName).getValue();
+    for (unsigned i = 0, count = getNumConditions(); i != count; ++i) {
+      auto &attr = cases[i];
+      if (attr.dyn_cast_or_null<fir::ExactTypeAttr>()) {
+        // ok
+      } else if (attr.dyn_cast_or_null<fir::SubclassAttr>()) {
+        // ok
+      } else if (attr.dyn_cast_or_null<mlir::UnitAttr>()) {
+        // ok
+      } else {
+        return emitOpError("invalid type-case alternative");
+      }
+    }
+    return mlir::success();
+  }];
+  let extraClassDeclaration = extraSwitchClassDeclaration;
 }
 
 def fir_UnreachableOp : fir_Op<"unreachable", [Terminator]> {
@@ -411,7 +775,7 @@ def fir_EmboxOp : fir_Op<"embox", [NoSideEffect]>, Results<(outs fir_BoxType)>,
 
 def fir_EmboxCharOp : fir_Op<"emboxchar", [NoSideEffect]>,
     Results<(outs fir_BoxCharType)>,
-    Arguments<(ins fir_CharacterType:$character, AnyInteger:$len)> {
+    Arguments<(ins fir_CharacterType:$character, AnyIntegerLike:$len)> {
   let summary = "boxes a given CHARACTER reference and its LEN parameter";
 
   let description = [{
@@ -491,7 +855,7 @@ def fir_BoxCharLenOp : fir_Op<"boxchar_len", [NoSideEffect]>,
 
 def fir_BoxDimsOp : fir_Op<"box_dims", [NoSideEffect]>,
     Results<(outs AnyInteger, AnyInteger, AnyInteger)>,
-    Arguments<(ins fir_BoxType:$val, AnyInteger:$dim)> {
+    Arguments<(ins fir_BoxType:$val, AnyIntegerLike:$dim)> {
   let summary = "return the dynamic dimension information for the boxed value";
 
   let description = [{
@@ -594,7 +958,7 @@ def fir_CoordinateOp : fir_Op<"coordinate_of", [NoSideEffect]>,
 }
 
 def fir_ExtractValueOp : fir_OneResultOp<"extract_value", [NoSideEffect]>,
-    Arguments<(ins AnyCompositeType:$adt, Variadic<AnyCoordinateType>:$coor)> {
+    Arguments<(ins AnyCompositeLike:$adt, Variadic<AnyCoordinateType>:$coor)> {
   let summary = "Extract a value from an aggregate SSA-value";
 
   let description = [{
@@ -626,7 +990,7 @@ def fir_FieldIndexOp : fir_OneResultOp<"field_index", [NoSideEffect]> {
 }
 
 def fir_GenDimsOp : fir_OneResultOp<"gendims", [NoSideEffect]>, 
-    Arguments<(ins Variadic<AnyInteger>)> {
+    Arguments<(ins Variadic<AnyIntegerType>)> {
   let summary = "generate a value of type `!fir.dims`";
 
   let description = [{
@@ -641,7 +1005,7 @@ def fir_GenDimsOp : fir_OneResultOp<"gendims", [NoSideEffect]>,
 }
 
 def fir_InsertValueOp : fir_OneResultOp<"insert_value", [NoSideEffect]>,
-    Arguments<(ins AnyCompositeType:$adt, AnyType:$val,
+    Arguments<(ins AnyCompositeLike:$adt, AnyType:$val,
     Variadic<AnyCoordinateType>:$coor)> {
   let summary = "insert a new sub-value into a copy of an existing aggregate";
 
@@ -682,18 +1046,73 @@ def fir_LoopOp : fir_Op<"loop", [ImplicitFirTerminator]> {
   let description = [{
     A generalized Fortran loop construct.
   }];
-  let arguments = (ins Variadic<AnyType>);
+  let arguments = (ins Index:$lowerBound, Index:$upperBound,
+                   Variadic<Index>:$optstep, OptionalAttr<I32Attr>:$constep,
+                   OptionalAttr<BoolAttr>:$unordered);
   let regions = (region SizedRegion<1>:$region);
   let skipDefaultBuilders = 1;
   let builders = [
-    OpBuilder<"Builder *builder, OperationState *result, "
+    OpBuilder<"mlir::Builder *builder, mlir::OperationState *result,"
               "int64_t lowerBound, int64_t upperBound, int64_t step = 1">,
-    OpBuilder<"Builder *builder, OperationState *result, "
-              "ArrayRef<Value *> lbOperands, AffineMap lbMap, "
-              "ArrayRef<Value *> ubOperands, AffineMap ubMap, "
-              "int64_t step = 1">
+    OpBuilder<"mlir::Builder *builder, mlir::OperationState *result,"
+              "mlir::Value *lowerBound, mlir::Value *upperBound,"
+              "llvm::ArrayRef<mlir::Value*> step">
   ];
-  //let hasCanonicalizer = 1;
+
+  let printer = [{
+    *p << getOperationName() << ' ' << *getInductionVar() << " = "
+       << *lowerBound() << " to " << *upperBound();
+    auto s = optstep();
+    if (s.begin() != s.end()) {
+      *p << " step ";
+      p->printOperands(s.begin(), s.end());
+    }
+    if (unordered())
+      *p << " unordered";
+    p->printRegion(region(), /*printEntryBlockArgs=*/false,
+        /*printBlockTerminators=*/false);
+    p->printOptionalAttrDict(getAttrs(), {"unordered", "step"});
+  }];
+  let verifier = [{
+    auto step = optstep();
+    if (step.begin() != step.end()) {
+      auto *s = (*step.begin())->getDefiningOp();
+      if (auto cst = dyn_cast_or_null<mlir::ConstantIndexOp>(s)) {
+        if (cst.getValue() == 0)
+          return emitOpError("constant step operand must be nonzero");
+      }
+    }
+
+    // Check that the body defines as single block argument for the induction
+    // variable.
+    auto *body = getBody();
+    if (body->getNumArguments() != 1 ||
+        !body->getArgument(0)->getType().isIndex())
+      return emitOpError("expected body to have a single index argument for "
+                       "the induction variable");
+    return mlir::success();
+  }];
+  let parser = [{ return parseLoopOp(parser, result); }];
+
+  let extraClassDeclaration = [{
+    mlir::Block *getBody() { return &region().front(); }
+    mlir::Value *getInductionVar() { return getBody()->getArgument(0); }
+    mlir::OpBuilder getBodyBuilder() {
+      return mlir::OpBuilder(getBody(), std::prev(getBody()->end()));
+    }
+    void setLowerBound(mlir::Value *bound) {
+      getOperation()->setOperand(0, bound);
+    }
+    void setUpperBound(mlir::Value *bound) {
+      getOperation()->setOperand(1, bound);
+     }
+    void setStep(mlir::Value *step) {
+      getOperation()->setOperand(2, step);
+    }
+    static char const* getStepKeyword() {
+      return "step";
+    }
+  }];
 }
 
 def fir_WhereOp : fir_Op<"where", [ImplicitFirTerminator]> {
@@ -701,20 +1120,60 @@ def fir_WhereOp : fir_Op<"where", [ImplicitFirTerminator]> {
   let description = [{
     This is a generalized conditional construct.
   }];
-  let arguments = (ins Variadic<AnyType>);
+  let arguments = (ins I1:$condition);
   let regions = (region SizedRegion<1>:$whereRegion, AnyRegion:$otherRegion);
+
   let skipDefaultBuilders = 1;
   let builders = [
     OpBuilder<"Builder *builder, OperationState *result, "
               "Value *cond, bool withOtherRegion">
   ];
+
+  let printer = [{
+    *p << getOperationName() << ' ' << *condition();
+    p->printRegion(whereRegion(), /*printEntryBlockArgs=*/false,
+        /*printBlockTerminators=*/false);
+
+    // Print the 'else' regions if it exists and has a block.
+    auto &otherReg = otherRegion();
+    if (!otherReg.empty()) {
+      *p << " otherwise";
+      p->printRegion(otherReg, /*printEntryBlockArgs=*/false,
+          /*printBlockTerminators=*/false);
+    }
+    p->printOptionalAttrDict(getAttrs());
+  }];
+  let verifier = [{
+    for (auto &region : getOperation()->getRegions()) {
+      if (region.empty())
+        continue;
+      for (auto &b : region)
+        if (b.getNumArguments() != 0)
+          return emitOpError("requires that child entry blocks have no args");
+    }
+    return mlir::success();
+  }];
+  let parser = [{ return parseWhereOp(parser, result); }];
+
+  let extraClassDeclaration = [{
+    mlir::OpBuilder getWhereBodyBuilder() {
+      assert(!whereRegion().empty() && "Unexpected empty 'where' region.");
+      mlir::Block &body = whereRegion().front();
+      return mlir::OpBuilder(&body, std::prev(body.end()));
+    }
+    mlir::OpBuilder getOtherBodyBuilder() {
+      assert(!otherRegion().empty() && "Unexpected empty 'other' region.");
+      mlir::Block &body = otherRegion().front();
+      return mlir::OpBuilder(&body, std::prev(body.end()));
+    }
+  }];
 }
 
 // Procedure call operations
 
 def fir_CallOp : fir_Op<"call", []>,
     Results<(outs Variadic<AnyType>)>,
-    Arguments<(ins StrAttr:$proc, Variadic<AnyType>:$args)> {
+    Arguments<(ins SymbolRefAttr:$proc, Variadic<AnyType>:$args)> {
   let summary = "call a procedure directly";
 
   let description = [{
@@ -723,7 +1182,45 @@ def fir_CallOp : fir_Op<"call", []>,
   }];
 
   let parser = [{ return fir::parseCallOp(parser, result); }];
-  let printer = [{ fir::printCallOp(p, *this); }];
+  let printer = [{
+    M::Type callType;
+    *p << getOperationName() << ' ';
+    if (isIndirect()) {
+      p->printOperand(getIndirectCallee());
+      *p << '(';
+      p->printOperands(getIndirectArgOperands());
+      *p << ')';
+      p->printOptionalAttrDict(getAttrs(), {"proc"});
+      callType = getIndirectCallee()->getType();
+    } else {
+      *p << getAttr("proc") << '(';
+      p->printOperands(getDirectArgOperands());
+      *p << ')';
+      p->printOptionalAttrDict(getAttrs(), {"proc"});
+      llvm::SmallVector<M::Type, 2> resultTypes(getResultTypes());
+      llvm::SmallVector<M::Type, 8> argTypes(getOperandTypes());
+      callType = mlir::FunctionType::get(argTypes, resultTypes, getContext());
+    }
+    *p << " : ";
+    p->printType(callType);
+  }];
+
+  let extraClassDeclaration = [{
+    bool isIndirect() {
+      return getAttr("proc").cast<mlir::SymbolRefAttr>().getValue() == "";
+    }
+    mlir::Value *getIndirectCallee() { return getOperand(0); }
+    operand_range getIndirectArgOperands() {
+      return {arg_ind_operand_begin(), arg_ind_operand_end()};
+    }
+    operand_iterator arg_ind_operand_begin() { return ++operand_begin(); }
+    operand_iterator arg_ind_operand_end() { return operand_end(); }
+    operand_range getDirectArgOperands() {
+      return {arg_dir_operand_begin(), arg_dir_operand_end()};
+    }
+    operand_iterator arg_dir_operand_begin() { return operand_begin(); }
+    operand_iterator arg_dir_operand_end() { return operand_end(); }
+  }];
 }
 
 def fir_DispatchOp : fir_Op<"dispatch", []>,
@@ -733,6 +1230,26 @@ def fir_DispatchOp : fir_Op<"dispatch", []>,
 
   let description = [{
     Dynamic dispatch to the specified method.
+  }];
+
+  let parser = [{ return fir::parseDispatchOp(parser, result); }];
+  let printer = [{ 
+    *p << getAttr("proc") << '(';
+    p->printOperands(getArgOperands());
+    *p << ')';
+    p->printOptionalAttrDict(getAttrs(), {"proc"});
+    llvm::SmallVector<mlir::Type, 2> resultTypes(getResultTypes());
+    llvm::SmallVector<mlir::Type, 8> argTypes(getOperandTypes());
+    *p << " : ";
+    p->printType(mlir::FunctionType::get(argTypes, resultTypes, getContext()));
+  }];
+
+  let extraClassDeclaration = [{
+    operand_range getArgOperands() {
+      return {arg_operand_begin(), arg_operand_end()};
+    }
+    operand_iterator arg_operand_begin() { return operand_begin(); }
+    operand_iterator arg_operand_end() { return operand_end(); }
   }];
 }
 
@@ -768,12 +1285,34 @@ def fir_NoReassocOp : fir_OneResultOp<"no_reassoc",
   }];
 }
 
-def fir_DTEntryOp : fir_OneResultOp<"dt_entry", [NoSideEffect]>,
-    Arguments<(ins StrAttr:$name, FunctionType:$callee)> {
+def fir_GlobalEntryOp : fir_Op<"global_entry", []>,
+    Arguments<(ins StrAttr:$field, AnyType:$constant)> {
+  let summary = "map entry in a global";
+
+  let description = [{
+    An entry in a global.  Allows a constant to be bound to a specific
+    field in a record even though the layout of the record has not yet
+    been reified.
+  }];
+}
+
+def fir_DTEntryOp : fir_Op<"dt_entry", []>,
+    Arguments<(ins StrAttr:$method, SymbolRefAttr:$proc)> {
   let summary = "map entry in a dispatch table";
 
   let description = [{
-    An entry in a dispatch table.
+    An entry in a dispatch table.  Allows a function symbol to be bound
+    to a specifier method identifier.  A dispatch operation uses the dynamic
+    type of a distinguished argument to determine an exact dispatch table
+    and uses the method identifier to select the type-bound procedure to
+    be called.
+  }];
+
+  let parser = [{ return fir::parseDTEntryOp(parser, result); }];
+  let printer = [{ 
+    *p << getOperationName() << ' '
+       << getAttr("method").cast<mlir::StringAttr>().getValue()
+       << ", " << getAttr("proc");
   }];
 }
 

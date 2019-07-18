@@ -356,7 +356,7 @@ template<typename A> std::string dumpConstruct(const A &a) {
           },
           [](const parser::CompilerDirective *c) { return GetSource(c); },
           [](const parser::OpenMPConstruct *) { return "openmp"s; },
-          [](const parser::OpenMPEndLoopDirective *) {
+          [](const parser::OmpEndLoopDirective *) {
             return "openmp end loop"s;
           },
       },

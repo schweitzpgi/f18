@@ -22,7 +22,7 @@
 #include "../evaluate/tools.h"
 #include "../evaluate/type.h"
 #include "../parser/char-block.h"
-#include "../parser/features.h"
+#include "../parser/flang-features.h"
 #include "../parser/parse-tree.h"
 #include <ostream>
 #include <variant>

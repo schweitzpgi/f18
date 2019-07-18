@@ -22,7 +22,7 @@
 // and recovery during parsing!
 
 #include "characters.h"
-#include "features.h"
+#include "flang-features.h"
 #include "message.h"
 #include "provenance.h"
 #include "user-state.h"

@@ -13,7 +13,9 @@
 // limitations under the License.
 
 #include "builder.h"
+#include "bridge.h"
 #include "fe-helper.h"
+#include "llvm/ADT/StringRef.h"
 #include "mlir/IR/Module.h"
 #include "mlir/IR/Value.h"
 
@@ -24,19 +26,31 @@ namespace Se = Fortran::semantics;
 using namespace Fortran;
 using namespace Fortran::mlbridge;
 
-void FIRBuilder::addSymbol(const Se::Symbol *symbol, M::Value *value) {
-  symbolMap.try_emplace(symbol, value);
+// This will need to be extended to consider the type of what is being mangled
+std::string Br::applyNameMangling(llvm::StringRef parserName) {
+  // FIXME: this is fake for now, add type info, etc.
+  return "_Qp_"s + parserName.str();
 }
 
-M::Value *FIRBuilder::lookupSymbol(const Se::Symbol *symbol) {
-  auto iter = symbolMap.find(symbol);
-  return (iter != symbolMap.end()) ? iter->second : nullptr;
-}
-
-M::Function *Br::createFunction(
-    M::Module *module, const std::string &name, M::FunctionType funcTy) {
-  M::MLIRContext *ctxt{module->getContext()};
-  auto *func{new M::Function(dummyLoc(ctxt), name, funcTy)};
-  module->getFunctions().push_back(func);
+M::FuncOp Br::createFunction(
+    M::ModuleOp &module, const std::string &name, M::FunctionType funcTy) {
+  M::MLIRContext *ctxt{module.getContext()};
+  auto func{M::FuncOp::create(dummyLoc(ctxt), name, funcTy)};
+  module.push_back(func);
   return func;
+}
+
+M::FuncOp Br::getNamedFunction(llvm::StringRef name) {
+  return getBridge().getManager().lookupSymbol<M::FuncOp>(name);
+}
+
+// symbol map: {Symbol* -> Value*}
+
+void Br::SymMap::addSymbol(const Se::Symbol *symbol, M::Value *value) {
+  sMap.try_emplace(symbol, value);
+}
+
+M::Value *Br::SymMap::lookupSymbol(const Se::Symbol *symbol) {
+  auto iter = sMap.find(symbol);
+  return (iter == sMap.end()) ? nullptr : iter->second;
 }

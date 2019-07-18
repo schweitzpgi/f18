@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef FORTRAN_MLBRIDGE_MEM2REG_H_
-#define FORTRAN_MLBRIDGE_MEM2REG_H_
+#ifndef FIR_MEMTOREG_H
+#define FIR_MEMTOREG_H
 
 // A pass to convert the FIR dialect from "Mem-SSA" form to "Reg-SSA" form. This
 // pass is a port of LLVM's mem2reg pass, but modified for the FIR dialect as
@@ -23,18 +23,17 @@
 // This pass could be promoted to MLIR proper to do a similar operation on
 // Standard MLIR, assuming Standard was extended with similar operators, etc.
 
+#include <memory>
+
 namespace mlir {
 class FunctionPassBase;
 }
 
-namespace Fortran::mlbridge {
-
-// In the Fortran::mlbridge namespace, the code will default follow the
-// LLVM/MLIR coding standards
+namespace fir {
 
 /// Creates a pass to convert FIR into a reg SSA form
-mlir::FunctionPassBase *createMemToRegPass();
+std::unique_ptr<mlir::FunctionPassBase> createMemToRegPass();
 
-}  // mlbridge
+}  // fir
 
-#endif  // FORTRAN_MLBRIDGE_MEM2REG_H_
+#endif  // FIR_MEMTOREG_H

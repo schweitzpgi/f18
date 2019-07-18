@@ -13,8 +13,8 @@
 // limitations under the License.
 
 #include "fe-helper.h"
-#include "fir-type.h"
-#include "viaduct.h"
+#include "bridge.h"
+#include "fir/Type.h"
 #include "../semantics/expression.h"
 #include "../semantics/tools.h"
 #include "../semantics/type.h"
@@ -48,19 +48,21 @@ template<typename A> int64_t toConstant(const Ev::Expr<A> &e) {
 #undef TODO
 #define TODO() assert(false)
 
-int defaultRealKind() { return getDefaultKinds().GetDefaultKind(RealCat); }
+inline int defaultRealKind() {
+  return getDefaultKinds().GetDefaultKind(RealCat);
+}
 
-int defaultIntegerKind() {
+inline int defaultIntegerKind() {
   return getDefaultKinds().GetDefaultKind(IntegerCat);
 }
 
-int defaultCharKind() { return getDefaultKinds().GetDefaultKind(CharacterCat); }
-
-int defaultLogicalKind() {
-  return getDefaultKinds().GetDefaultKind(LogicalCat);
+inline int defaultCharKind() {
+  return getDefaultKinds().GetDefaultKind(CharacterCat);
 }
 
-int defaultIntegerBits() { return defaultIntegerKind() * 8; }
+inline int defaultLogicalKind() {
+  return getDefaultKinds().GetDefaultKind(LogicalCat);
+}
 
 /// Recover the type of an evaluate::Expr<T> and convert it to an
 /// mlir::Type. The type returned can be a MLIR standard or FIR type.
@@ -81,7 +83,7 @@ public:
     } else if constexpr (KIND == 8) {
       return M::FloatType::getF64(context);
     } else {
-      return FIRRealType::get(context, KIND);
+      return fir::RealType::get(context, KIND);
     }
   }
 
@@ -94,7 +96,7 @@ public:
     case 3: return genReal<3>(context);
     case 4: return genReal<4>(context);
     case 8: return genReal<8>(context);
-    default: return FIRRealType::get(context, kind);
+    default: return fir::RealType::get(context, kind);
     }
   }
 
@@ -105,8 +107,8 @@ public:
     case IntegerCat: return M::IntegerType::get(kind * 8, ctxt);
     case RealCat: return genReal(kind, ctxt);
     case ComplexCat: return M::ComplexType::get(genReal(kind, ctxt));
-    case CharacterCat: return FIRCharacterType::get(ctxt, kind);
-    case LogicalCat: return FIRLogicalType::get(ctxt, kind);
+    case CharacterCat: return fir::CharacterType::get(ctxt, kind);
+    case LogicalCat: return fir::LogicalType::get(ctxt, kind);
     default: break;
     }
     assert(false && "unhandled type category");
@@ -115,7 +117,7 @@ public:
 
   static M::Type genType(M::MLIRContext *ctxt, Co::TypeCategory tc) {
     switch (tc) {
-    case IntegerCat: return M::IntegerType::get(defaultIntegerBits(), ctxt);
+    case IntegerCat: return genType(ctxt, tc, defaultIntegerKind());
     case RealCat: return genType(ctxt, tc, defaultRealKind());
     case ComplexCat: return genType(ctxt, tc, defaultRealKind());
     case CharacterCat: return genType(ctxt, tc, defaultCharKind());
@@ -141,7 +143,7 @@ public:
   }
 
   template<typename A> M::Type gen(const Ev::Relational<A> &) {
-    return FIRLogicalType::get(context, 1);
+    return fir::LogicalType::get(context, 1);
   }
 
   template<template<typename> typename A, Co::TypeCategory TC, int KIND>
@@ -173,29 +175,29 @@ public:
 
   M::Type mkVoid() { return M::TupleType::get(context); }
 
-  FIRSequenceType::Shape genSeqShape(const Se::Symbol *symbol) {
+  fir::SequenceType::Shape genSeqShape(const Se::Symbol *symbol) {
     assert(symbol->IsObjectArray());
-    FIRSequenceType::Bounds bounds;
+    fir::SequenceType::Bounds bounds;
     auto &details = symbol->get<Se::ObjectEntityDetails>();
     const auto size = details.shape().size();
     for (auto &ss : details.shape()) {
       auto lb = ss.lbound();
       auto ub = ss.ubound();
       if (lb.isAssumed() && ub.isAssumed() && size == 1) {
-        return {FIRSequenceType::Unknown{}};
+        return {};
       }
       if (lb.isExplicit() && ub.isExplicit()) {
         auto &lbv = lb.GetExplicit();
         auto &ubv = ub.GetExplicit();
         if (lbv.has_value() && ubv.has_value() && isConstant(lbv.value()) &&
             isConstant(ubv.value())) {
-          bounds.emplace_back(FIRSequenceType::BoundInfo{
-              toConstant(lbv.value()), toConstant(ubv.value()), 1});
+          bounds.emplace_back(
+              true, toConstant(ubv.value()) - toConstant(lbv.value()) + 1);
         } else {
-          bounds.emplace_back(FIRSequenceType::Unknown{});
+          bounds.emplace_back(false, 0);
         }
       } else {
-        bounds.emplace_back(FIRSequenceType::Unknown{});
+        bounds.emplace_back(false, 0);
       }
     }
     return {bounds};
@@ -213,7 +215,7 @@ public:
       llvm::SmallVector<M::Type, 4> inputTys;
       for (auto *arg : proc->dummyArgs()) {
         // FIXME: not all args are pass by ref
-        inputTys.emplace_back(FIRReferenceType::get(gen(arg)));
+        inputTys.emplace_back(fir::ReferenceType::get(gen(arg)));
       }
       return M::FunctionType::get(inputTys, returnTy, context);
     }
@@ -232,10 +234,10 @@ public:
           returnTy = M::ComplexType::get(genReal(kind));
         } break;
         case CharacterCat: {
-          returnTy = FIRCharacterType::get(context, kind);
+          returnTy = fir::CharacterType::get(context, kind);
         } break;
         case LogicalCat: {
-          returnTy = FIRLogicalType::get(context, kind);
+          returnTy = fir::LogicalType::get(context, kind);
         } break;
         case DerivedCat: {
           TODO();
@@ -251,31 +253,31 @@ public:
     }
     if (symbol->IsObjectArray()) {
       // FIXME: add bounds info
-      returnTy = FIRSequenceType::get(genSeqShape(symbol), returnTy);
+      returnTy = fir::SequenceType::get(genSeqShape(symbol), returnTy);
     } else if (Se::IsPointer(*symbol)) {
       // FIXME: what about allocatable?
-      returnTy = FIRReferenceType::get(returnTy);
+      returnTy = fir::ReferenceType::get(returnTy);
     }
     return returnTy;
   }
 
-  FIRSequenceType::Shape trivialShape(int size) {
-    FIRSequenceType::Bounds bounds;
-    bounds.push_back(FIRSequenceType::BoundInfo{1, size, 1});
+  fir::SequenceType::Shape trivialShape(int size) {
+    fir::SequenceType::Bounds bounds;
+    bounds.emplace_back(true, size);
     return {bounds};
   }
 
   // some sequence of `n` bytes
   M::Type gen(const Ev::StaticDataObject::Pointer &ptr) {
     M::Type byteTy{M::IntegerType::get(8, context)};
-    return FIRSequenceType::get(trivialShape(ptr->itemBytes()), byteTy);
+    return fir::SequenceType::get(trivialShape(ptr->itemBytes()), byteTy);
   }
 
   M::Type gen(const Ev::Substring &ss) {
     return genVariant(ss.GetBaseObject());
   }
 
-  M::Type genTypelessPtr() { return FIRReferenceType::get(mkVoid()); }
+  M::Type genTypelessPtr() { return fir::ReferenceType::get(mkVoid()); }
   M::Type gen(const Ev::NullPointer &) { return genTypelessPtr(); }
   M::Type gen(const Ev::ProcedureRef &) { return genTypelessPtr(); }
   M::Type gen(const Ev::ProcedureDesignator &) { return genTypelessPtr(); }

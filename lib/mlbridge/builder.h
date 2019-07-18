@@ -18,29 +18,53 @@
 #include "../semantics/symbol.h"
 #include "llvm/ADT/DenseMap.h"
 #include "mlir/IR/Builders.h"
+#include "mlir/IR/Function.h"
+#include "mlir/IR/Module.h"
+#include <string>
+
+namespace llvm {
+class StringRef;
+}
 
 namespace Fortran::mlbridge {
 
 // In the Fortran::mlbridge namespace, the code will default follow the
 // LLVM/MLIR coding standards
 
-/// FIRBuilder extends the MLIR OpBuilder to track context information in the
-/// conversion from the front-end to FIR dialect.
-class FIRBuilder : public mlir::OpBuilder {
-  llvm::DenseMap<const semantics::Symbol *, mlir::Value *> symbolMap;
+// Miscellaneous helper routines for building MLIR
+
+class SymMap {
+  llvm::DenseMap<const semantics::Symbol *, mlir::Value *> sMap;
 
 public:
-  explicit FIRBuilder(mlir::Function *func)
-    : mlir::OpBuilder{&func->getBody()} {}
-
-  // map a Fortran symbol to its abstract store
   void addSymbol(const semantics::Symbol *symbol, mlir::Value *value);
 
   mlir::Value *lookupSymbol(const semantics::Symbol *symbol);
 };
 
-mlir::Function *createFunction(
-    mlir::Module *module, const std::string &name, mlir::FunctionType funcTy);
+std::string applyNameMangling(llvm::StringRef parserName);
+
+inline mlir::ModuleOp getModule(mlir::OpBuilder *bldr) {
+  return bldr->getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
+}
+
+inline mlir::FuncOp getFunction(mlir::OpBuilder *bldr) {
+  return bldr->getBlock()->getParent()->getParentOfType<mlir::FuncOp>();
+}
+
+inline mlir::Block *getEntryBlock(mlir::OpBuilder *bldr) {
+  return &getFunction(bldr).front();
+}
+
+inline mlir::Block *createBlock(mlir::OpBuilder *bldr) {
+  auto *region{bldr->getBlock()->getParent()};
+  return bldr->createBlock(region, region->end());
+}
+
+mlir::FuncOp getNamedFunction(llvm::StringRef name);
+
+mlir::FuncOp createFunction(
+    mlir::ModuleOp &module, const std::string &name, mlir::FunctionType funcTy);
 
 }  // Fortran::mlbridge
 

@@ -12,12 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "viaduct.h"
+#include "bridge.h"
 #include "builder.h"
-#include "expression.h"
+#include "canonicalize.h"
 #include "fe-helper.h"
-#include "fir-dialect.h"
-#include "fir-type.h"
+#include "fir/Dialect.h"
+#include "fir/FIROps.h"
+#include "fir/Type.h"
 #include "flattened.h"
 #include "runtime.h"
 #include "../evaluate/expression.h"
@@ -26,10 +27,13 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/IR/Module.h"
 #include "llvm/Support/raw_ostream.h"
+#include "mlir/Dialect/AffineOps/AffineOps.h"
+#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
+#include "mlir/Dialect/StandardOps/Ops.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Identifier.h"
 #include "mlir/IR/Module.h"
-#include "mlir/StandardOps/Ops.h"
+#include "mlir/Parser.h"
 #include "mlir/Target/LLVMIR.h"
 
 namespace Br = Fortran::mlbridge;
@@ -47,30 +51,32 @@ namespace {
 
 using SomeExpr = Ev::Expr<Ev::SomeType>;
 
-const Co::IntrinsicTypeDefaultKinds *defaultKinds{nullptr};
+std::unique_ptr<FirBridge> bridgeInstance;
 
 constexpr bool isStopStmt(Pa::StopStmt::Kind kind) {
   return kind == Pa::StopStmt::Kind::Stop;
 }
 
-/// Converter from Fortran to MLIR
+/// Converter from Fortran to FIR
 class MLIRConverter {
   using LabelMapType = std::map<Ff::LabelRef, M::Block *>;
   using Closure = std::function<void(const LabelMapType &)>;
 
   struct DoBoundsInfo {
-    M::Operation *doVar;
-    M::Operation *counter;
+    M::Value *doVar;
+
+    M::Value *counter;
     M::Value *stepExpr;
     M::Operation *condition;
   };
 
   M::MLIRContext &mlirContext;
-  std::unique_ptr<M::Module> module;
-  std::unique_ptr<FIRBuilder> builder;
+  M::ModuleOp module;
+  std::unique_ptr<M::OpBuilder> builder;
   LabelMapType blockMap;  // map from flattened labels to MLIR blocks
   std::list<Closure> edgeQ;
   std::map<const Pa::NonLabelDoStmt *, DoBoundsInfo> doMap;
+  SymMap symbolMap;
   Pa::CharBlock lastKnownPos;
   bool noInsPt{false};
 
@@ -86,7 +92,7 @@ class MLIRConverter {
   }
   M::Type refExprType(const SomeExpr *expr) {
     auto type{translateSomeExprToFIRType(&mlirContext, expr)};
-    return FIRReferenceType::get(type);
+    return fir::ReferenceType::get(type);
   }
 
   int getDefaultIntegerKind() {
@@ -99,48 +105,27 @@ class MLIRConverter {
     return getDefaultKinds().GetDefaultKind(Co::TypeCategory::Logical);
   }
   M::Type getDefaultLogicalType() {
-    return FIRLogicalType::get(&mlirContext, getDefaultLogicalKind());
+    return fir::LogicalType::get(&mlirContext, getDefaultLogicalKind());
   }
 
+  M::Value *createFIRAddr(M::Location loc, const SomeExpr *expr) {
+    return createSomeAddress(loc, *builder.get(), *expr, symbolMap);
+  }
   M::Value *createFIRExpr(M::Location loc, const SomeExpr *expr) {
-    auto exprOps{translateSomeExpr(builder.get(), expr)};
-    if (getExprType(exprOps) == ET_FunctionRef) {
-      const auto &args{getArgs(exprOps)};
-      if (args.size() == 1) {
-        return args[0];
-      }
-    }
-    return builder->create<ApplyExpr>(
-        loc, expr, getDict(exprOps), getArgs(exprOps), exprType(expr));
+    return createSomeExpression(loc, *builder.get(), *expr, symbolMap);
+  }
+  M::Value *createTemp(M::Type type, Se::Symbol *symbol = nullptr) {
+    return createTemporary(toLocation(), *builder, symbolMap, type, symbol);
   }
 
-  AllocaExpr createTemp(M::Type type, Se::Symbol *symbol = nullptr) {
-    if (symbol)
-      if (auto *val{builder->lookupSymbol(symbol)}) {
-        return M::cast<AllocaExpr>(*val->getDefiningOp());
-      }
-    auto insPt(builder->saveInsertionPoint());
-    builder->setInsertionPointToStart(&builder->getRegion()->front());
-    AllocaExpr ae;
-    if (symbol) {
-      ae = builder->create<AllocaExpr>(
-          toLocation(), symbol->name().ToString(), type);
-      builder->addSymbol(symbol, ae);
-    } else {
-      ae = builder->create<AllocaExpr>(toLocation(), type);
-    }
-    builder->restoreInsertionPoint(insPt);
-    return ae;
-  }
-
-  M::Function *genFunctionMLIR(llvm::StringRef callee, M::FunctionType funcTy) {
-    if (auto *func{module->getNamedFunction(callee)}) {
+  M::FuncOp genFunctionMLIR(llvm::StringRef callee, M::FunctionType funcTy) {
+    if (auto func{getNamedFunction(callee)}) {
       return func;
     }
-    return createFunction(module.get(), callee, funcTy);
+    return createFunction(module, callee, funcTy);
   }
 
-  M::Function *genRuntimeFunction(RuntimeEntryCode rec, int kind) {
+  M::FuncOp genRuntimeFunction(RuntimeEntryCode rec, int kind) {
     return genFunctionMLIR(
         getRuntimeEntryName(rec), getRuntimeEntryType(rec, mlirContext, kind));
   }
@@ -166,10 +151,10 @@ class MLIRConverter {
     if (lty.isIntOrIndex()) {
       return builder->create<M::CmpIOp>(lhs->getLoc(), ICMPOPC, lhs, rhs);
     }
-    if (FIRLogicalType::kindof(lty.getKind())) {
+    if (fir::LogicalType::kindof(lty.getKind())) {
       return builder->create<M::CmpIOp>(lhs->getLoc(), ICMPOPC, lhs, rhs);
     }
-    if (FIRCharacterType::kindof(lty.getKind())) {
+    if (fir::CharacterType::kindof(lty.getKind())) {
       // return builder->create<M::CallOp>(lhs->getLoc(), );
       return {};
     }
@@ -197,7 +182,7 @@ class MLIRConverter {
       blockMap.insert({op.get(), builder->getInsertionBlock()});
     } else {
       auto *currBlock{builder->getInsertionBlock()};
-      auto *newBlock{builder->createBlock()};
+      auto *newBlock{createBlock(builder.get())};
       blockMap.insert({op.get(), newBlock});
       if (!noInsPt) {
         builder->setInsertionPointToEnd(currBlock);
@@ -215,7 +200,7 @@ class MLIRConverter {
     } else {
       using namespace std::placeholders;
       edgeQ.emplace_back(std::bind(
-          [](FIRBuilder *builder, M::Block *block, Ff::LabelRef dest,
+          [](M::OpBuilder *builder, M::Block *block, Ff::LabelRef dest,
               M::Location location, const LabelMapType &map) {
             builder->setInsertionPointToEnd(block);
             assert(map.find(dest) != map.end() && "no destination");
@@ -273,7 +258,7 @@ class MLIRConverter {
   void genMLIR(FIR::AnalysisData &ad, const Ff::ActionOp &op);
 
   void pushDoContext(const Pa::NonLabelDoStmt *doStmt,
-      M::Operation *doVar = nullptr, M::Operation *counter = nullptr,
+      M::Value *doVar = nullptr, M::Value *counter = nullptr,
       M::Value *stepExpr = nullptr) {
     doMap.emplace(doStmt, DoBoundsInfo{doVar, counter, stepExpr});
   }
@@ -282,7 +267,7 @@ class MLIRConverter {
       const Pa::NonLabelDoStmt *stmt, const Pa::CharBlock &source) {
     auto loc{toLocation(source)};
     auto *nameExpr{bounds.name.thing.symbol};
-    auto name{createTemp(getDefaultIntegerType(), nameExpr)};
+    auto *name{createTemp(getDefaultIntegerType(), nameExpr)};
     // evaluate e1, e2 [, e3] ...
     auto *lowerExpr{Se::GetExpr(bounds.lower)};
     auto *e1{createFIRExpr(loc, lowerExpr)};
@@ -297,7 +282,7 @@ class MLIRConverter {
       e3 = builder->create<M::ConstantOp>(loc, attr);
     }
     // name <- e1
-    builder->create<StoreExpr>(loc, e1, name);
+    builder->create<fir::StoreExpr>(loc, e1, name);
     auto tripCounter{createTemp(getDefaultIntegerType())};
     // See 11.1.7.4.1, para. 1, item (3)
     // totalTrips ::= iteration count = a
@@ -306,7 +291,7 @@ class MLIRConverter {
     auto c2{builder->create<M::AddIOp>(loc, c1.getResult(), e3)};
     auto c3{builder->create<M::DivISOp>(loc, c2.getResult(), e3)};
     auto *totalTrips{c3.getResult()};
-    builder->create<StoreExpr>(loc, totalTrips, tripCounter);
+    builder->create<fir::StoreExpr>(loc, totalTrips, tripCounter);
     pushDoContext(stmt, name, tripCounter, e3);
   }
 
@@ -362,29 +347,28 @@ class MLIRConverter {
     auto *info{getBoundsInfo(op)};
     if (info->doVar && info->stepExpr) {
       // add: do_var = do_var + e3
-      auto load{builder->create<LoadExpr>(
-          info->doVar->getLoc(), info->doVar->getResult(0))};
+      auto load{
+          builder->create<fir::LoadExpr>(info->doVar->getLoc(), info->doVar)};
       auto incremented{builder->create<M::AddIOp>(
           load.getLoc(), load.getResult(), info->stepExpr)};
-      builder->create<StoreExpr>(
-          load.getLoc(), incremented, info->doVar->getResult(0));
+      builder->create<fir::StoreExpr>(load.getLoc(), incremented, info->doVar);
       // add: counter--
-      auto loadCtr{builder->create<LoadExpr>(
-          info->counter->getLoc(), info->counter->getResult(0))};
+      auto loadCtr{builder->create<fir::LoadExpr>(
+          info->counter->getLoc(), info->counter)};
       auto one{builder->create<M::ConstantOp>(
           loadCtr.getLoc(), builder->getIntegerAttr(loadCtr.getType(), 1))};
       auto decremented{builder->create<M::SubIOp>(
           loadCtr.getLoc(), loadCtr.getResult(), one)};
-      builder->create<StoreExpr>(
-          loadCtr.getLoc(), decremented, info->counter->getResult(0));
+      builder->create<fir::StoreExpr>(
+          loadCtr.getLoc(), decremented, info->counter);
     }
   }
   void genMLIR(const Ff::DoCompareOp &op) {
     auto *info{getBoundsInfo(op)};
     if (info->doVar && info->stepExpr) {
       // add: cond = counter > 0 (signed)
-      auto load{builder->create<LoadExpr>(
-          info->counter->getLoc(), info->counter->getResult(0))};
+      auto load{builder->create<fir::LoadExpr>(
+          info->counter->getLoc(), info->counter)};
       auto zero{builder->create<M::ConstantOp>(
           load.getLoc(), builder->getIntegerAttr(load.getType(), 0))};
       auto cond{builder->create<M::CmpIOp>(
@@ -393,23 +377,23 @@ class MLIRConverter {
     }
   }
   void genMLIR(const Pa::FailImageStmt &stmt) {
-    auto *callee{genRuntimeFunction(FIRT_FAIL_IMAGE, 0)};
+    auto callee{genRuntimeFunction(FIRT_FAIL_IMAGE, 0)};
     llvm::SmallVector<M::Value *, 1> operands;  // FAIL IMAGE has no args
     builder->create<M::CallOp>(toLocation(), callee, operands);
-    builder->create<UnreachableOp>(toLocation());
+    builder->create<fir::UnreachableOp>(toLocation());
   }
   void genMLIR(const Pa::ReturnStmt &stmt) {
     builder->create<M::ReturnOp>(toLocation());  // FIXME: argument(s)?
   }
   void genMLIR(const Pa::StopStmt &stmt) {
-    auto *callee{genRuntimeFunction(
+    auto callee{genRuntimeFunction(
         isStopStmt(std::get<Pa::StopStmt::Kind>(stmt.t)) ? FIRT_STOP
                                                          : FIRT_ERROR_STOP,
         getDefaultIntegerKind())};
     // 2 args: stop-code-opt, quiet-opt
     llvm::SmallVector<M::Value *, 8> operands;
     builder->create<M::CallOp>(toLocation(), callee, operands);
-    builder->create<UnreachableOp>(toLocation());
+    builder->create<fir::UnreachableOp>(toLocation());
   }
 
   // Conditional branch-like statements
@@ -475,25 +459,11 @@ class MLIRConverter {
   // Action statements
   void genMLIR(const Pa::AllocateStmt &stmt);
   void genMLIR(const Pa::AssignmentStmt &stmt) {
-    auto loc{toLocation()};
     auto *rhs{Se::GetExpr(std::get<Pa::Expr>(stmt.t))};
-    auto *value{createFIRExpr(loc, rhs)};
     auto *lhs{Se::GetExpr(std::get<Pa::Variable>(stmt.t))};
-    auto lhsOps{translateSomeAddrExpr(builder.get(), lhs)};
-    M::Value *toLoc{nullptr};
-    auto defOps{getArgs(lhsOps)};
-    if (defOps.size() == 1)
-      if (auto *defOp{defOps[0]->getDefiningOp()})
-        if (auto load{M::dyn_cast<LoadExpr>(defOp)}) {
-          // Skip generating a locate_expr when the location is obvious
-          toLoc = load.getOperand();
-        }
-    if (!toLoc) {
-      LocateExpr address{builder->create<LocateExpr>(
-          loc, lhs, getDict(lhsOps), getArgs(lhsOps), refExprType(lhs))};
-      toLoc = address.getResult();
-    }
-    builder->create<StoreExpr>(loc, value, toLoc);
+    auto loc{toLocation()};
+    builder->create<fir::StoreExpr>(
+        loc, createFIRExpr(loc, rhs), createFIRAddr(loc, lhs));
   }
   void genMLIR(const Pa::BackspaceStmt &stmt);
   void genMLIR(const Pa::CallStmt &stmt);
@@ -539,7 +509,7 @@ class MLIRConverter {
     } else {
       using namespace std::placeholders;
       edgeQ.emplace_back(std::bind(
-          [](FIRBuilder *builder, M::Block *block, M::Value *cnd,
+          [](M::OpBuilder *builder, M::Block *block, M::Value *cnd,
               Ff::LabelRef trueDest, Ff::LabelRef falseDest,
               M::Location location, const LabelMapType &map) {
             llvm::SmallVector<M::Value *, 2> blk;
@@ -570,30 +540,38 @@ class MLIRConverter {
     if (haveAllLabels) {
       // yes, so generate the FIR operation now
       u = 0;
-      std::vector<typename A::BranchTuple> x;
-      for (auto &cond : conditions) {
-        llvm::SmallVector<M::Value *, 2> blanks;
-        x.emplace_back(cond, blockMap.find(labels[u++])->second, blanks);
+      std::vector<M::Value *> conds;
+      std::vector<M::Block *> blocks;
+      std::vector<llvm::ArrayRef<M::Value *>> blockArgs;
+      llvm::SmallVector<M::Value *, 2> blanks;
+      for (auto cond : conditions) {
+        conds.emplace_back(cond);
+        blocks.emplace_back(blockMap.find(labels[u++])->second);
+        blockArgs.emplace_back(blanks);
       }
-      builder->create<A>(loc, selector, x);
+      builder->create<A>(loc, selector, conds, blocks, blockArgs);
     } else {
       // no, so queue the FIR operation for later
       using namespace std::placeholders;
       edgeQ.emplace_back(std::bind(
-          [](FIRBuilder *builder, M::Block *block, M::Value *sel,
+          [](M::OpBuilder *builder, M::Block *block, M::Value *sel,
               const std::list<typename A::Conditions> &conditions,
               const std::vector<Ff::LabelRef> &labels, M::Location location,
               const LabelMapType &map) {
             std::size_t u{0};
-            std::vector<typename A::BranchTuple> x;
+            std::vector<M::Value *> conds;
+            std::vector<M::Block *> blocks;
+            std::vector<llvm::ArrayRef<M::Value *>> blockArgs;
             llvm::SmallVector<M::Value *, 2> blanks;
             for (auto &cond : conditions) {
               auto iter{map.find(labels[u++])};
               assert(iter != map.end());
-              x.emplace_back(cond, iter->second, blanks);
+              conds.emplace_back(cond);
+              blocks.emplace_back(iter->second);
+              blockArgs.emplace_back(blanks);
             }
             builder->setInsertionPointToEnd(block);
-            builder->create<A>(location, sel, x);
+            builder->create<A>(location, sel, conds, blocks, blockArgs);
           },
           builder.get(), builder->getInsertionBlock(), selector, conditions,
           labels, loc, _1));
@@ -607,11 +585,11 @@ class MLIRConverter {
   }
 
 public:
-  MLIRConverter(M::MLIRContext &mlirCtxt)
-    : mlirContext{mlirCtxt}, module{llvm::make_unique<M::Module>(&mlirCtxt)} {}
+  MLIRConverter(FirBridge &bridge)
+    : mlirContext{bridge.getMLIRContext()}, module{bridge.getModule()} {}
   MLIRConverter() = delete;
 
-  std::unique_ptr<M::Module> acquireModule() { return std::move(module); }
+  M::ModuleOp getModule() { return module; }
 
   template<typename A> constexpr bool Pre(const A &) { return true; }
   template<typename A> constexpr void Post(const A &) {}
@@ -649,7 +627,7 @@ void MLIRConverter::genMLIR(
   auto *exp{Se::GetExpr(std::get<Pa::Scalar<Pa::Expr>>(cstm.statement.t))};
   auto *e1{createFIRExpr(loc, exp)};
   auto &cases{std::get<std::list<Pa::CaseConstruct::Case>>(stmt.t)};
-  std::list<SelectCaseOp::Conditions> conds;
+  std::list<fir::SelectCaseOp::Conditions> conds;
   // Per C1145, we know each `case-expr` must have type INTEGER, CHARACTER, or
   // LOGICAL
   for (auto &sel : cases) {
@@ -666,8 +644,8 @@ void MLIRConverter::genMLIR(
                                  conds.emplace_back(genEQ(e1, term));
                                },
                                [&](const Pa::CaseValueRange::Range &rng) {
-                                 SelectCaseOp::Conditions rangeComparison{
-                                     nullptr};
+                                 fir::SelectCaseOp::Conditions rangeComparison =
+                                     nullptr;
                                  if (rng.lower.has_value()) {
                                    auto *term{fromCaseValue(locs, *rng.lower)};
                                    // rc = e1 >= lower.term
@@ -695,7 +673,7 @@ void MLIRConverter::genMLIR(
         },
         csel.u);
   }
-  genSwitchBranch<SelectCaseOp>(loc, e1, std::move(conds), op.refs);
+  genSwitchBranch<fir::SelectCaseOp>(loc, e1, std::move(conds), op.refs);
 }
 
 /// SELECT RANK
@@ -708,7 +686,7 @@ void MLIRConverter::genMLIR(
       std::get<Pa::Selector>(rstm.statement.t).u)};
   auto *e1{createFIRExpr(loc, exp)};
   auto &ranks{std::get<std::list<Pa::SelectRankConstruct::RankCase>>(stmt.t)};
-  std::list<SelectRankOp::Conditions> conds;
+  std::list<fir::SelectRankOp::Conditions> conds;
   for (auto &r : ranks) {
     auto &rs{std::get<Pa::Statement<Pa::SelectRankCaseStmt>>(r.t)};
     auto &rank{std::get<Pa::SelectRankCaseStmt::Rank>(rs.statement.t)};
@@ -729,10 +707,10 @@ void MLIRConverter::genMLIR(
         rank.u);
   }
   // FIXME: fix the type of the function
-  auto *callee{genRuntimeFunction(FIRT_GET_RANK, 0)};
+  auto callee{genRuntimeFunction(FIRT_GET_RANK, 0)};
   llvm::SmallVector<M::Value *, 1> operands{e1};
   auto e3{builder->create<M::CallOp>(loc, callee, operands)};
-  genSwitchBranch<SelectRankOp>(
+  genSwitchBranch<fir::SelectRankOp>(
       loc, e3.getResult(0), std::move(conds), op.refs);
 }
 
@@ -746,7 +724,7 @@ void MLIRConverter::genMLIR(
       std::get<Pa::Selector>(tstm.statement.t).u)};
   auto *e1{createFIRExpr(loc, exp)};
   auto &types{std::get<std::list<Pa::SelectTypeConstruct::TypeCase>>(stmt.t)};
-  std::list<SelectTypeOp::Conditions> conds;
+  std::list<fir::SelectTypeOp::Conditions> conds;
   for (auto &t : types) {
     auto &ts{std::get<Pa::Statement<Pa::TypeGuardStmt>>(t.t)};
     auto &ty{std::get<Pa::TypeGuardStmt::Guard>(ts.statement.t)};
@@ -754,14 +732,14 @@ void MLIRConverter::genMLIR(
         Co::visitors{
             [&](const Pa::TypeSpec &) {
               // FIXME: add arguments
-              auto *func{genRuntimeFunction(FIRT_ISA_TYPE, 0)};
+              auto func{genRuntimeFunction(FIRT_ISA_TYPE, 0)};
               llvm::SmallVector<M::Value *, 2> operands;
               auto call{builder->create<M::CallOp>(loc, func, operands)};
               conds.emplace_back(call.getResult(0));
             },
             [&](const Pa::DerivedTypeSpec &) {
               // FIXME: add arguments
-              auto *func{genRuntimeFunction(FIRT_ISA_SUBTYPE, 0)};
+              auto func{genRuntimeFunction(FIRT_ISA_SUBTYPE, 0)};
               llvm::SmallVector<M::Value *, 2> operands;
               auto call{builder->create<M::CallOp>(loc, func, operands)};
               conds.emplace_back(call.getResult(0));
@@ -770,10 +748,10 @@ void MLIRConverter::genMLIR(
         },
         ty.u);
   }
-  auto *callee{genRuntimeFunction(FIRT_GET_ELETYPE, 0)};
+  auto callee{genRuntimeFunction(FIRT_GET_ELETYPE, 0)};
   llvm::SmallVector<M::Value *, 1> operands{e1};
   auto e3{builder->create<M::CallOp>(loc, callee, operands)};
-  genSwitchBranch<SelectTypeOp>(
+  genSwitchBranch<fir::SelectTypeOp>(
       loc, e3.getResult(0), std::move(conds), op.refs);
 }
 
@@ -882,7 +860,7 @@ void MLIRConverter::genMLIR(
 template<typename A>
 void MLIRConverter::translateRoutine(const A &routine, const std::string &name,
     const Se::Symbol *funcSym, bool dumpFlatIR) {
-  M::Function *func{module->getNamedFunction(name)};
+  M::FuncOp func = getNamedFunction(name);
   if (!func) {
     // get arguments and return type if any, otherwise just use empty vectors
     llvm::SmallVector<M::Type, 8> args;
@@ -891,7 +869,7 @@ void MLIRConverter::translateRoutine(const A &routine, const std::string &name,
       if (auto *details{funcSym->detailsIf<Se::SubprogramDetails>()}) {
         for (auto a : details->dummyArgs()) {
           auto type{translateSymbolToFIRType(&mlirContext, a)};
-          args.push_back(FIRReferenceType::get(type));
+          args.push_back(fir::ReferenceType::get(type));
         }
         if (details->isFunction()) {
           // FIXME: handle subroutines that return magic values
@@ -905,17 +883,17 @@ void MLIRConverter::translateRoutine(const A &routine, const std::string &name,
       }
     }
     auto funcTy{M::FunctionType::get(args, results, &mlirContext)};
-    func = createFunction(module.get(), name, funcTy);
+    func = createFunction(module, name, funcTy);
   }
-  func->addEntryBlock();
-  builder = llvm::make_unique<FIRBuilder>(func);
-  builder->setInsertionPointToStart(&func->front());
+  func.addEntryBlock();
+  builder = std::make_unique<M::OpBuilder>(func);
+  builder->setInsertionPointToStart(&func.front());
   if (funcSym) {
-    auto &entryBlock{func->front()};
+    auto *entryBlock{&func.front()};
     if (auto *details{funcSym->detailsIf<Se::SubprogramDetails>()}) {
       for (const auto &v :
-          llvm::zip(details->dummyArgs(), entryBlock.getArguments())) {
-        builder->addSymbol(std::get<0>(v), std::get<1>(v));
+          llvm::zip(details->dummyArgs(), entryBlock->getArguments())) {
+        symbolMap.addSymbol(std::get<0>(v), std::get<1>(v));
       }
     } else {
       llvm::errs() << "Symbol: " << funcSym->name().ToString() << " @ "
@@ -933,29 +911,42 @@ void MLIRConverter::translateRoutine(const A &routine, const std::string &name,
   finalizeQueued();
 }
 
+M::DialectRegistration<fir::FIROpsDialect> FIROps;
+
 }  // namespace
 
-std::unique_ptr<M::Module> Br::MLIRViaduct(
-    M::MLIRContext &mlirCtxt, const Pa::Program &prg) {
-  MLIRConverter converter{mlirCtxt};
+void Br::FIRBridge(FirBridge &bridge, const Pa::Program &prg) {
+  MLIRConverter converter{bridge};
   Walk(prg, converter);
-  return converter.acquireModule();
 }
 
-std::unique_ptr<llvm::Module> Br::LLVMViaduct(M::Module &module) {
+std::unique_ptr<llvm::Module> Br::LLVMBridge(M::ModuleOp &module) {
   return M::translateModuleToLLVMIR(module);
 }
 
-std::unique_ptr<M::MLIRContext> Br::getFortranMLIRContext() {
-  M::registerDialect<FIROpsDialect>();
-  return std::make_unique<M::MLIRContext>();
+void Br::FirBridge::parseSourceFile(llvm::SourceMgr &srcMgr) {
+  module = M::parseSourceFile(srcMgr, context.get());
+  if (validModule()) {
+    // symbols are added by ModuleManager ctor
+    manager.reset(new M::ModuleManager(module));
+  }
 }
 
-void Br::setDefaultKinds(const Co::IntrinsicTypeDefaultKinds &defKinds) {
-  defaultKinds = &defKinds;
+Br::FirBridge::FirBridge(const Co::IntrinsicTypeDefaultKinds &defaultKinds)
+  : defaultKinds{defaultKinds} {
+  context = std::make_unique<M::MLIRContext>();
+  module = M::ModuleOp::create(M::UnknownLoc::get(context.get()));
+  manager = std::make_unique<M::ModuleManager>(module);
 }
 
-const Co::IntrinsicTypeDefaultKinds &Br::getDefaultKinds() {
-  assert(defaultKinds && "must call setDefaultKinds() before MLIR bridge");
-  return *defaultKinds;
+void Br::instantiateFIRBridge(
+    const Co::IntrinsicTypeDefaultKinds &defaultKinds) {
+  auto p{FirBridge::create(defaultKinds)};
+  bridgeInstance.swap(p);
+}
+
+FirBridge &Br::getBridge() { return *bridgeInstance.get(); }
+
+const common::IntrinsicTypeDefaultKinds &Br::getDefaultKinds() {
+  return getBridge().getDefaultKinds();
 }

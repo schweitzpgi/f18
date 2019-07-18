@@ -1,4 +1,4 @@
-# Copyright (c) 2018-2019, NVIDIA CORPORATION.  All rights reserved.
+# Copyright (c) 2019, NVIDIA CORPORATION.  All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,27 +12,34 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -L/home/eschweitz/clang-mlir/lib -fno-rtti")
-
-add_executable(fml
-  fml.cc
+add_library(FIR
+  Attribute.cpp
+  Dialect.cpp
+  FIROps.cpp
+  LLVMConverter.cpp
+  MemToReg.cpp
+  StdConverter.cpp
+  Type.cpp
 )
 
-set(LIBS
-  MLIRAffineOps
-  MLIRLLVMIR
-  MLIRLoopOps
-  MLIRStandardOps
+add_dependencies(FIR FIROpsIncGen)
+
+target_link_libraries(FIR
+  MLIRTargetLLVMIR
+  MLIRTargetLLVMIRModuleTranslation
+  MLIREDSC
+  MLIRExecutionEngine
+  MLIRParser
+  MLIRSupport
+  MLIRStandardToLLVM
+  MLIRTransforms
+  LLVMAsmParser
+  LLVMAsmPrinter
+  LLVMRemarks
 )
 
-whole_archive_link(fml ${LIBS})
-target_link_libraries(fml
-  FortranCommon
-  FortranParser
-  FortranEvaluate
-  FortranSemantics
-  FortranMLBridge
-  ${LIBS}
+install (TARGETS FIR
+  ARCHIVE DESTINATION lib
+  LIBRARY DESTINATION lib
+  RUNTIME DESTINATION bin
 )
-
-install(TARGETS fml DESTINATION bin)

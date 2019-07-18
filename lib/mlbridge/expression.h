@@ -34,6 +34,7 @@
 namespace mlir {
 class MLIRContext;
 class Value;
+class OpBuilder;
 }
 
 namespace Fortran::evaluate {
@@ -46,7 +47,6 @@ namespace Fortran::mlbridge {
 // In the Fortran::mlbridge namespace, the code will default follow the
 // LLVM/MLIR coding standards
 
-class FIRBuilder;
 class ApplyExpr;
 class LocateExpr;
 
@@ -69,16 +69,13 @@ enum ExprType {
   ET_TypeParamInquiry
 };
 
+class SymMap;
 using Args = llvm::SmallVector<mlir::Value *, 8>;
 using Dict = std::map<unsigned, void *>;
 using Values = std::tuple<Args, Dict, ExprType>;
 using RewriteVals = mlir::Value *;
 using OperandTy = llvm::ArrayRef<mlir::Value *>;
 using SomeExpr = evaluate::Expr<evaluate::SomeType>;
-
-// When KIND is missing, assume extra long sized integer
-// TODO: maybe use the default size
-constexpr auto SomeKindIntegerBits = 128;
 
 inline Args getArgs(const Values &values) { return std::get<Args>(values); }
 inline Dict getDict(const Values &values) { return std::get<Dict>(values); }
@@ -87,9 +84,11 @@ inline ExprType getExprType(const Values &values) {
 }
 
 /// Convert an Expr<T> in its implicit dataflow arguments
-Values translateSomeExpr(FIRBuilder *bldr, const SomeExpr *exp);
+Values translateSomeExpr(
+    mlir::OpBuilder *bldr, const SomeExpr *exp, SymMap &map);
 
-Values translateSomeAddrExpr(FIRBuilder *bldr, const SomeExpr *exp);
+Values translateSomeAddrExpr(
+    mlir::OpBuilder *bldr, const SomeExpr *exp, SymMap &map);
 
 }  // Fortran::mlbridge
 

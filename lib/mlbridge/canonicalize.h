@@ -15,41 +15,44 @@
 #ifndef FORTRAN_MLBRIDGE_CANONICALIZE_H_
 #define FORTRAN_MLBRIDGE_CANONICALIZE_H_
 
-/// Canonicalize the Expr<T> trees embedded in both `fir.apply_expr` and
-/// `fir.locate_expr` operations into discrete MLIR operations. After this pass,
-/// all `fir.apply_expr` and `fir.locate_expr` will be erased.
-
-namespace llvm {
-template<typename> class ArrayRef;
-}
-
-namespace mlir {
-class OpBuilder;
-class Pass;
-class Value;
-}
-
-namespace Fortran::mlbridge {
-
 // In the Fortran::mlbridge namespace, the code will default follow the
 // LLVM/MLIR coding standards
 
-class ApplyExpr;
-class LocateExpr;
+namespace mlir {
+class Location;
+class OpBuilder;
+class Type;
+class Value;
+}
 
-using RewriteVals = mlir::Value *;
-using OperandTy = llvm::ArrayRef<mlir::Value *>;
+namespace fir {
+class AllocaExpr;
+}
 
-/// Lower FIR to a canonical representation (suitable as .fir files)
-mlir::Pass *createFIRLoweringPass();
+namespace Fortran {
+namespace evaluate {
+template<typename> class Expr;
+class SomeType;
+}  // evaluate
+namespace semantics {
+class Symbol;
+}
 
-/// Allow for selective lowering of ApplyExpr ops
-RewriteVals lowerSomeExpr(
-    mlir::OpBuilder *bldr, OperandTy operands, ApplyExpr &operation);
-/// Allow for selective lowering of LocateExpr ops
-RewriteVals lowerSomeExpr(
-    mlir::OpBuilder *bldr, OperandTy operands, LocateExpr &operation);
+namespace mlbridge {
 
-}  // Fortran::mlbridge
+class SymMap;
+
+mlir::Value *createSomeExpression(mlir::Location loc, mlir::OpBuilder &builder,
+    const Fortran::evaluate::Expr<Fortran::evaluate::SomeType> &expr,
+    SymMap &symMap);
+mlir::Value *createSomeAddress(mlir::Location loc, mlir::OpBuilder &builder,
+    const Fortran::evaluate::Expr<Fortran::evaluate::SomeType> &expr,
+    SymMap &symMap);
+
+mlir::Value *createTemporary(mlir::Location loc, mlir::OpBuilder &builder,
+    SymMap &symMap, mlir::Type type, const semantics::Symbol *symbol);
+
+}  // mlbridge
+}  // Fortran
 
 #endif  // FORTRAN_MLBRIDGE_CANONICALIZE_H_

@@ -13,7 +13,7 @@
 // limitations under the License.
 
 #include "runtime.h"
-#include "fir-type.h"
+#include "fir/Type.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
@@ -58,6 +58,9 @@ llvm::SmallVector<mlir::Type, 4> consType(mlir::MLIRContext *ctx, int kind) {
   llvm::SmallVector<mlir::Type, 4> types;
   if constexpr (sizeof...(A) > 0) {
     consType<A...>(types, ctx, kind);
+  } else {
+    (void)ctx;
+    (void)kind;
   }
   return types;
 }

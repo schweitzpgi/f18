@@ -12,27 +12,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef FORTRAN_LIB_MLBRIDGE_FIR_CONVERSION_H
-#define FORTRAN_LIB_MLBRIDGE_FIR_CONVERSION_H
+#ifndef FIR_STD_CONVERTER_H
+#define FIR_STD_CONVERTER_H
+
+#include <memory>
 
 namespace mlir {
 class Pass;
 }
 
-namespace Fortran::mlbridge {
-
-// In the Fortran::mlbridge namespace, the code will default follow the
-// LLVM/MLIR coding standards
+namespace fir {
 
 /// Convert FIR to the standard dialect
-mlir::Pass *createFIRToStdPass();
+std::unique_ptr<mlir::Pass> createFIRToStdPass();
 
-/// Convert the standard dialect to LLVM IR dialect
-mlir::Pass *createStdToLLVMPass();
+}  // fir
 
-/// Convert the LLVM IR dialect to LLVM-IR proper
-mlir::Pass *createLLVMDialectToLLVMPass();
-
-}  // Fortran::mlbridge
-
-#endif  // FORTRAN_LIB_MLBRIDGE_FIR_CONVERSION_H
+#endif  // FIR_STD_CONVERSION_H

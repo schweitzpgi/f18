@@ -12,22 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "mem2reg.h"
-#include "fir-dialect.h"
+#include "fir/MemToReg.h"
+#include "fir/Dialect.h"
+#include "fir/FIROps.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SmallVector.h"
 #include "mlir/Analysis/Dominance.h"
 #include "mlir/Analysis/IteratedDominanceFrontier.h"
 #include "mlir/Pass/Pass.h"
-#include "mlir/StandardOps/Ops.h"
+#include "mlir/Dialect/StandardOps/Ops.h"
 #include <utility>
 #include <vector>
 
 namespace M = mlir;
-namespace Br = Fortran::mlbridge;
 
-using namespace Fortran;
-using namespace Fortran::mlbridge;
+using namespace fir;
 
 using DominatorTree = M::DominanceInfo;
 
@@ -199,7 +198,7 @@ struct MemToReg : public M::FunctionPass<MemToReg> {
 
       // Okay, if we have a load from the alloca, we want to replace it with the
       // only value stored to the alloca.  We can do this if the value is
-      // dominated by the store.  If not, we use the rest of the mem2reg
+      // dominated by the store.  If not, we use the rest of the MemToReg
       // machinery to insert the phi nodes as needed.
       if (LI.getOperation()->getBlock() == StoreBB) {
         // If we have a use that is in the same block as the store, compare
@@ -276,14 +275,14 @@ struct MemToReg : public M::FunctionPass<MemToReg> {
       unsigned LoadIdx = LBI.getInstructionIndex(LI);
 
       // Find the nearest store that has a lower index than this load.
-      StoresByIndexTy::iterator I = llvm::lower_bound(StoresByIndex,
+      typename StoresByIndexTy::iterator I = llvm::lower_bound(StoresByIndex,
           std::make_pair(LoadIdx, static_cast<StoreExpr *>(nullptr)),
           llvm::less_first());
       if (I == StoresByIndex.begin()) {
         if (StoresByIndex.empty()) {
           // If there are no stores, the load takes the undef value.
-          LI.replaceAllUsesWith(
-              builder->create<UndefOp>(LI.getLoc(), LI.getType()));
+          auto undef = builder->create<UndefOp>(LI.getLoc(), LI.getType());
+          LI.replaceAllUsesWith(undef.getResult());
         } else {
           // There is no store before this load, bail out (load may be affected
           // by the following stores - see main comment).
@@ -608,7 +607,7 @@ struct MemToReg : public M::FunctionPass<MemToReg> {
   }
 
   void doPromotion() {
-    auto &F(getFunction());
+    auto F = getFunction();
     std::vector<AllocaExpr> aes;
     AllocaInfo info;
     LargeBlockInfo lbi;
@@ -619,7 +618,7 @@ struct MemToReg : public M::FunctionPass<MemToReg> {
     for (unsigned allocaNum = 0, End = allocas.size(); allocaNum != End;
          ++allocaNum) {
       auto ae = allocas[allocaNum];
-      assert(ae.getOperation()->getFunction() == &F);
+      assert(ae.getParentOfType<M::FuncOp>() == F);
       if (ae.use_empty()) {
         ae.erase();
         continue;
@@ -715,16 +714,16 @@ struct MemToReg : public M::FunctionPass<MemToReg> {
       // in unreachable basic blocks that were not processed by walking the
       // dominator tree. Just delete the users now.
       if (!A->use_empty()) {
-        aa.replaceAllUsesWith(
-            builder->create<UndefOp>(aa.getLoc(), aa.getType()));
+        auto undef = builder->create<UndefOp>(aa.getLoc(), aa.getType());
+        aa.replaceAllUsesWith(undef.getResult());
       }
       aa.erase();
     }
   }
 
-  /// run the Mem2Reg pass on the FIR dialect
+  /// run the MemToReg pass on the FIR dialect
   void runOnFunction() override {
-    auto &f = getFunction();
+    auto f = getFunction();
     auto &entry = f.front();
     auto bldr = M::OpBuilder(f.getBody());
 
@@ -734,15 +733,16 @@ struct MemToReg : public M::FunctionPass<MemToReg> {
     while (true) {
       allocas.clear();
 
-      for (auto &op : entry) {
+      for (auto &op : entry)
         if (auto ae = M::dyn_cast<AllocaExpr>(op)) {
           if (isAllocaPromotable(ae)) {
             allocas.push_back(ae);
           }
         }
-      }
 
-      if (allocas.empty()) break;
+      if (allocas.empty()) {
+        break;
+      }
       doPromotion();
     }
 
@@ -753,4 +753,6 @@ struct MemToReg : public M::FunctionPass<MemToReg> {
 
 }  // namespace
 
-M::FunctionPassBase *Br::createMemToRegPass() { return new MemToReg(); }
+std::unique_ptr<M::FunctionPassBase> fir::createMemToRegPass() {
+  return std::make_unique<MemToReg>();
+}

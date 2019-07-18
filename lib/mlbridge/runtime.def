@@ -29,7 +29,7 @@ DEFINE_RUNTIME_ENTRY(POW, "int_pow", (mlir::IntegerType, mlir::IntegerType), (ml
 DEFINE_RUNTIME_ENTRY(CDIV, "complex_div", (Cplx, Cplx), (Cplx))
 
 // CHARACTER ops
-DEFINE_RUNTIME_ENTRY(CONCAT, "char_concat", (FIRCharacterType, FIRCharacterType), (FIRCharacterType))
+DEFINE_RUNTIME_ENTRY(CONCAT, "char_concat", (fir::CharacterType, fir::CharacterType), (fir::CharacterType))
 
 // TYPE descriptor queries
 DEFINE_RUNTIME_ENTRY(ISA_TYPE, "isa_type", (TypeDesc), (mlir::IntegerType))

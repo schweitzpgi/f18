@@ -176,7 +176,7 @@ struct ActionOp {
       const parser::IfConstruct *, const parser::SelectRankConstruct *, \
       const parser::SelectTypeConstruct *, const parser::WhereConstruct *, \
       const parser::ForallConstruct *, const parser::CompilerDirective *, \
-      const parser::OpenMPConstruct *, const parser::OpenMPEndLoopDirective *
+    const parser::OpenMPConstruct * , const parser::OmpEndLoopDirective *
 
 // entry into a Fortran construct
 struct BeginOp : public SumTypeCopyMixin<CONSTRUCT_TYPES> {
