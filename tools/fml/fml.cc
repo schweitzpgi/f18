@@ -15,8 +15,6 @@
 // Temporary Fortran front end driver main program for development scaffolding.
 
 #include "../../lib/common/default-kinds.h"
-#include "../../lib/mlbridge/bridge.h"
-#include "../../lib/mlbridge/canonicalize.h"
 #include "../../lib/parser/characters.h"
 #include "../../lib/parser/dump-parse-tree.h"
 #include "../../lib/parser/flang-features.h"
@@ -29,10 +27,6 @@
 #include "../../lib/semantics/expression.h"
 #include "../../lib/semantics/semantics.h"
 #include "../../lib/semantics/unparse-with-symbols.h"
-#include "fir/Dialect.h"
-#include "fir/LLVMConverter.h"
-#include "fir/MemToReg.h"
-#include "fir/StdConverter.h"
 #include "llvm/Support/ErrorOr.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/SourceMgr.h"
@@ -43,6 +37,12 @@
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/Passes.h"
+#include "fir/Dialect.h"
+#include "fir/LLVMConverter.h"
+#include "fir/MemToReg.h"
+#include "fir/StdConverter.h"
+#include "../../lib/burnside/bridge.h"
+#include "../../lib/burnside/canonicalize.h"
 #include <cerrno>
 #include <cstdio>
 #include <cstring>
@@ -58,7 +58,7 @@
 #include <unistd.h>
 #include <vector>
 
-namespace Br = Fortran::mlbridge;
+namespace Br = Fortran::burnside;
 
 static std::list<std::string> argList(int argc, char *const argv[]) {
   std::list<std::string> result;

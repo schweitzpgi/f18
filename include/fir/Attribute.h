@@ -117,4 +117,4 @@ mlir::Attribute parseFirAttribute(FIROpsDialect *dialect,
 
 }  // fir
 
-#endif  // FIR_TYPE_H
+#endif  // FIR_ATTRIBUTE_H

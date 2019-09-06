@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef FORTRAN_MLBRIDGE_EXPRESSION_H_
-#define FORTRAN_MLBRIDGE_EXPRESSION_H_
+#ifndef FORTRAN_BURNSIDE_EXPRESSION_H_
+#define FORTRAN_BURNSIDE_EXPRESSION_H_
 
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SmallVector.h"
@@ -42,9 +42,9 @@ template<typename> class Expr;
 struct SomeType;
 }
 
-namespace Fortran::mlbridge {
+namespace Fortran::burnside {
 
-// In the Fortran::mlbridge namespace, the code will default follow the
+// In the Fortran::burnside namespace, the code will default follow the
 // LLVM/MLIR coding standards
 
 class ApplyExpr;
@@ -90,6 +90,6 @@ Values translateSomeExpr(
 Values translateSomeAddrExpr(
     mlir::OpBuilder *bldr, const SomeExpr *exp, SymMap &map);
 
-}  // Fortran::mlbridge
+}  // Fortran::burnside
 
-#endif  // FORTRAN_MLBRIDGE_EXPRESSION_H_
+#endif  // FORTRAN_BURNSIDE_EXPRESSION_H_

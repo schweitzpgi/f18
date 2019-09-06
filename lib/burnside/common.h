@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef FORTRAN_MLBRIDGE_COMMON_H_
-#define FORTRAN_MLBRIDGE_COMMON_H_
+#ifndef FORTRAN_BURNSIDE_COMMON_H_
+#define FORTRAN_BURNSIDE_COMMON_H_
 
 #include "../common/idioms.h"
 #include "../common/indirection.h"
@@ -91,4 +91,4 @@ using RuntimeCallArguments = CallArguments;
 
 } // Fortran::FIR
 
-#endif  // FORTRAN_MLBRIDGE_COMMON_H_
+#endif  // FORTRAN_BURNSIDE_COMMON_H_

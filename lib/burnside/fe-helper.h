@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef FORTRAN_MLBRIDGE_FE_HELPER_H_
-#define FORTRAN_MLBRIDGE_FE_HELPER_H_
+#ifndef FORTRAN_BURNSIDE_FE_HELPER_H_
+#define FORTRAN_BURNSIDE_FE_HELPER_H_
 
 /// Traversal and coversion of various Fortran::parser data structures into the
 /// FIR dialect of MLIR. These traversals are isolated in this file to hopefully
@@ -45,7 +45,7 @@ namespace Fortran::semantics {
 class Symbol;
 }
 
-namespace Fortran::mlbridge {
+namespace Fortran::burnside {
 
 using SomeExpr = evaluate::Expr<evaluate::SomeType>;
 
@@ -56,7 +56,7 @@ constexpr common::TypeCategory CharacterCat{common::TypeCategory::Character};
 constexpr common::TypeCategory LogicalCat{common::TypeCategory::Logical};
 constexpr common::TypeCategory DerivedCat{common::TypeCategory::Derived};
 
-// In the Fortran::mlbridge namespace, the code will default follow the
+// In the Fortran::burnside namespace, the code will default follow the
 // LLVM/MLIR coding standards
 
 mlir::Location dummyLoc(mlir::MLIRContext *ctxt);
@@ -93,6 +93,6 @@ mlir::Type translateSymbolToFIRType(
 
 mlir::Type convertReal(int KIND, mlir::MLIRContext *context);
 
-}  // Fortran::mlbridge
+}  // Fortran::burnside
 
-#endif  // FORTRAN_MLBRIDGE_FE_HELPER_H_
+#endif  // FORTRAN_BURNSIDE_FE_HELPER_H_

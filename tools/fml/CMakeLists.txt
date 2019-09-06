@@ -31,7 +31,7 @@ target_link_libraries(fml
   FortranParser
   FortranEvaluate
   FortranSemantics
-  FortranMLBridge
+  FortranBurnside
   ${LIBS}
 )
 

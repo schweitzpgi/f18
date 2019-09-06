@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef FORTRAN_MLBRIDGE_BUILDER_H_
-#define FORTRAN_MLBRIDGE_BUILDER_H_
+#ifndef FORTRAN_BURNSIDE_BUILDER_H_
+#define FORTRAN_BURNSIDE_BUILDER_H_
 
 #include "../semantics/symbol.h"
 #include "llvm/ADT/DenseMap.h"
@@ -26,9 +26,9 @@ namespace llvm {
 class StringRef;
 }
 
-namespace Fortran::mlbridge {
+namespace Fortran::burnside {
 
-// In the Fortran::mlbridge namespace, the code will default follow the
+// In the Fortran::burnside namespace, the code will default follow the
 // LLVM/MLIR coding standards
 
 // Miscellaneous helper routines for building MLIR
@@ -66,6 +66,6 @@ mlir::FuncOp getNamedFunction(llvm::StringRef name);
 mlir::FuncOp createFunction(
     mlir::ModuleOp &module, const std::string &name, mlir::FunctionType funcTy);
 
-}  // Fortran::mlbridge
+}  // Fortran::burnside
 
-#endif  // FORTRAN_MLBRIDGE_BUILDER_H_
+#endif  // FORTRAN_BURNSIDE_BUILDER_H_

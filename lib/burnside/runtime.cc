@@ -21,10 +21,10 @@
 #include "mlir/IR/Types.h"
 #include <cassert>
 
-namespace Br = Fortran::mlbridge;
+namespace Br = Fortran::burnside;
 
 using namespace Fortran;
-using namespace Fortran::mlbridge;
+using namespace Fortran::burnside;
 
 namespace {
 

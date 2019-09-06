@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef FORTRAN_MLBRIDGE_BRIDGE_H_
-#define FORTRAN_MLBRIDGE_BRIDGE_H_
+#ifndef FORTRAN_BURNSIDE_BRIDGE_H_
+#define FORTRAN_BURNSIDE_BRIDGE_H_
 
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/Module.h"
@@ -35,9 +35,9 @@ class Module;
 class SourceMgr;
 }
 
-namespace Fortran::mlbridge {
+namespace Fortran::burnside {
 
-// In the Fortran::mlbridge namespace, the code will default follow the
+// In the Fortran::burnside namespace, the code will default follow the
 // LLVM/MLIR coding standards
 
 /// An instance of FirBridge is a singleton that owns the state of the bridge
@@ -88,6 +88,6 @@ const common::IntrinsicTypeDefaultKinds &getDefaultKinds();
 /// get the FIR bridge singleton
 FirBridge &getBridge();
 
-}  // Fortran::mlbridge
+}  // Fortran::burnside
 
-#endif  // FORTRAN_MLBRIDGE_BRIDGE_H_
+#endif  // FORTRAN_BURNSIDE_BRIDGE_H_

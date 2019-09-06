@@ -23,7 +23,7 @@
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/StandardTypes.h"
 
-namespace Br = Fortran::mlbridge;
+namespace Br = Fortran::burnside;
 namespace Co = Fortran::common;
 namespace Ev = Fortran::evaluate;
 namespace M = mlir;
@@ -31,7 +31,7 @@ namespace Pa = Fortran::parser;
 namespace Se = Fortran::semantics;
 
 using namespace Fortran;
-using namespace Fortran::mlbridge;
+using namespace Fortran::burnside;
 
 namespace {
 

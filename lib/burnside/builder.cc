@@ -19,12 +19,12 @@
 #include "mlir/IR/Module.h"
 #include "mlir/IR/Value.h"
 
-namespace Br = Fortran::mlbridge;
+namespace Br = Fortran::burnside;
 namespace M = mlir;
 namespace Se = Fortran::semantics;
 
 using namespace Fortran;
-using namespace Fortran::mlbridge;
+using namespace Fortran::burnside;
 
 // This will need to be extended to consider the type of what is being mangled
 std::string Br::applyNameMangling(llvm::StringRef parserName) {

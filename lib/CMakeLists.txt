@@ -12,10 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+add_subdirectory(burnside)
 add_subdirectory(common)
 add_subdirectory(decimal)
 add_subdirectory(evaluate)
 add_subdirectory(fir)
-add_subdirectory(mlbridge)
 add_subdirectory(parser)
 add_subdirectory(semantics)

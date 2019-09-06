@@ -36,7 +36,7 @@
 #include "mlir/Parser.h"
 #include "mlir/Target/LLVMIR.h"
 
-namespace Br = Fortran::mlbridge;
+namespace Br = Fortran::burnside;
 namespace Co = Fortran::common;
 namespace Ev = Fortran::evaluate;
 namespace Ff = Fortran::FIR::flat;
@@ -45,7 +45,7 @@ namespace Pa = Fortran::parser;
 namespace Se = Fortran::semantics;
 
 using namespace Fortran;
-using namespace Fortran::mlbridge;
+using namespace Fortran::burnside;
 
 namespace {
 

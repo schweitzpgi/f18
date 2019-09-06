@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef FORTRAN_MLBRIDGE_RUNTIME_H_
-#define FORTRAN_MLBRIDGE_RUNTIME_H_
+#ifndef FORTRAN_BURNSIDE_RUNTIME_H_
+#define FORTRAN_BURNSIDE_RUNTIME_H_
 
 #include <string>
 
@@ -25,9 +25,9 @@ class FunctionType;
 class MLIRContext;
 }
 
-namespace Fortran::mlbridge {
+namespace Fortran::burnside {
 
-// In the Fortran::mlbridge namespace, the code will default follow the
+// In the Fortran::burnside namespace, the code will default follow the
 // LLVM/MLIR coding standards
 
 #define DEFINE_RUNTIME_ENTRY(A, B, C, D) FIRT_##A,
@@ -44,6 +44,6 @@ mlir::FunctionType getRuntimeEntryType(
 mlir::FunctionType getRuntimeEntryType(RuntimeEntryCode code,
     mlir::MLIRContext &mlirContext, int inpKind, int resKind);
 
-}  // Fortran::mlbridge
+}  // Fortran::burnside
 
-#endif  // FORTRAN_MLBRIDGE_RUNTIME_H_
+#endif  // FORTRAN_BURNSIDE_RUNTIME_H_

@@ -12,10 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef FORTRAN_MLBRIDGE_CANONICALIZE_H_
-#define FORTRAN_MLBRIDGE_CANONICALIZE_H_
+#ifndef FORTRAN_BURNSIDE_CANONICALIZE_H_
+#define FORTRAN_BURNSIDE_CANONICALIZE_H_
 
-// In the Fortran::mlbridge namespace, the code will default follow the
+// In the Fortran::burnside namespace, the code will default follow the
 // LLVM/MLIR coding standards
 
 namespace mlir {
@@ -38,7 +38,7 @@ namespace semantics {
 class Symbol;
 }
 
-namespace mlbridge {
+namespace burnside {
 
 class SymMap;
 
@@ -52,7 +52,7 @@ mlir::Value *createSomeAddress(mlir::Location loc, mlir::OpBuilder &builder,
 mlir::Value *createTemporary(mlir::Location loc, mlir::OpBuilder &builder,
     SymMap &symMap, mlir::Type type, const semantics::Symbol *symbol);
 
-}  // mlbridge
+}  // burnside
 }  // Fortran
 
-#endif  // FORTRAN_MLBRIDGE_CANONICALIZE_H_
+#endif  // FORTRAN_BURNSIDE_CANONICALIZE_H_

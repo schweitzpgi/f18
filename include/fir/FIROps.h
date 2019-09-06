@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef FIR_DIALECT_FIROPS_H
-#define FIR_DIALECT_FIROPS_H
+#ifndef FIR_FIROPS_H
+#define FIR_FIROPS_H
 
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/StringRef.h"
@@ -111,4 +111,4 @@ LoopOp getForInductionVarOwner(mlir::Value *val);
 
 }  // namespace fir
 
-#endif  // FIR_DIALECT_FIROPS_H
+#endif  // FIR_FIROPS_H

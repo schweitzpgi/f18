@@ -661,17 +661,17 @@ namespace fir::detail {
 // Type storage classes
 
 /// `CHARACTER` storage
-struct FIRCharacterTypeStorage : public M::TypeStorage {
+struct CharacterTypeStorage : public M::TypeStorage {
   using KeyTy = KindTy;
 
   static unsigned hashKey(const KeyTy &key) { return L::hash_combine(key); }
 
   bool operator==(const KeyTy &key) const { return key == getFKind(); }
 
-  static FIRCharacterTypeStorage *construct(
+  static CharacterTypeStorage *construct(
       M::TypeStorageAllocator &allocator, KindTy kind) {
-    auto *storage = allocator.allocate<FIRCharacterTypeStorage>();
-    return new (storage) FIRCharacterTypeStorage{kind};
+    auto *storage = allocator.allocate<CharacterTypeStorage>();
+    return new (storage) CharacterTypeStorage{kind};
   }
 
   KindTy getFKind() const { return kind; }
@@ -680,11 +680,11 @@ protected:
   KindTy kind;
 
 private:
-  FIRCharacterTypeStorage() = delete;
-  explicit FIRCharacterTypeStorage(KindTy kind) : kind{kind} {}
+  CharacterTypeStorage() = delete;
+  explicit CharacterTypeStorage(KindTy kind) : kind{kind} {}
 };
 
-struct FIRDimsTypeStorage : public M::TypeStorage {
+struct DimsTypeStorage : public M::TypeStorage {
   using KeyTy = unsigned;
 
   static unsigned hashKey(const KeyTy &key) { return L::hash_combine(key); }
@@ -693,10 +693,10 @@ struct FIRDimsTypeStorage : public M::TypeStorage {
     return key == static_cast<unsigned>(getRank());
   }
 
-  static FIRDimsTypeStorage *construct(
+  static DimsTypeStorage *construct(
       M::TypeStorageAllocator &allocator, int rank) {
-    auto *storage = allocator.allocate<FIRDimsTypeStorage>();
-    return new (storage) FIRDimsTypeStorage{rank};
+    auto *storage = allocator.allocate<DimsTypeStorage>();
+    return new (storage) DimsTypeStorage{rank};
   }
 
   int getRank() const { return rank; }
@@ -705,41 +705,41 @@ protected:
   int rank;
 
 private:
-  FIRDimsTypeStorage() = delete;
-  explicit FIRDimsTypeStorage(int rank) : rank{rank} {}
+  DimsTypeStorage() = delete;
+  explicit DimsTypeStorage(int rank) : rank{rank} {}
 };
 
 /// The type of a derived type part reference
-struct FIRFieldTypeStorage : public M::TypeStorage {
+struct FieldTypeStorage : public M::TypeStorage {
   using KeyTy = KindTy;
 
   static unsigned hashKey(const KeyTy &) { return L::hash_combine(0); }
 
   bool operator==(const KeyTy &) const { return true; }
 
-  static FIRFieldTypeStorage *construct(
+  static FieldTypeStorage *construct(
       M::TypeStorageAllocator &allocator, KindTy) {
-    auto *storage = allocator.allocate<FIRFieldTypeStorage>();
-    return new (storage) FIRFieldTypeStorage{0};
+    auto *storage = allocator.allocate<FieldTypeStorage>();
+    return new (storage) FieldTypeStorage{0};
   }
 
 private:
-  FIRFieldTypeStorage() = delete;
-  explicit FIRFieldTypeStorage(KindTy) {}
+  FieldTypeStorage() = delete;
+  explicit FieldTypeStorage(KindTy) {}
 };
 
 /// `LOGICAL` storage
-struct FIRLogicalTypeStorage : public M::TypeStorage {
+struct LogicalTypeStorage : public M::TypeStorage {
   using KeyTy = KindTy;
 
   static unsigned hashKey(const KeyTy &key) { return L::hash_combine(key); }
 
   bool operator==(const KeyTy &key) const { return key == getFKind(); }
 
-  static FIRLogicalTypeStorage *construct(
+  static LogicalTypeStorage *construct(
       M::TypeStorageAllocator &allocator, KindTy kind) {
-    auto *storage = allocator.allocate<FIRLogicalTypeStorage>();
-    return new (storage) FIRLogicalTypeStorage{kind};
+    auto *storage = allocator.allocate<LogicalTypeStorage>();
+    return new (storage) LogicalTypeStorage{kind};
   }
 
   KindTy getFKind() const { return kind; }
@@ -748,22 +748,22 @@ protected:
   KindTy kind;
 
 private:
-  FIRLogicalTypeStorage() = delete;
-  explicit FIRLogicalTypeStorage(KindTy kind) : kind{kind} {}
+  LogicalTypeStorage() = delete;
+  explicit LogicalTypeStorage(KindTy kind) : kind{kind} {}
 };
 
 /// `INTEGER` storage
-struct FIRIntTypeStorage : public M::TypeStorage {
+struct IntTypeStorage : public M::TypeStorage {
   using KeyTy = KindTy;
 
   static unsigned hashKey(const KeyTy &key) { return L::hash_combine(key); }
 
   bool operator==(const KeyTy &key) const { return key == getFKind(); }
 
-  static FIRIntTypeStorage *construct(
+  static IntTypeStorage *construct(
       M::TypeStorageAllocator &allocator, KindTy kind) {
-    auto *storage = allocator.allocate<FIRIntTypeStorage>();
-    return new (storage) FIRIntTypeStorage{kind};
+    auto *storage = allocator.allocate<IntTypeStorage>();
+    return new (storage) IntTypeStorage{kind};
   }
 
   KindTy getFKind() const { return kind; }
@@ -772,22 +772,22 @@ protected:
   KindTy kind;
 
 private:
-  FIRIntTypeStorage() = delete;
-  explicit FIRIntTypeStorage(KindTy kind) : kind{kind} {}
+  IntTypeStorage() = delete;
+  explicit IntTypeStorage(KindTy kind) : kind{kind} {}
 };
 
 /// `COMPLEX` storage
-struct FIRCplxTypeStorage : public M::TypeStorage {
+struct CplxTypeStorage : public M::TypeStorage {
   using KeyTy = KindTy;
 
   static unsigned hashKey(const KeyTy &key) { return L::hash_combine(key); }
 
   bool operator==(const KeyTy &key) const { return key == getFKind(); }
 
-  static FIRCplxTypeStorage *construct(
+  static CplxTypeStorage *construct(
       M::TypeStorageAllocator &allocator, KindTy kind) {
-    auto *storage = allocator.allocate<FIRCplxTypeStorage>();
-    return new (storage) FIRCplxTypeStorage{kind};
+    auto *storage = allocator.allocate<CplxTypeStorage>();
+    return new (storage) CplxTypeStorage{kind};
   }
 
   KindTy getFKind() const { return kind; }
@@ -796,22 +796,22 @@ protected:
   KindTy kind;
 
 private:
-  FIRCplxTypeStorage() = delete;
-  explicit FIRCplxTypeStorage(KindTy kind) : kind{kind} {}
+  CplxTypeStorage() = delete;
+  explicit CplxTypeStorage(KindTy kind) : kind{kind} {}
 };
 
 /// `REAL` storage (for reals of unsupported sizes)
-struct FIRRealTypeStorage : public M::TypeStorage {
+struct RealTypeStorage : public M::TypeStorage {
   using KeyTy = KindTy;
 
   static unsigned hashKey(const KeyTy &key) { return L::hash_combine(key); }
 
   bool operator==(const KeyTy &key) const { return key == getFKind(); }
 
-  static FIRRealTypeStorage *construct(
+  static RealTypeStorage *construct(
       M::TypeStorageAllocator &allocator, KindTy kind) {
-    auto *storage = allocator.allocate<FIRRealTypeStorage>();
-    return new (storage) FIRRealTypeStorage{kind};
+    auto *storage = allocator.allocate<RealTypeStorage>();
+    return new (storage) RealTypeStorage{kind};
   }
 
   KindTy getFKind() const { return kind; }
@@ -820,23 +820,23 @@ protected:
   KindTy kind;
 
 private:
-  FIRRealTypeStorage() = delete;
-  explicit FIRRealTypeStorage(KindTy kind) : kind{kind} {}
+  RealTypeStorage() = delete;
+  explicit RealTypeStorage(KindTy kind) : kind{kind} {}
 };
 
 /// Boxed object (a Fortran descriptor)
-struct FIRBoxTypeStorage : public M::TypeStorage {
+struct BoxTypeStorage : public M::TypeStorage {
   using KeyTy = M::Type;
 
   static unsigned hashKey(const KeyTy &key) { return L::hash_combine(key); }
 
   bool operator==(const KeyTy &key) const { return key == getElementType(); }
 
-  static FIRBoxTypeStorage *construct(
+  static BoxTypeStorage *construct(
       M::TypeStorageAllocator &allocator, M::Type eleTy) {
     assert(eleTy && "element type is null");
-    auto *storage = allocator.allocate<FIRBoxTypeStorage>();
-    return new (storage) FIRBoxTypeStorage{eleTy};
+    auto *storage = allocator.allocate<BoxTypeStorage>();
+    return new (storage) BoxTypeStorage{eleTy};
   }
 
   M::Type getElementType() const { return eleTy; }
@@ -845,22 +845,22 @@ protected:
   M::Type eleTy;
 
 private:
-  FIRBoxTypeStorage() = delete;
-  explicit FIRBoxTypeStorage(M::Type eleTy) : eleTy{eleTy} {}
+  BoxTypeStorage() = delete;
+  explicit BoxTypeStorage(M::Type eleTy) : eleTy{eleTy} {}
 };
 
 /// Boxed CHARACTER object type
-struct FIRBoxCharTypeStorage : public M::TypeStorage {
+struct BoxCharTypeStorage : public M::TypeStorage {
   using KeyTy = KindTy;
 
   static unsigned hashKey(const KeyTy &key) { return L::hash_combine(key); }
 
   bool operator==(const KeyTy &key) const { return key == getFKind(); }
 
-  static FIRBoxCharTypeStorage *construct(
+  static BoxCharTypeStorage *construct(
       M::TypeStorageAllocator &allocator, KindTy kind) {
-    auto *storage = allocator.allocate<FIRBoxCharTypeStorage>();
-    return new (storage) FIRBoxCharTypeStorage{kind};
+    auto *storage = allocator.allocate<BoxCharTypeStorage>();
+    return new (storage) BoxCharTypeStorage{kind};
   }
 
   KindTy getFKind() const { return kind / 8; }
@@ -874,23 +874,23 @@ protected:
   KindTy kind;
 
 private:
-  FIRBoxCharTypeStorage() = delete;
-  explicit FIRBoxCharTypeStorage(KindTy kind) : kind{kind} {}
+  BoxCharTypeStorage() = delete;
+  explicit BoxCharTypeStorage(KindTy kind) : kind{kind} {}
 };
 
 /// Boxed PROCEDURE POINTER object type
-struct FIRBoxProcTypeStorage : public M::TypeStorage {
+struct BoxProcTypeStorage : public M::TypeStorage {
   using KeyTy = M::Type;
 
   static unsigned hashKey(const KeyTy &key) { return L::hash_combine(key); }
 
   bool operator==(const KeyTy &key) const { return key == getElementType(); }
 
-  static FIRBoxProcTypeStorage *construct(
+  static BoxProcTypeStorage *construct(
       M::TypeStorageAllocator &allocator, M::Type eleTy) {
     assert(eleTy && "element type is null");
-    auto *storage = allocator.allocate<FIRBoxProcTypeStorage>();
-    return new (storage) FIRBoxProcTypeStorage{eleTy};
+    auto *storage = allocator.allocate<BoxProcTypeStorage>();
+    return new (storage) BoxProcTypeStorage{eleTy};
   }
 
   M::Type getElementType() const { return eleTy; }
@@ -899,23 +899,23 @@ protected:
   M::Type eleTy;
 
 private:
-  FIRBoxProcTypeStorage() = delete;
-  explicit FIRBoxProcTypeStorage(M::Type eleTy) : eleTy{eleTy} {}
+  BoxProcTypeStorage() = delete;
+  explicit BoxProcTypeStorage(M::Type eleTy) : eleTy{eleTy} {}
 };
 
 /// Pointer-like object storage
-struct FIRReferenceTypeStorage : public M::TypeStorage {
+struct ReferenceTypeStorage : public M::TypeStorage {
   using KeyTy = M::Type;
 
   static unsigned hashKey(const KeyTy &key) { return L::hash_combine(key); }
 
   bool operator==(const KeyTy &key) const { return key == getElementType(); }
 
-  static FIRReferenceTypeStorage *construct(
+  static ReferenceTypeStorage *construct(
       M::TypeStorageAllocator &allocator, M::Type eleTy) {
     assert(eleTy && "element type is null");
-    auto *storage = allocator.allocate<FIRReferenceTypeStorage>();
-    return new (storage) FIRReferenceTypeStorage{eleTy};
+    auto *storage = allocator.allocate<ReferenceTypeStorage>();
+    return new (storage) ReferenceTypeStorage{eleTy};
   }
 
   M::Type getElementType() const { return eleTy; }
@@ -924,23 +924,23 @@ protected:
   M::Type eleTy;
 
 private:
-  FIRReferenceTypeStorage() = delete;
-  explicit FIRReferenceTypeStorage(M::Type eleTy) : eleTy{eleTy} {}
+  ReferenceTypeStorage() = delete;
+  explicit ReferenceTypeStorage(M::Type eleTy) : eleTy{eleTy} {}
 };
 
 /// Pointer object storage
-struct FIRPointerTypeStorage : public M::TypeStorage {
+struct PointerTypeStorage : public M::TypeStorage {
   using KeyTy = M::Type;
 
   static unsigned hashKey(const KeyTy &key) { return L::hash_combine(key); }
 
   bool operator==(const KeyTy &key) const { return key == getElementType(); }
 
-  static FIRPointerTypeStorage *construct(
+  static PointerTypeStorage *construct(
       M::TypeStorageAllocator &allocator, M::Type eleTy) {
     assert(eleTy && "element type is null");
-    auto *storage = allocator.allocate<FIRPointerTypeStorage>();
-    return new (storage) FIRPointerTypeStorage{eleTy};
+    auto *storage = allocator.allocate<PointerTypeStorage>();
+    return new (storage) PointerTypeStorage{eleTy};
   }
 
   M::Type getElementType() const { return eleTy; }
@@ -949,23 +949,23 @@ protected:
   M::Type eleTy;
 
 private:
-  FIRPointerTypeStorage() = delete;
-  explicit FIRPointerTypeStorage(M::Type eleTy) : eleTy{eleTy} {}
+  PointerTypeStorage() = delete;
+  explicit PointerTypeStorage(M::Type eleTy) : eleTy{eleTy} {}
 };
 
 /// Heap memory reference object storage
-struct FIRHeapTypeStorage : public M::TypeStorage {
+struct HeapTypeStorage : public M::TypeStorage {
   using KeyTy = M::Type;
 
   static unsigned hashKey(const KeyTy &key) { return L::hash_combine(key); }
 
   bool operator==(const KeyTy &key) const { return key == getElementType(); }
 
-  static FIRHeapTypeStorage *construct(
+  static HeapTypeStorage *construct(
       M::TypeStorageAllocator &allocator, M::Type eleTy) {
     assert(eleTy && "element type is null");
-    auto *storage = allocator.allocate<FIRHeapTypeStorage>();
-    return new (storage) FIRHeapTypeStorage{eleTy};
+    auto *storage = allocator.allocate<HeapTypeStorage>();
+    return new (storage) HeapTypeStorage{eleTy};
   }
 
   M::Type getElementType() const { return eleTy; }
@@ -974,12 +974,12 @@ protected:
   M::Type eleTy;
 
 private:
-  FIRHeapTypeStorage() = delete;
-  explicit FIRHeapTypeStorage(M::Type eleTy) : eleTy{eleTy} {}
+  HeapTypeStorage() = delete;
+  explicit HeapTypeStorage(M::Type eleTy) : eleTy{eleTy} {}
 };
 
 /// Sequence-like object storage
-struct FIRSequenceTypeStorage : public M::TypeStorage {
+struct SequenceTypeStorage : public M::TypeStorage {
   using KeyTy = std::pair<SequenceType::Shape, M::Type>;
 
   static unsigned hashKey(const KeyTy &key) {
@@ -991,10 +991,10 @@ struct FIRSequenceTypeStorage : public M::TypeStorage {
     return key == KeyTy{getShape(), getElementType()};
   }
 
-  static FIRSequenceTypeStorage *construct(
+  static SequenceTypeStorage *construct(
       M::TypeStorageAllocator &allocator, const KeyTy &key) {
-    auto *storage = allocator.allocate<FIRSequenceTypeStorage>();
-    return new (storage) FIRSequenceTypeStorage{key.first, key.second};
+    auto *storage = allocator.allocate<SequenceTypeStorage>();
+    return new (storage) SequenceTypeStorage{key.first, key.second};
   }
 
   SequenceType::Shape getShape() const { return shape; }
@@ -1005,14 +1005,14 @@ protected:
   M::Type eleTy;
 
 private:
-  FIRSequenceTypeStorage() = delete;
-  explicit FIRSequenceTypeStorage(
+  SequenceTypeStorage() = delete;
+  explicit SequenceTypeStorage(
       const SequenceType::Shape &shape, M::Type eleTy)
     : shape{shape}, eleTy{eleTy} {}
 };
 
 /// Derived type storage
-struct FIRRecordTypeStorage : public M::TypeStorage {
+struct RecordTypeStorage : public M::TypeStorage {
   using KeyTy = std::tuple<L::StringRef, L::ArrayRef<RecordType::TypePair>,
       L::ArrayRef<RecordType::TypePair>>;
 
@@ -1024,13 +1024,13 @@ struct FIRRecordTypeStorage : public M::TypeStorage {
     return std::get<0>(key) == getName();
   }
 
-  static FIRRecordTypeStorage *construct(
+  static RecordTypeStorage *construct(
       M::TypeStorageAllocator &allocator, const KeyTy &key) {
-    auto *storage = allocator.allocate<FIRRecordTypeStorage>();
+    auto *storage = allocator.allocate<RecordTypeStorage>();
     auto &name = std::get<0>(key);
     auto &lens = std::get<1>(key);
     auto &members = std::get<2>(key);
-    return new (storage) FIRRecordTypeStorage{name, lens, members};
+    return new (storage) RecordTypeStorage{name, lens, members};
   }
 
   L::StringRef getName() const { return name; }
@@ -1047,26 +1047,26 @@ protected:
   std::vector<RecordType::TypePair> types;
 
 private:
-  FIRRecordTypeStorage() = delete;
-  explicit FIRRecordTypeStorage(L::StringRef name,
+  RecordTypeStorage() = delete;
+  explicit RecordTypeStorage(L::StringRef name,
       L::ArrayRef<RecordType::TypePair> lens,
       L::ArrayRef<RecordType::TypePair> types)
     : name{name}, lens{lens}, types{types} {}
 };
 
 /// Type descriptor type storage
-struct FIRTypeDescTypeStorage : public M::TypeStorage {
+struct TypeDescTypeStorage : public M::TypeStorage {
   using KeyTy = M::Type;
 
   static unsigned hashKey(const KeyTy &key) { return L::hash_combine(key); }
 
   bool operator==(const KeyTy &key) const { return key == getOfType(); }
 
-  static FIRTypeDescTypeStorage *construct(
+  static TypeDescTypeStorage *construct(
       M::TypeStorageAllocator &allocator, M::Type ofTy) {
     assert(ofTy && "descriptor type is null");
-    auto *storage = allocator.allocate<FIRTypeDescTypeStorage>();
-    return new (storage) FIRTypeDescTypeStorage{ofTy};
+    auto *storage = allocator.allocate<TypeDescTypeStorage>();
+    return new (storage) TypeDescTypeStorage{ofTy};
   }
 
   // The type described by this type descriptor instance
@@ -1076,8 +1076,8 @@ protected:
   M::Type ofTy;
 
 private:
-  FIRTypeDescTypeStorage() = delete;
-  explicit FIRTypeDescTypeStorage(M::Type ofTy) : ofTy{ofTy} {}
+  TypeDescTypeStorage() = delete;
+  explicit TypeDescTypeStorage(M::Type ofTy) : ofTy{ofTy} {}
 };
 
 }  // detail

@@ -14,7 +14,7 @@
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-rtti")
 
-add_library(FortranMLBridge
+add_library(FortranBurnside
   bridge.cc
   builder.cc
   canonicalize.cc
@@ -23,14 +23,14 @@ add_library(FortranMLBridge
   runtime.cc
 )
 
-target_link_libraries(FortranMLBridge
+target_link_libraries(FortranBurnside
   FIR
   MLIRAffineOps
   MLIRLLVMIR
   MLIRStandardOps
 )
 
-install (TARGETS FortranMLBridge
+install (TARGETS FortranBurnside
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION bin
