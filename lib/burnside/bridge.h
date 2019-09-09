@@ -19,7 +19,7 @@
 #include "mlir/IR/Module.h"
 #include <memory>
 
-// Implement the bridge from Fortran to MLIR
+// Implement the burnside bridge from Fortran to MLIR
 // https://github.com/tensorflow/mlir
 
 namespace Fortran::common {
@@ -37,56 +37,56 @@ class SourceMgr;
 
 namespace Fortran::burnside {
 
-// In the Fortran::burnside namespace, the code will default follow the
-// LLVM/MLIR coding standards
-
-/// An instance of FirBridge is a singleton that owns the state of the bridge
-class FirBridge {
+/// An instance of BurnsideBridge is a singleton that owns the state of the
+/// bridge
+class BurnsideBridge {
 public:
-  static std::unique_ptr<FirBridge> create(
+  static std::unique_ptr<BurnsideBridge> create(
       const common::IntrinsicTypeDefaultKinds &defaultKinds) {
-    FirBridge *p = new FirBridge{defaultKinds};
-    return std::unique_ptr<FirBridge>{p};
+    BurnsideBridge *p = new BurnsideBridge{defaultKinds};
+    return std::unique_ptr<BurnsideBridge>{p};
   }
 
-  mlir::MLIRContext &getMLIRContext() { return *context.get(); }
-  mlir::ModuleManager &getManager() { return *manager.get(); }
-  mlir::ModuleOp getModule() { return module; }
+  mlir::MLIRContext &getMLIRContext() { return *context_.get(); }
+  mlir::ModuleManager &getManager() { return *manager_.get(); }
+  mlir::ModuleOp getModule() { return module_; }
 
   void parseSourceFile(llvm::SourceMgr &);
 
   const common::IntrinsicTypeDefaultKinds &getDefaultKinds() {
-    return defaultKinds;
+    return defaultKinds_;
   }
 
   bool validModule() { return getModule(); }
 
 private:
-  explicit FirBridge(const common::IntrinsicTypeDefaultKinds &defaultKinds);
-  FirBridge() = delete;
-  FirBridge(const FirBridge &) = delete;
+  explicit BurnsideBridge(
+      const common::IntrinsicTypeDefaultKinds &defaultKinds);
+  BurnsideBridge() = delete;
+  BurnsideBridge(const BurnsideBridge &) = delete;
 
-  const common::IntrinsicTypeDefaultKinds &defaultKinds;
-  std::unique_ptr<mlir::MLIRContext> context;
-  mlir::ModuleOp module;
-  std::unique_ptr<mlir::ModuleManager> manager;
+  const common::IntrinsicTypeDefaultKinds &defaultKinds_;
+  std::unique_ptr<mlir::MLIRContext> context_;
+  mlir::ModuleOp module_;
+  std::unique_ptr<mlir::ModuleManager> manager_;
 };
 
-/// Bridge from Fortran parse-tree, etc. to FIR
-void FIRBridge(FirBridge &bridge, const parser::Program &program);
+/// Cross the bridge from the Fortran parse-tree, etc. to FIR+OpenMP+MLIR
+void crossBurnsideBridge(
+    BurnsideBridge &bridge, const parser::Program &program);
 
 /// Bridge from MLIR to LLVM-IR
 std::unique_ptr<llvm::Module> LLVMBridge(mlir::ModuleOp &module);
 
-/// instantiate the FIR bridge singleton
-void instantiateFIRBridge(
+/// instantiate the BURNSIDE bridge singleton
+void instantiateBurnsideBridge(
     const common::IntrinsicTypeDefaultKinds &defaultKinds);
 
 /// access to the default kinds class (for MLIR bridge)
 const common::IntrinsicTypeDefaultKinds &getDefaultKinds();
 
-/// get the FIR bridge singleton
-FirBridge &getBridge();
+/// get the burnside bridge singleton
+BurnsideBridge &getBridge();
 
 }  // Fortran::burnside
 

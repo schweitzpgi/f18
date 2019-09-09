@@ -14,8 +14,9 @@
 
 #include "flattened.h"
 #include "../parser/parse-tree-visitor.h"
+#include "../semantics/symbol.h"
 
-namespace Fortran::FIR {
+namespace Fortran::burnside {
 namespace flat {
 
 LabelBuilder::LabelBuilder() : referenced(32), counter{0u} {}
@@ -268,132 +269,11 @@ template<typename A, typename B> std::string GetSource(const B *s) {
   return GetSource(&std::get<parser::Statement<A>>(s->t));
 }
 
-void LabelOp::dump() const { llvm::errs() << "label_" << get() << ":\n"; }
-
-void GotoOp::dump() const {
-  llvm::errs() << "\tgoto %label_" << target << " ["
-               << std::visit(common::visitors{
-                                 [](ArtificialJump) { return ""s; },
-                                 [&](auto *) { return GetSource(this); },
-                             },
-                      u)
-               << "]\n";
-}
-
-void ReturnOp::dump() const {
-  llvm::errs() << "\treturn [" << GetSource(this) << "]\n";
-}
-
-void ConditionalGotoOp::dump() const {
-  llvm::errs() << "\tcbranch .T.: %label_" << trueLabel << " .F.: %label_"
-               << falseLabel << " ["
-               << std::visit(
-                      common::visitors{
-                          [](const parser::IfStmt *) { return "if-stmt"s; },
-                          [&](auto *s) { return GetSource(s); },
-                      },
-                      u)
-               << "]\n";
-}
-
-void SwitchIOOp::dump() const {
-  llvm::errs() << "\tio-call";
-  if (errLabel.has_value()) {
-    llvm::errs() << " ERR: %label_" << errLabel.value();
-  }
-  if (eorLabel.has_value()) {
-    llvm::errs() << " EOR: %label_" << eorLabel.value();
-  }
-  if (endLabel.has_value()) {
-    llvm::errs() << " END: %label_" << endLabel.value();
-  }
-  llvm::errs() << " [" << GetSource(this) << "]\n";
-}
-
-void SwitchOp::dump() const {
-  llvm::errs() << "\tswitch [" << GetSource(this) << "]\n";
-}
-
-void ActionOp::dump() const { llvm::errs() << '\t' << GetSource(v) << '\n'; }
-
-template<typename A> std::string dumpConstruct(const A &a) {
-  return std::visit(
-      common::visitors{
-          [](const parser::AssociateConstruct *c) {
-            return GetSource<parser::AssociateStmt>(c);
-          },
-          [](const parser::BlockConstruct *c) {
-            return GetSource<parser::BlockStmt>(c);
-          },
-          [](const parser::CaseConstruct *c) {
-            return GetSource<parser::SelectCaseStmt>(c);
-          },
-          [](const parser::ChangeTeamConstruct *c) {
-            return GetSource<parser::ChangeTeamStmt>(c);
-          },
-          [](const parser::CriticalConstruct *c) {
-            return GetSource<parser::CriticalStmt>(c);
-          },
-          [](const parser::DoConstruct *c) {
-            return GetSource<parser::NonLabelDoStmt>(c);
-          },
-          [](const parser::IfConstruct *c) {
-            return GetSource<parser::IfThenStmt>(c);
-          },
-          [](const parser::SelectRankConstruct *c) {
-            return GetSource<parser::SelectRankStmt>(c);
-          },
-          [](const parser::SelectTypeConstruct *c) {
-            return GetSource<parser::SelectTypeStmt>(c);
-          },
-          [](const parser::WhereConstruct *c) {
-            return GetSource<parser::WhereConstructStmt>(c);
-          },
-          [](const parser::ForallConstruct *c) {
-            return GetSource(
-                &std::get<parser::Statement<parser::ForallConstructStmt>>(
-                    c->t));
-          },
-          [](const parser::CompilerDirective *c) { return GetSource(c); },
-          [](const parser::OpenMPConstruct *) { return "openmp"s; },
-          [](const parser::OmpEndLoopDirective *) {
-            return "openmp end loop"s;
-          },
-      },
-      a);
-}
-
-void BeginOp::dump() const {
-  llvm::errs() << "\t[" << dumpConstruct(u) << "] {\n";
-}
-
-void EndOp::dump() const {
-  llvm::errs() << "\t} [" << dumpConstruct(u) << "]\n";
-}
-
-void IndirectGotoOp::dump() const {
-  llvm::errs() << "\tindirect-goto " << symbol->name().ToString() << ':';
-  for (auto lab : labelRefs) {
-    llvm::errs() << ' ' << lab;
-  }
-  llvm::errs() << '\n';
-}
-
-void DoIncrementOp::dump() const {
-  using A = parser::Statement<parser::NonLabelDoStmt>;
-  llvm::errs() << "\tincrement [" << GetSource(&std::get<A>(v->t)) << "]\n";
-}
-
-void DoCompareOp::dump() const {
-  using A = parser::Statement<parser::NonLabelDoStmt>;
-  llvm::errs() << "\tcompare [" << GetSource(&std::get<A>(v->t)) << "]\n";
-}
-
 void Op::Build(std::list<Op> &ops,
     const parser::Statement<parser::ActionStmt> &ec, AnalysisData &ad) {
   std::visit(
       common::visitors{
-          [&](const auto &s) { ops.emplace_back(ActionOp{ec}); },
+          [&](const auto &) { ops.emplace_back(ActionOp{ec}); },
           [&](const common::Indirection<parser::CallStmt> &s) {
             if (hasAltReturns(s.value())) {
               auto next{BuildNewLabel(ad)};
@@ -777,12 +657,6 @@ struct ControlFlowAnalyzer {
   std::list<Op> &linearOps;
   AnalysisData &ad;
 };
-}
-
-void dump(const std::list<flat::Op> &ops) {
-  for (auto &op : ops) {
-    op.dump();
-  }
 }
 
 template<typename A>

@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef FORTRAN_FIR_MIXIN_H_
-#define FORTRAN_FIR_MIXIN_H_
+#ifndef FORTRAN_BURNSIDE_MIXIN_H_
+#define FORTRAN_BURNSIDE_MIXIN_H_
 
 // Mixin classes are "partial" classes (not used standalone) that can be used to
 // add a repetitive (ad hoc) interface (and implementation) to a class.  It's
@@ -26,7 +26,7 @@
 #include <type_traits>
 #include <variant>
 
-namespace Fortran::FIR {
+namespace Fortran::burnside {
 
 // implementation of a (moveable) sum type (variant)
 template<typename... Ts> struct SumTypeMixin {
@@ -123,11 +123,6 @@ template<typename A, typename B> B &Unzip(B &out, A first, A last) {
   return out;
 }
 
-template<typename A, typename B> B &UnzipSnd(B &out, A first, A last) {
-  std::transform(first, last, std::back_inserter(out.second),
-      [](auto &&a) -> decltype(a.second) { return a.second; });
-  return out;
-}
-}
+} // namespace burnside
 
-#endif  // FORTRAN_FIR_COMMON_H_
+#endif  // FORTRAN_BURNSIDE_MIXIN_H_

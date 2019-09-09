@@ -267,8 +267,8 @@ std::string CompileFortran(std::string path, Fortran::parser::Options options,
   }
 
   // MLIR+FIR
-  Br::instantiateFIRBridge(semanticsContext.defaultKinds());
-  Br::FIRBridge(Br::getBridge(), parseTree);
+  Br::instantiateBurnsideBridge(semanticsContext.defaultKinds());
+  Br::crossBurnsideBridge(Br::getBridge(), parseTree);
   mlir::ModuleOp mlirModule{Br::getBridge().getModule()};
   mlir::PassManager pm;
   if (driver.dumpHLFIR) {
@@ -299,7 +299,7 @@ std::string CompileFortran(std::string path, Fortran::parser::Options options,
 std::string CompileFir(std::string path, Fortran::parser::Options options,
     DriverOptions &driver,
     Fortran::semantics::SemanticsContext &semanticsContext) {
-  Br::instantiateFIRBridge(semanticsContext.defaultKinds());
+  Br::instantiateBurnsideBridge(semanticsContext.defaultKinds());
 
   // check that there is a file to load
   llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> fileOrErr =

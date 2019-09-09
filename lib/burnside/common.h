@@ -15,44 +15,12 @@
 #ifndef FORTRAN_BURNSIDE_COMMON_H_
 #define FORTRAN_BURNSIDE_COMMON_H_
 
-#include "../common/idioms.h"
-#include "../common/indirection.h"
 #include "../evaluate/expression.h"
-#include "../evaluate/type.h"
-#include "../evaluate/variable.h"
-#include "../parser/parse-tree.h"
-#include "../semantics/symbol.h"
-#include "llvm/Support/raw_ostream.h"
 
-namespace Fortran::FIR {
+namespace Fortran::burnside {
 
-struct Nothing {};
-constexpr Nothing NOTHING{};
-
-class Value;
-class Statement;
-class BasicBlock;
-class Region;
-class Procedure;
-class Program;
-class GraphWriter;
-class DataObject;
-
-struct Attribute {
-  enum { IntentIn, IntentOut, IntentInOut, Value } attribute;
-  unsigned short position;
-};
-using FunctionType = evaluate::SomeType;  // TODO: what should this be?
-using AttributeList = std::vector<Attribute>;
-enum struct LinkageTypes { Public, Hidden, External };
 using Expression = evaluate::Expr<evaluate::SomeType>;
-using Variable = const semantics::Symbol *;
-using PathVariable = const parser::Variable;
-using Scope = const semantics::Scope;
-using PHIPair = std::pair<Value, BasicBlock *>;
 using CallArguments = std::vector<Expression>;
-using TypeRep = semantics::DeclTypeSpec;  // FIXME
-using Type = const TypeRep *;
 
 enum InputOutputCallType {
   InputOutputCallBackspace = 11,
@@ -89,6 +57,6 @@ enum RuntimeCallType {
 
 using RuntimeCallArguments = CallArguments;
 
-} // Fortran::FIR
+} // Fortran::burnside
 
 #endif  // FORTRAN_BURNSIDE_COMMON_H_
