@@ -65,64 +65,6 @@ template<typename... Ts> struct SumTypeCopyMixin {
     return *this; \
   }
 
-// implementation of a (moveable) product type (tuple)
-template<typename... Ts> struct ProductTypeMixin {
-  using ProductTypeTrait = std::true_type;
-  ProductTypeMixin(const Ts &... x) : t{x...} {}
-  template<typename... As>
-  ProductTypeMixin(As &&... x) : t{std::forward<As>(x)...} {}
-  ProductTypeMixin(ProductTypeMixin &&) = default;
-  ProductTypeMixin &operator=(ProductTypeMixin &&) = default;
-  ProductTypeMixin(const ProductTypeMixin &) = delete;
-  ProductTypeMixin &operator=(const ProductTypeMixin &) = delete;
-  ProductTypeMixin() = delete;
-  std::tuple<Ts...> t;
-};
-
-// implementation of a (moveable) maybe type
-template<typename T> struct MaybeMixin {
-  using MaybeTrait = std::true_type;
-  MaybeMixin(const T &x) : o{x} {}
-  MaybeMixin(T &&x) : o{std::move(x)} {}
-  MaybeMixin(MaybeMixin &&) = default;
-  MaybeMixin &operator=(MaybeMixin &&) = default;
-  MaybeMixin(const MaybeMixin &) = delete;
-  MaybeMixin &operator=(const MaybeMixin &) = delete;
-  MaybeMixin() = delete;
-  std::optional<T> o;
-};
-
-// implementation of a child type (composable hierarchy)
-template<typename T, typename P> struct ChildMixin {
-protected:
-  P *parent;
-
-public:
-  ChildMixin(P *p) : parent{p} {}
-  inline const P *getParent() const { return parent; }
-  inline P *getParent() { return parent; }
-  llvm::iplist<T> &getList() { return parent->getSublist(this); }
-};
-
-// zip :: ([a],[b]) -> [(a,b)]
-template<typename A, typename B, typename C>
-C Zip(C out, A first, A last, B other) {
-  std::transform(first, last, other, out,
-      [](auto &&a, auto &&b) -> std::pair<decltype(a), decltype(b)> {
-        return {a, b};
-      });
-  return out;
-}
-
-// unzip :: [(a,b)] -> ([a],[b])
-template<typename A, typename B> B &Unzip(B &out, A first, A last) {
-  std::transform(first, last, std::back_inserter(out.first),
-      [](auto &&a) -> decltype(a.first) { return a.first; });
-  std::transform(first, last, std::back_inserter(out.second),
-      [](auto &&a) -> decltype(a.second) { return a.second; });
-  return out;
-}
-
 } // namespace burnside
 
 #endif  // FORTRAN_BURNSIDE_MIXIN_H_

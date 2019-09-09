@@ -216,7 +216,7 @@ class ExprLowering {
   }
   M::Value *gendef(const Se::Symbol *sym) { return gen(sym); }
   M::Value *genval(const Se::Symbol *sym) {
-    return builder.create<fir::LoadExpr>(getLoc(), gen(sym));
+    return builder.create<fir::LoadOp>(getLoc(), gen(sym));
   }
 
   M::Value *genval(const Ev::BOZLiteralConstant &) { TODO(); }
@@ -467,7 +467,7 @@ class ExprLowering {
   }
   M::Value *gendef(const Ev::Component &cmpt) { return gen(cmpt); }
   M::Value *genval(const Ev::Component &cmpt) {
-    return builder.create<fir::LoadExpr>(getLoc(), gen(cmpt));
+    return builder.create<fir::LoadOp>(getLoc(), gen(cmpt));
   }
 
   // Determine the result type after removing `dims` dimensions from the array
@@ -518,7 +518,7 @@ class ExprLowering {
   }
   M::Value *gendef(const Ev::ArrayRef &aref) { return gen(aref); }
   M::Value *genval(const Ev::ArrayRef &aref) {
-    return builder.create<fir::LoadExpr>(getLoc(), gen(aref));
+    return builder.create<fir::LoadOp>(getLoc(), gen(aref));
   }
 
   // Return a coordinate of the coarray reference. This is necessary as a
@@ -530,7 +530,7 @@ class ExprLowering {
   }
   M::Value *gendef(const Ev::CoarrayRef &coref) { return gen(coref); }
   M::Value *genval(const Ev::CoarrayRef &coref) {
-    return builder.create<fir::LoadExpr>(getLoc(), gen(coref));
+    return builder.create<fir::LoadOp>(getLoc(), gen(coref));
   }
 
   template<typename A> M::Value *gen(const Ev::Designator<A> &des) {
@@ -605,14 +605,14 @@ M::Value *Br::createTemporary(M::Location loc, M::OpBuilder &builder,
     }
   auto insPt(builder.saveInsertionPoint());
   builder.setInsertionPointToStart(getEntryBlock(&builder));
-  fir::AllocaExpr ae;
+  fir::AllocaOp ae;
   assert(!type.dyn_cast<fir::ReferenceType>() && "cannot be a reference");
   type = fir::ReferenceType::get(type);
   if (symbol) {
-    ae = builder.create<fir::AllocaExpr>(loc, type, symbol->name().ToString());
+    ae = builder.create<fir::AllocaOp>(loc, type, symbol->name().ToString());
     symMap.addSymbol(symbol, ae);
   } else {
-    ae = builder.create<fir::AllocaExpr>(loc, type);
+    ae = builder.create<fir::AllocaOp>(loc, type);
   }
   builder.restoreInsertionPoint(insPt);
   return ae;

@@ -12,15 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "fir/MemToReg.h"
+#include "fir/Transforms/MemToReg.h"
 #include "fir/Dialect.h"
 #include "fir/FIROps.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SmallVector.h"
 #include "mlir/Analysis/Dominance.h"
 #include "mlir/Analysis/IteratedDominanceFrontier.h"
-#include "mlir/Pass/Pass.h"
 #include "mlir/Dialect/StandardOps/Ops.h"
+#include "mlir/Pass/Pass.h"
 #include <utility>
 #include <vector>
 
@@ -32,12 +32,12 @@ using DominatorTree = M::DominanceInfo;
 
 namespace {
 
-bool isAllocaPromotable(AllocaExpr &ae) {
+bool isAllocaPromotable(fir::AllocaOp &ae) {
   for (auto &use : ae.getResult()->getUses()) {
     auto *op = use.getOwner();
-    if (auto load = M::dyn_cast<LoadExpr>(op)) {
+    if (auto load = M::dyn_cast<fir::LoadOp>(op)) {
       // do nothing
-    } else if (auto stor = M::dyn_cast<StoreExpr>(op)) {
+    } else if (auto stor = M::dyn_cast<fir::StoreOp>(op)) {
       if (stor.getOperand(0)->getDefiningOp() == op) {
         return false;
       }
@@ -66,7 +66,7 @@ struct AllocaInfo {
 
   /// Scan the uses of the specified alloca, filling in the AllocaInfo used
   /// by the rest of the pass to reason about the uses of this alloca.
-  void analyzeAlloca(AllocaExpr &AI) {
+  void analyzeAlloca(fir::AllocaOp &AI) {
     clear();
 
     // As we scan the uses of the alloca instruction, keep track of stores,
@@ -77,12 +77,12 @@ struct AllocaInfo {
       auto *User = UI->getOwner();
       UI++;
 
-      if (auto SI = M::dyn_cast<StoreExpr>(User)) {
+      if (auto SI = M::dyn_cast<fir::StoreOp>(User)) {
         // Remember the basic blocks which define new values for the alloca
         definingBlocks.push_back(SI.getOperation()->getBlock());
         onlyStore = SI.getOperation();
       } else {
-        auto LI = M::cast<LoadExpr>(User);
+        auto LI = M::cast<fir::LoadOp>(User);
         // Otherwise it must be a load instruction, keep track of variable
         // reads.
         usingBlocks.push_back(LI.getOperation()->getBlock());
@@ -118,12 +118,12 @@ struct LargeBlockInfo {
   INMap instNumbers;
 
   static bool isInterestingInstruction(M::Operation &I) {
-    if (M::isa<LoadExpr>(I)) {
+    if (M::isa<fir::LoadOp>(I)) {
       if (auto *op = I.getOperand(0)->getDefiningOp())
-        return M::isa<AllocaExpr>(op);
-    } else if (M::isa<StoreExpr>(I)) {
+        return M::isa<fir::AllocaOp>(op);
+    } else if (M::isa<fir::StoreOp>(I)) {
       if (auto *op = I.getOperand(1)->getDefiningOp())
-        return M::isa<AllocaExpr>(op);
+        return M::isa<fir::AllocaOp>(op);
     }
     return false;
   }
@@ -160,7 +160,7 @@ struct LargeBlockInfo {
 struct MemToReg : public M::FunctionPass<MemToReg> {
   explicit MemToReg() {}
 
-  std::vector<AllocaExpr> allocas;
+  std::vector<fir::AllocaOp> allocas;
   DominatorTree *domTree = nullptr;
   M::OpBuilder *builder = nullptr;
 
@@ -178,8 +178,8 @@ struct MemToReg : public M::FunctionPass<MemToReg> {
   llvm::DenseMap<std::pair<M::Block *, unsigned>, unsigned> argToAllocaMap;
 
   bool rewriteSingleStoreAlloca(
-      AllocaExpr &AI, AllocaInfo &Info, LargeBlockInfo &LBI) {
-    StoreExpr onlyStore(M::cast<StoreExpr>(Info.onlyStore));
+      fir::AllocaOp &AI, AllocaInfo &Info, LargeBlockInfo &LBI) {
+    fir::StoreOp onlyStore(M::cast<fir::StoreOp>(Info.onlyStore));
     M::Block *StoreBB = Info.onlyStore->getBlock();
     int StoreIndex = -1;
 
@@ -191,10 +191,10 @@ struct MemToReg : public M::FunctionPass<MemToReg> {
       auto *UserInst = UI->getOwner();
       UI++;
 
-      if (M::dyn_cast<StoreExpr>(UserInst)) {
+      if (M::dyn_cast<fir::StoreOp>(UserInst)) {
         continue;
       }
-      auto LI = M::cast<LoadExpr>(UserInst);
+      auto LI = M::cast<fir::LoadOp>(UserInst);
 
       // Okay, if we have a load from the alloca, we want to replace it with the
       // only value stored to the alloca.  We can do this if the value is
@@ -246,15 +246,15 @@ struct MemToReg : public M::FunctionPass<MemToReg> {
   }
 
   bool promoteSingleBlockAlloca(
-      AllocaExpr &AI, AllocaInfo &Info, LargeBlockInfo &LBI) {
+      fir::AllocaOp &AI, AllocaInfo &Info, LargeBlockInfo &LBI) {
     // Walk the use-def list of the alloca, getting the locations of all stores.
     using StoresByIndexTy =
-        llvm::SmallVector<std::pair<unsigned, StoreExpr *>, 64>;
+        llvm::SmallVector<std::pair<unsigned, fir::StoreOp *>, 64>;
     StoresByIndexTy StoresByIndex;
 
     for (auto U = AI.getResult()->use_begin(), E = AI.getResult()->use_end();
          U != E; U++)
-      if (StoreExpr SI = M::dyn_cast<StoreExpr>(U->getOwner())) {
+      if (fir::StoreOp SI = M::dyn_cast<fir::StoreOp>(U->getOwner())) {
         StoresByIndex.emplace_back(LBI.getInstructionIndex(SI), &SI);
       }
 
@@ -266,7 +266,7 @@ struct MemToReg : public M::FunctionPass<MemToReg> {
     // store above them, if any.
     for (auto UI = AI.getResult()->use_begin(), E = AI.getResult()->use_end();
          UI != E;) {
-      auto LI = M::dyn_cast<LoadExpr>(UI->getOwner());
+      auto LI = M::dyn_cast<fir::LoadOp>(UI->getOwner());
       UI++;
       if (!LI) {
         continue;
@@ -276,7 +276,7 @@ struct MemToReg : public M::FunctionPass<MemToReg> {
 
       // Find the nearest store that has a lower index than this load.
       typename StoresByIndexTy::iterator I = llvm::lower_bound(StoresByIndex,
-          std::make_pair(LoadIdx, static_cast<StoreExpr *>(nullptr)),
+          std::make_pair(LoadIdx, static_cast<fir::StoreOp *>(nullptr)),
           llvm::less_first());
       if (I == StoresByIndex.begin()) {
         if (StoresByIndex.empty()) {
@@ -311,7 +311,8 @@ struct MemToReg : public M::FunctionPass<MemToReg> {
     while (!AI.use_empty()) {
       auto *ae = AI.getResult();
       for (auto ai = ae->use_begin(), E = ae->use_end(); ai != E; ai++) {
-        if (StoreExpr SI = M::dyn_cast<StoreExpr>(ai->get()->getDefiningOp())) {
+        if (fir::StoreOp SI =
+                M::dyn_cast<fir::StoreOp>(ai->get()->getDefiningOp())) {
           SI.erase();
           LBI.deleteValue(SI);
         }
@@ -322,7 +323,7 @@ struct MemToReg : public M::FunctionPass<MemToReg> {
     return true;
   }
 
-  void computeLiveInBlocks(AllocaExpr &ae, AllocaInfo &Info,
+  void computeLiveInBlocks(fir::AllocaOp &ae, AllocaInfo &Info,
       const llvm::SmallPtrSetImpl<M::Block *> &DefBlocks,
       llvm::SmallPtrSetImpl<M::Block *> &liveInBlks) {
     auto *AI = ae.getOperation();
@@ -345,7 +346,7 @@ struct MemToReg : public M::FunctionPass<MemToReg> {
       // first reference to the alloca is a def (store), then we know it isn't
       // live-in.
       for (M::Block::iterator I = BB->begin();; ++I) {
-        if (auto SI = M::dyn_cast<StoreExpr>(I)) {
+        if (auto SI = M::dyn_cast<fir::StoreOp>(I)) {
           if (SI.getOperand(1)->getDefiningOp() != AI) {
             continue;
           }
@@ -359,7 +360,7 @@ struct MemToReg : public M::FunctionPass<MemToReg> {
           break;
         }
 
-        if (auto LI = M::dyn_cast<LoadExpr>(I))
+        if (auto LI = M::dyn_cast<fir::LoadOp>(I))
           // Okay, we found a load before a store to the alloca.  It is actually
           // live into this block.
           if (LI.getOperand()->getDefiningOp() == AI) {
@@ -394,7 +395,8 @@ struct MemToReg : public M::FunctionPass<MemToReg> {
     }
   }
 
-  bool addBlockArgument(M::Block *BB, AllocaExpr &Alloca, unsigned allocaNum) {
+  bool addBlockArgument(
+      M::Block *BB, fir::AllocaOp &Alloca, unsigned allocaNum) {
     auto *ae = Alloca.getOperation();
     auto key = std::make_pair(BB, ae);
     auto argNoIter = BlockArgs.find(key);
@@ -536,13 +538,13 @@ struct MemToReg : public M::FunctionPass<MemToReg> {
       M::Operation &opn = *II;
       II++;
 
-      if (auto LI = M::dyn_cast<LoadExpr>(opn)) {
+      if (auto LI = M::dyn_cast<fir::LoadOp>(opn)) {
         auto *srcOpn = LI.getOperand()->getDefiningOp();
         if (!srcOpn) {
           continue;
         }
 
-        auto Src = M::dyn_cast<AllocaExpr>(srcOpn);
+        auto Src = M::dyn_cast<fir::AllocaOp>(srcOpn);
         if (!Src) {
           continue;
         }
@@ -558,7 +560,7 @@ struct MemToReg : public M::FunctionPass<MemToReg> {
         // Anything using the load now uses the current value.
         LI.replaceAllUsesWith(V);
         LI.erase();
-      } else if (auto SI = M::dyn_cast<StoreExpr>(opn)) {
+      } else if (auto SI = M::dyn_cast<fir::StoreOp>(opn)) {
         auto *dstOpn = SI.getOperand(1)->getDefiningOp();
         if (!dstOpn) {
           continue;
@@ -566,7 +568,7 @@ struct MemToReg : public M::FunctionPass<MemToReg> {
 
         // Delete this instruction and mark the name as the current holder of
         // the value
-        auto Dest = M::dyn_cast<AllocaExpr>(dstOpn);
+        auto Dest = M::dyn_cast<fir::AllocaOp>(dstOpn);
         if (!Dest) {
           continue;
         }
@@ -608,7 +610,7 @@ struct MemToReg : public M::FunctionPass<MemToReg> {
 
   void doPromotion() {
     auto F = getFunction();
-    std::vector<AllocaExpr> aes;
+    std::vector<fir::AllocaOp> aes;
     AllocaInfo info;
     LargeBlockInfo lbi;
     M::ForwardIDFCalculator IDF(*domTree);
@@ -734,7 +736,7 @@ struct MemToReg : public M::FunctionPass<MemToReg> {
       allocas.clear();
 
       for (auto &op : entry)
-        if (auto ae = M::dyn_cast<AllocaExpr>(op)) {
+        if (auto ae = M::dyn_cast<fir::AllocaOp>(op)) {
           if (isAllocaPromotable(ae)) {
             allocas.push_back(ae);
           }

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "fir/LLVMConverter.h"
+#include "fir/Tilikum/LLVMConverter.h"
 #include "fir/Dialect.h"
 #include "fir/FIROps.h"
 #include "fir/Type.h"
@@ -220,12 +220,12 @@ protected:
 };
 
 // convert to LLVM IR dialect `alloca`
-struct AllocaOpConversion : public FIROpConversion<AllocaExpr> {
+struct AllocaOpConversion : public FIROpConversion<fir::AllocaOp> {
   using FIROpConversion::FIROpConversion;
 
   M::PatternMatchResult matchAndRewrite(M::Operation *op, OperandTy operands,
       M::ConversionPatternRewriter &rewriter) const override {
-    auto alloc = M::cast<AllocaExpr>(op);
+    auto alloc = M::cast<fir::AllocaOp>(op);
     rewriter.replaceOpWithNewOp<M::LLVM::AllocaOp>(
         op, lowering.convertType(alloc.getType()), operands, alloc.getAttrs());
     return matchSuccess();
@@ -328,7 +328,7 @@ struct CoordinateOpConversion : public FIROpConversion<CoordinateOp> {
     if (auto box = M::dyn_cast<EmboxOp>(baseOp)) {
       // FIXME: for now assume this is always an array
       M::Value *v = rewriter.create<M::LLVM::GEPOp>(
-          loc, lowering.convertType(coor.getType()), box.val(), operands);
+          loc, lowering.convertType(coor.getType()), box.memref(), operands);
       rewriter.replaceOp(op, v);
       return matchSuccess();
     }
@@ -491,12 +491,12 @@ struct InsertValueOpConversion : public FIROpConversion<InsertValueOp> {
 };
 
 // convert to LLVM IR dialect `load`
-struct LoadExprConversion : public FIROpConversion<LoadExpr> {
+struct LoadExprConversion : public FIROpConversion<fir::LoadOp> {
   using FIROpConversion::FIROpConversion;
 
   M::PatternMatchResult matchAndRewrite(M::Operation *op, OperandTy operands,
       M::ConversionPatternRewriter &rewriter) const override {
-    auto load = M::cast<LoadExpr>(op);
+    auto load = M::cast<fir::LoadOp>(op);
     auto newLoad = rewriter.create<M::LLVM::LoadOp>(load.getLoc(),
         lowering.convertType(load.getType()), operands, load.getAttrs());
     // ???: the next line works around a bug [do we still need this?]
@@ -567,7 +567,7 @@ struct SelectTypeOpConversion : public FIROpConversion<SelectTypeOp> {
 };
 
 // convert to LLVM IR dialect `store`
-struct StoreExprConversion : public FIROpConversion<StoreExpr> {
+struct StoreExprConversion : public FIROpConversion<fir::StoreOp> {
   using FIROpConversion::FIROpConversion;
 
   M::PatternMatchResult matchAndRewrite(M::Operation *op, OperandTy operands,
@@ -697,7 +697,7 @@ std::unique_ptr<M::Pass> fir::createFIRToLLVMPass() {
 
 // returns the predefined pass
 std::unique_ptr<M::Pass> fir::createStdToLLVMPass() {
-  return M::createConvertToLLVMIRPass();
+  return M::createLowerToLLVMPass();
 }
 
 std::unique_ptr<M::Pass> fir::createLLVMDialectToLLVMPass() {

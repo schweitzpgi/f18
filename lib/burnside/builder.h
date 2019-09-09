@@ -64,7 +64,7 @@ inline mlir::Block *createBlock(mlir::OpBuilder *bldr) {
 mlir::FuncOp getNamedFunction(llvm::StringRef name);
 
 mlir::FuncOp createFunction(
-    mlir::ModuleOp &module, const std::string &name, mlir::FunctionType funcTy);
+    mlir::ModuleOp module, const std::string &name, mlir::FunctionType funcTy);
 
 }  // Fortran::burnside
 

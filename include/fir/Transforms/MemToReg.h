@@ -12,21 +12,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef FIR_MEMTOREG_H
-#define FIR_MEMTOREG_H
+#ifndef FIR_TRANSFORMS_MEMTOREG_H
+#define FIR_TRANSFORMS_MEMTOREG_H
 
-// A pass to convert the FIR dialect from "Mem-SSA" form to "Reg-SSA" form. This
-// pass is a port of LLVM's mem2reg pass, but modified for the FIR dialect as
-// well as the restructuring of MLIR's representation to present PHI nodes as
-// block arguments.
-//
-// This pass could be promoted to MLIR proper to do a similar operation on
-// Standard MLIR, assuming Standard was extended with similar operators, etc.
+/// A pass to convert the FIR dialect from "Mem-SSA" form to "Reg-SSA"
+/// form. This pass is a port of LLVM's mem2reg pass, but modified for the FIR
+/// dialect as well as the restructuring of MLIR's representation to present PHI
+/// nodes as block arguments.
 
 #include <memory>
 
 namespace mlir {
-class FunctionPassBase;
+template<typename> class OpPassBase;
+class FuncOp;
+using FunctionPassBase = OpPassBase<FuncOp>;
 }
 
 namespace fir {
@@ -36,4 +35,4 @@ std::unique_ptr<mlir::FunctionPassBase> createMemToRegPass();
 
 }  // fir
 
-#endif  // FIR_MEMTOREG_H
+#endif  // FIR_TRANSFORMS_MEMTOREG_H

@@ -49,7 +49,7 @@ public:
 
   mlir::MLIRContext &getMLIRContext() { return *context_.get(); }
   mlir::ModuleManager &getManager() { return *manager_.get(); }
-  mlir::ModuleOp getModule() { return module_; }
+  mlir::ModuleOp getModule() { return module_.get(); }
 
   void parseSourceFile(llvm::SourceMgr &);
 
@@ -67,7 +67,7 @@ private:
 
   const common::IntrinsicTypeDefaultKinds &defaultKinds_;
   std::unique_ptr<mlir::MLIRContext> context_;
-  mlir::ModuleOp module_;
+  mlir::OwningModuleRef module_;
   std::unique_ptr<mlir::ModuleManager> manager_;
 };
 

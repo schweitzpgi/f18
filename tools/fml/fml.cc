@@ -38,9 +38,9 @@
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/Passes.h"
 #include "fir/Dialect.h"
-#include "fir/LLVMConverter.h"
-#include "fir/MemToReg.h"
-#include "fir/StdConverter.h"
+#include "fir/Tilikum/LLVMConverter.h"
+#include "fir/Tilikum/StdConverter.h"
+#include "fir/Transforms/MemToReg.h"
 #include "../../lib/burnside/bridge.h"
 #include "../../lib/burnside/canonicalize.h"
 #include <cerrno>
@@ -270,7 +270,7 @@ std::string CompileFortran(std::string path, Fortran::parser::Options options,
   Br::instantiateBurnsideBridge(semanticsContext.defaultKinds());
   Br::crossBurnsideBridge(Br::getBridge(), parseTree);
   mlir::ModuleOp mlirModule{Br::getBridge().getModule()};
-  mlir::PassManager pm;
+  mlir::PassManager pm{mlirModule.getContext()};
   if (driver.dumpHLFIR) {
     llvm::outs() << ";== 1 ==\n";
     mlirModule.dump();
@@ -327,7 +327,7 @@ std::string CompileFir(std::string path, Fortran::parser::Options options,
   mlirModule.dump();
 
   // run passes
-  mlir::PassManager pm;
+  mlir::PassManager pm{mlirModule.getContext()};
   pm.addPass(fir::createMemToRegPass());
   pm.addPass(mlir::createCSEPass());
   if (driver.lowerToStd) {

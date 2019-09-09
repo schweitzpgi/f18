@@ -17,10 +17,8 @@
 
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/StringRef.h"
-#include "mlir/IR/Block.h"
 #include "mlir/IR/Builders.h"
-#include "mlir/IR/FunctionSupport.h"
-#include "mlir/IR/OpDefinition.h"
+#include "mlir/IR/OpImplementation.h"
 
 using namespace mlir;
 using llvm::ArrayRef;
@@ -92,6 +90,9 @@ private:
 mlir::ParseResult isValidCaseAttr(mlir::Attribute attr);
 unsigned getCaseArgumentOffset(
     llvm::ArrayRef<mlir::Attribute> cases, unsigned dest);
+mlir::ParseResult parseSelector(mlir::OpAsmParser *parser,
+    mlir::OperationState *result, mlir::OpAsmParser::OperandType &selector,
+    mlir::Type &type);
 
 #define GET_OP_CLASSES
 #include "fir/FIROps.h.inc"

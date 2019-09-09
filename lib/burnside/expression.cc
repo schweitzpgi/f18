@@ -81,7 +81,7 @@ public:
       if (!addr) {
         auto ip{builder->getInsertionBlock()};
         builder->setInsertionPointToStart(getEntryBlock(builder));
-        addr = builder->create<AllocaExpr>(dummyLoc(), ty);
+        addr = builder->create<fir::AllocaOp>(dummyLoc(), ty);
         symbolMap.addSymbol(variable, addr);
         builder->setInsertionPointToEnd(ip);
       }
@@ -89,7 +89,7 @@ public:
         addResult(addr, variable);
       } else {
         llvm::SmallVector<M::Value *, 2> loadArg{addr};
-        auto load{builder->create<LoadExpr>(dummyLoc(), loadArg, ty)};
+        auto load{builder->create<fir::LoadOp>(dummyLoc(), loadArg, ty)};
         addResult(load.getResult(), variable);
       }
     }
@@ -323,7 +323,7 @@ public:
               FIRReferenceType::get(translateSomeExprToFIRType(context, aa))};
           M::Value *toLoc{nullptr};
           auto *defOp{getArgs(eops)[0]->getDefiningOp()};
-          if (auto load = M::dyn_cast<LoadExpr>(defOp)) {
+          if (auto load = M::dyn_cast<fir::LoadOp>(defOp)) {
             toLoc = load.getOperand();
           } else {
             auto locate{builder->create<LocateExpr>(

@@ -33,7 +33,7 @@ std::string Br::applyNameMangling(llvm::StringRef parserName) {
 }
 
 M::FuncOp Br::createFunction(
-    M::ModuleOp &module, const std::string &name, M::FunctionType funcTy) {
+    M::ModuleOp module, const std::string &name, M::FunctionType funcTy) {
   M::MLIRContext *ctxt{module.getContext()};
   auto func{M::FuncOp::create(dummyLoc(ctxt), name, funcTy)};
   module.push_back(func);
@@ -51,6 +51,6 @@ void Br::SymMap::addSymbol(const Se::Symbol *symbol, M::Value *value) {
 }
 
 M::Value *Br::SymMap::lookupSymbol(const Se::Symbol *symbol) {
-  auto iter = sMap.find(symbol);
+  auto iter{sMap.find(symbol)};
   return (iter == sMap.end()) ? nullptr : iter->second;
 }

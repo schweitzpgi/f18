@@ -19,6 +19,9 @@
 namespace Fortran::burnside {
 namespace flat {
 
+// Labels are numbered [0 .. `n`] consecutively. They are unsigned. Not all
+// labels are numbered. The unnumbered ones are given the value UINT_MAX. `n`
+// should never approach UINT_MAX.
 LabelBuilder::LabelBuilder() : referenced(32), counter{0u} {}
 
 LabelRef LabelBuilder::getNext() {
@@ -27,13 +30,17 @@ LabelRef LabelBuilder::getNext() {
   if (cap < counter) {
     referenced.reserve(2 * cap);
   }
-  referenced[next] = false;
+  referenced.resize(counter, false);
   return next;
 }
 
-void LabelBuilder::setReferenced(LabelRef label) { referenced[label] = true; }
+void LabelBuilder::setReferenced(LabelRef label) { 
+  CHECK(label < referenced.size());
+  referenced[label] = true; 
+}
 
 bool LabelBuilder::isReferenced(LabelRef label) const {
+  CHECK(label < referenced.size());
   return referenced[label];
 }
 
@@ -657,7 +664,8 @@ struct ControlFlowAnalyzer {
   std::list<Op> &linearOps;
   AnalysisData &ad;
 };
-}
+
+}  // namespace flat
 
 template<typename A>
 void CreateFlatIR(const A &ptree, std::list<flat::Op> &ops, AnalysisData &ad) {
@@ -671,4 +679,5 @@ void CreateFlatIR(const A &ptree, std::list<flat::Op> &ops, AnalysisData &ad) {
 INSTANTIATE_EXPLICITLY(MainProgram);
 INSTANTIATE_EXPLICITLY(FunctionSubprogram);
 INSTANTIATE_EXPLICITLY(SubroutineSubprogram);
-}
+
+}  // namespace burnside

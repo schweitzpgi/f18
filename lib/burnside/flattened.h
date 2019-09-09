@@ -18,6 +18,7 @@
 #include "common.h"
 #include "mixin.h"
 #include "../parser/parse-tree.h"
+#include <cstdint>
 #include <list>
 #include <map>
 #include <set>
@@ -33,9 +34,8 @@ namespace flat {
 // the executable specification of the input program. The flattened IR can be
 // used to construct the Fortran IR.
 
-
 using LabelRef = unsigned;
-constexpr LabelRef unspecifiedLabel{~0u};
+constexpr LabelRef unspecifiedLabel{UINT_MAX};
 
 using Location = parser::CharBlock;
 struct LabelBuilder;

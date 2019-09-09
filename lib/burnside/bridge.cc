@@ -71,16 +71,18 @@ class MLIRConverter {
   };
 
   M::MLIRContext &mlirContext;
-  M::ModuleOp module_;
+  M::OwningModuleRef module_;
   std::unique_ptr<M::OpBuilder> builder_;
-  LabelMapType blockMap;  // map from flattened labels to MLIR blocks
+  LabelMapType blockMap_;  // map from flattened labels to MLIR blocks
   std::list<Closure> edgeQ;
   std::map<const Pa::NonLabelDoStmt *, DoBoundsInfo> doMap;
   SymMap symbolMap;
   Pa::CharBlock lastKnownPos_;
   bool noInsPt{false};
 
-  M::OpBuilder &build() { return *builder_.get(); };
+  inline M::OpBuilder &build() { return *builder_.get(); }
+  inline M::ModuleOp getMod() { return module_.get(); }
+  inline LabelMapType &blkMap() { return blockMap_; }
 
   /// Convert a parser CharBlock to a Location
   M::Location toLocation(const Pa::CharBlock &cb) {
@@ -124,7 +126,7 @@ class MLIRConverter {
     if (auto func{getNamedFunction(callee)}) {
       return func;
     }
-    return createFunction(module_, callee, funcTy);
+    return createFunction(getMod(), callee, funcTy);
   }
 
   M::FuncOp genRuntimeFunction(RuntimeEntryCode rec, int kind) {
@@ -181,11 +183,11 @@ class MLIRConverter {
   // Control flow destination
   void genMLIR(bool lastWasLabel, const Fl::LabelOp &op) {
     if (lastWasLabel) {
-      blockMap.insert({op.get(), build().getInsertionBlock()});
+      blkMap().insert({op.get(), build().getInsertionBlock()});
     } else {
       auto *currBlock{build().getInsertionBlock()};
       auto *newBlock{createBlock(&build())};
-      blockMap.insert({op.get(), newBlock});
+      blkMap().insert({op.get(), newBlock});
       if (!noInsPt) {
         build().setInsertionPointToEnd(currBlock);
         build().create<M::BranchOp>(toLocation(), newBlock);
@@ -196,8 +198,8 @@ class MLIRConverter {
 
   // Goto statements
   void genMLIR(const Fl::GotoOp &op) {
-    auto iter{blockMap.find(op.target)};
-    if (iter != blockMap.end()) {
+    auto iter{blkMap().find(op.target)};
+    if (iter != blkMap().end()) {
       build().create<M::BranchOp>(toLocation(), iter->second);
     } else {
       using namespace std::placeholders;
@@ -208,8 +210,7 @@ class MLIRConverter {
             assert(map.find(dest) != map.end() && "no destination");
             builder->create<M::BranchOp>(location, map.find(dest)->second);
           },
-          &build(), build().getInsertionBlock(), op.target, toLocation(),
-          _1));
+          &build(), build().getInsertionBlock(), op.target, toLocation(), _1));
     }
     noInsPt = true;
   }
@@ -280,11 +281,11 @@ class MLIRConverter {
       auto *stepExpr{Se::GetExpr(bounds.step)};
       e3 = createFIRExpr(loc, stepExpr);
     } else {
-      auto attr = build().getIntegerAttr(e2->getType(), 1);
+      auto attr{build().getIntegerAttr(e2->getType(), 1)};
       e3 = build().create<M::ConstantOp>(loc, attr);
     }
     // name <- e1
-    build().create<fir::StoreExpr>(loc, e1, name);
+    build().create<fir::StoreOp>(loc, e1, name);
     auto tripCounter{createTemp(getDefaultIntegerType())};
     // See 11.1.7.4.1, para. 1, item (3)
     // totalTrips ::= iteration count = a
@@ -293,7 +294,7 @@ class MLIRConverter {
     auto c2{build().create<M::AddIOp>(loc, c1.getResult(), e3)};
     auto c3{build().create<M::DivISOp>(loc, c2.getResult(), e3)};
     auto *totalTrips{c3.getResult()};
-    build().create<fir::StoreExpr>(loc, totalTrips, tripCounter);
+    build().create<fir::StoreOp>(loc, totalTrips, tripCounter);
     pushDoContext(stmt, name, tripCounter, e3);
   }
 
@@ -350,18 +351,18 @@ class MLIRConverter {
     if (info->doVar && info->stepExpr) {
       // add: do_var = do_var + e3
       auto load{
-          build().create<fir::LoadExpr>(info->doVar->getLoc(), info->doVar)};
+          build().create<fir::LoadOp>(info->doVar->getLoc(), info->doVar)};
       auto incremented{build().create<M::AddIOp>(
           load.getLoc(), load.getResult(), info->stepExpr)};
-      build().create<fir::StoreExpr>(load.getLoc(), incremented, info->doVar);
+      build().create<fir::StoreOp>(load.getLoc(), incremented, info->doVar);
       // add: counter--
-      auto loadCtr{build().create<fir::LoadExpr>(
+      auto loadCtr{build().create<fir::LoadOp>(
           info->counter->getLoc(), info->counter)};
       auto one{build().create<M::ConstantOp>(
           loadCtr.getLoc(), build().getIntegerAttr(loadCtr.getType(), 1))};
       auto decremented{build().create<M::SubIOp>(
           loadCtr.getLoc(), loadCtr.getResult(), one)};
-      build().create<fir::StoreExpr>(
+      build().create<fir::StoreOp>(
           loadCtr.getLoc(), decremented, info->counter);
     }
   }
@@ -369,7 +370,7 @@ class MLIRConverter {
     auto *info{getBoundsInfo(op)};
     if (info->doVar && info->stepExpr) {
       // add: cond = counter > 0 (signed)
-      auto load{build().create<fir::LoadExpr>(
+      auto load{build().create<fir::LoadOp>(
           info->counter->getLoc(), info->counter)};
       auto zero{build().create<M::ConstantOp>(
           load.getLoc(), build().getIntegerAttr(load.getType(), 0))};
@@ -464,7 +465,7 @@ class MLIRConverter {
     auto *rhs{Se::GetExpr(std::get<Pa::Expr>(stmt.t))};
     auto *lhs{Se::GetExpr(std::get<Pa::Variable>(stmt.t))};
     auto loc{toLocation()};
-    build().create<fir::StoreExpr>(
+    build().create<fir::StoreOp>(
         loc, createFIRExpr(loc, rhs), createFIRAddr(loc, lhs));
   }
   void genMLIR(const Pa::BackspaceStmt &stmt);
@@ -497,14 +498,14 @@ class MLIRConverter {
   void genMLIR(const Pa::PauseStmt &stmt);
 
   template<typename A>
-  void translateRoutine(const A &routine, const std::string &name,
-      const Se::Symbol *funcSym);
+  void translateRoutine(
+      const A &routine, const std::string &name, const Se::Symbol *funcSym);
 
   void genCondBranch(
       M::Value *cond, Fl::LabelRef trueBlock, Fl::LabelRef falseBlock) {
-    auto trueIter{blockMap.find(trueBlock)};
-    auto falseIter{blockMap.find(falseBlock)};
-    if (trueIter != blockMap.end() && falseIter != blockMap.end()) {
+    auto trueIter{blkMap().find(trueBlock)};
+    auto falseIter{blkMap().find(falseBlock)};
+    if (trueIter != blkMap().end() && falseIter != blkMap().end()) {
       llvm::SmallVector<M::Value *, 2> blanks;
       build().create<M::CondBranchOp>(toLocation(), cond, trueIter->second,
           blanks, falseIter->second, blanks);
@@ -522,8 +523,8 @@ class MLIRConverter {
             builder->create<M::CondBranchOp>(
                 location, cnd, tdp->second, blk, fdp->second, blk);
           },
-          &build(), build().getInsertionBlock(), cond, trueBlock,
-          falseBlock, toLocation(), _1));
+          &build(), build().getInsertionBlock(), cond, trueBlock, falseBlock,
+          toLocation(), _1));
     }
   }
 
@@ -536,7 +537,7 @@ class MLIRConverter {
     std::size_t u{0};
     // do we already have all the targets?
     for (auto last{labels.size()}; u != last; ++u) {
-      haveAllLabels = blockMap.find(labels[u]) != blockMap.end();
+      haveAllLabels = blkMap().find(labels[u]) != blkMap().end();
       if (!haveAllLabels) break;
     }
     if (haveAllLabels) {
@@ -548,7 +549,7 @@ class MLIRConverter {
       llvm::SmallVector<M::Value *, 2> blanks;
       for (auto cond : conditions) {
         conds.emplace_back(cond);
-        blocks.emplace_back(blockMap.find(labels[u++])->second);
+        blocks.emplace_back(blkMap().find(labels[u++])->second);
         blockArgs.emplace_back(blanks);
       }
       build().create<A>(loc, selector, conds, blocks, blockArgs);
@@ -575,14 +576,14 @@ class MLIRConverter {
             builder->setInsertionPointToEnd(block);
             builder->create<A>(location, sel, conds, blocks, blockArgs);
           },
-          &build(), build().getInsertionBlock(), selector, conditions,
-          labels, loc, _1));
+          &build(), build().getInsertionBlock(), selector, conditions, labels,
+          loc, _1));
     }
   }
 
   void finalizeQueued() {
     for (auto &edgeFunc : edgeQ) {
-      edgeFunc(blockMap);
+      edgeFunc(blkMap());
     }
   }
 
@@ -591,7 +592,7 @@ public:
     : mlirContext{bridge.getMLIRContext()}, module_{bridge.getModule()} {}
   MLIRConverter() = delete;
 
-  M::ModuleOp getModule() { return module_; }
+  M::ModuleOp getModule() { return getMod(); }
 
   template<typename A> constexpr bool Pre(const A &) { return true; }
   template<typename A> constexpr void Post(const A &) {}
@@ -857,9 +858,9 @@ void MLIRConverter::genMLIR(AnalysisData &ad, std::list<Fl::Op> &operations) {
 
 /// Translate the routine to MLIR
 template<typename A>
-void MLIRConverter::translateRoutine(const A &routine, const std::string &name,
-    const Se::Symbol *funcSym) {
-  M::FuncOp func = getNamedFunction(name);
+void MLIRConverter::translateRoutine(
+    const A &routine, const std::string &name, const Se::Symbol *funcSym) {
+  M::FuncOp func{getNamedFunction(name)};
   if (!func) {
     // get arguments and return type if any, otherwise just use empty vectors
     llvm::SmallVector<M::Type, 8> args;
@@ -882,7 +883,7 @@ void MLIRConverter::translateRoutine(const A &routine, const std::string &name,
       }
     }
     auto funcTy{M::FunctionType::get(args, results, &mlirContext)};
-    func = createFunction(module_, name, funcTy);
+    func = createFunction(getMod(), name, funcTy);
   }
   func.addEntryBlock();
   builder_ = std::make_unique<M::OpBuilder>(func);
@@ -924,7 +925,7 @@ void Br::BurnsideBridge::parseSourceFile(llvm::SourceMgr &srcMgr) {
   module_ = M::parseSourceFile(srcMgr, context_.get());
   if (validModule()) {
     // symbols are added by ModuleManager ctor
-    manager_.reset(new M::ModuleManager(module_));
+    manager_.reset(new M::ModuleManager(getModule()));
   }
 }
 
@@ -932,8 +933,9 @@ Br::BurnsideBridge::BurnsideBridge(
     const Co::IntrinsicTypeDefaultKinds &defaultKinds)
   : defaultKinds_{defaultKinds} {
   context_ = std::make_unique<M::MLIRContext>();
-  module_ = M::ModuleOp::create(M::UnknownLoc::get(context_.get()));
-  manager_ = std::make_unique<M::ModuleManager>(module_);
+  module_ = M::OwningModuleRef{
+      M::ModuleOp::create(M::UnknownLoc::get(context_.get()))};
+  manager_ = std::make_unique<M::ModuleManager>(getModule());
 }
 
 void Br::instantiateBurnsideBridge(

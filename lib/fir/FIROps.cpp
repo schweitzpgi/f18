@@ -16,18 +16,17 @@
 #include "fir/Attribute.h"
 #include "fir/Type.h"
 #include "mlir/Dialect/StandardOps/Ops.h"
-#include "mlir/IR/Builders.h"
-#include "mlir/IR/OpImplementation.h"
 #include "mlir/IR/StandardTypes.h"
+#include "mlir/IR/SymbolTable.h"
 
 namespace L = llvm;
 namespace M = mlir;
 
 namespace fir {
 
-// AllocaExpr
+// AllocaOp
 
-M::Type AllocaExpr::getAllocatedType() {
+M::Type AllocaOp::getAllocatedType() {
   return getType().cast<ReferenceType>().getEleTy();
 }
 
@@ -205,6 +204,30 @@ void GlobalOp::appendInitialValue(M::Operation *op) {
 
 M::Region &GlobalOp::front() { return this->getOperation()->getRegion(0); }
 
+// LoadOp
+
+/// Get the element type of a reference like type; otherwise null
+M::Type elementTypeOf(M::Type ref) {
+  if (auto r = ref.dyn_cast_or_null<ReferenceType>()) {
+    return r.getEleTy();
+  }
+  if (auto r = ref.dyn_cast_or_null<PointerType>()) {
+    return r.getEleTy();
+  }
+  if (auto r = ref.dyn_cast_or_null<HeapType>()) {
+    return r.getEleTy();
+  }
+  return {};
+}
+
+M::ParseResult LoadOp::getElementOf(M::Type &ele, M::Type ref) {
+  if (M::Type r = elementTypeOf(ref)) {
+    ele = r;
+    return M::success();
+  }
+  return M::failure();
+}
+
 // LoopOp
 
 void LoopOp::build(M::Builder *builder, M::OperationState *result, M::Value *lb,
@@ -270,9 +293,9 @@ fir::LoopOp getForInductionVarOwner(M::Value *val) {
   return dyn_cast_or_null<fir::LoopOp>(containingInst);
 }
 
-// StoreExpr
+// StoreOp
 
-M::Type StoreExpr::elementType(M::Type refType) {
+M::Type StoreOp::elementType(M::Type refType) {
   if (auto ref = refType.dyn_cast<ReferenceType>()) return ref.getEleTy();
   if (auto ref = refType.dyn_cast<PointerType>()) return ref.getEleTy();
   if (auto ref = refType.dyn_cast<HeapType>()) return ref.getEleTy();
@@ -348,6 +371,16 @@ unsigned getCaseArgumentOffset(L::ArrayRef<M::Attribute> cases, unsigned dest) {
     }
   }
   return o;
+}
+
+mlir::ParseResult parseSelector(mlir::OpAsmParser *parser,
+    mlir::OperationState *result, mlir::OpAsmParser::OperandType &selector,
+    mlir::Type &type) {
+  if (parser->parseOperand(selector) || parser->parseColonType(type) ||
+      parser->resolveOperand(selector, type, result->operands) ||
+      parser->parseLSquare())
+    return mlir::failure();
+  return mlir::success();
 }
 
 // Tablegen operators
