@@ -1022,6 +1022,28 @@ def fir_BoxDimsOp : fir_Op<"box_dims", [NoSideEffect]>,
     left to right from 0 to rank-1. This operation has undefined behavior if
     `dim` is out of bounds.
   }];
+
+  let parser = [{
+    mlir::FunctionType type;
+    llvm::SmallVector<mlir::OpAsmParser::OperandType, 2> operands;
+    if (parser->parseOperandList(operands, 2,
+            mlir::OpAsmParser::Delimiter::None) ||
+        parser->parseColonType(type) ||
+        parser->resolveOperands(operands, type.getInputs(),
+            parser->getNameLoc(), result->operands) ||
+        parser->addTypesToList(type.getResults(), result->types))
+      return mlir::failure();
+    return mlir::success();
+  }];
+
+  let printer = [{
+    *p << getOperationName() << ' ';
+    p->printOperand(val());
+    *p << ", ";
+    p->printOperand(dim());
+    *p << " : ";
+    p->printFunctionalType(getOperation());
+  }];
 }
 
 def fir_BoxEleSizeOp : fir_SimpleOneResultOp<"box_elesize", [NoSideEffect]>,
@@ -1191,7 +1213,7 @@ def fir_FieldIndexOp : fir_OneResultOp<"field_index", [NoSideEffect]> {
   >];
 
   let parser = [{
-    mlir::Attribute attr;
+    mlir::StringAttr attr;
     mlir::Type type;
     if (parser->parseAttribute(attr, "field_id", result->attributes) ||
         parser->parseColonType(type) ||
@@ -1225,7 +1247,7 @@ def fir_GenDimsOp : fir_OneResultOp<"gendims", [NoSideEffect]>,
     mlir::FunctionType type;
     llvm::SmallVector<mlir::OpAsmParser::OperandType, 6> operands;
     if (parser->parseOperandList(operands,
-            mlir::OpAsmParser::Delimiter::Paren) ||
+            mlir::OpAsmParser::Delimiter::None) ||
         parser->parseColonType(type) ||
         parser->resolveOperands(operands, type.getInputs(),
             parser->getNameLoc(), result->operands) ||
@@ -1235,9 +1257,9 @@ def fir_GenDimsOp : fir_OneResultOp<"gendims", [NoSideEffect]>,
   }];
 
   let printer = [{
-    *p << getOperationName() << '(';
+    *p << getOperationName() << ' ';
     p->printOperands(triples());
-    *p << ") : ";
+    *p << " : ";
     p->printFunctionalType(getOperation());
   }];
 }
@@ -1249,6 +1271,28 @@ def fir_InsertValueOp : fir_OneResultOp<"insert_value", [NoSideEffect]>,
 
   let description = [{
     Insert a value into a composite value.
+  }];
+
+  let parser = [{
+    mlir::FunctionType type;
+    llvm::SmallVector<mlir::OpAsmParser::OperandType, 4> operands;
+    if (parser->parseOperandList(operands,
+            mlir::OpAsmParser::Delimiter::None) ||
+        parser->parseColonType(type) ||
+        parser->resolveOperands(operands, type.getInputs(),
+            parser->getNameLoc(), result->operands) ||
+        parser->addTypesToList(type.getResults(), result->types))
+      return mlir::failure();
+    return mlir::success();
+  }];
+
+  let printer = [{
+    *p << getOperationName() << ' ';
+    p->printOperand(adt());
+    *p << ", ";
+    p->printOperands(coor());
+    *p << " : ";
+    p->printFunctionalType(getOperation());
   }];
 }
 
@@ -1506,7 +1550,7 @@ def fir_ConvertOp : fir_OneResultOp<"convert", [NoSideEffect]>,
     mlir::FunctionType type;
     llvm::SmallVector<mlir::OpAsmParser::OperandType, 1> operands;
     if (parser->parseOperandList(operands, 1,
-            mlir::OpAsmParser::Delimiter::Paren) ||
+            mlir::OpAsmParser::Delimiter::None) ||
         parser->parseColonType(type) ||
         parser->resolveOperands(operands, type.getInputs(),
             parser->getNameLoc(), result->operands) ||
@@ -1515,9 +1559,9 @@ def fir_ConvertOp : fir_OneResultOp<"convert", [NoSideEffect]>,
     return mlir::success();
   }];
   let printer = [{
-    *p << getOperationName() << '(';
+    *p << getOperationName() << ' ';
     p->printOperand(value());
-    *p << ") : ";
+    *p << " : ";
     p->printFunctionalType(getOperation());
   }];
 }
@@ -1530,6 +1574,24 @@ def fir_GenTypeDescOp : fir_OneResultOp<"gentypedesc", [NoSideEffect]> {
     specified type.  The meta-type of a type descriptor for the type `T`
     is `!fir.tdesc<T>`.
   }];
+
+  let parser = [{
+    mlir::Type intype;
+    if (parser->parseType(intype))
+      return mlir::failure();
+    auto &builder = parser->getBuilder();
+    result->addAttribute("in_type", builder.getTypeAttr(intype));
+    mlir::Type restype;
+    if (parser->parseColonType(restype) ||
+        parser->addTypeToList(restype, result->types))
+      return mlir::failure();
+    return mlir::success();
+  }];
+  let printer = [{
+    *p << getOperationName() << ' ' << getAttr("in_type");
+    *p << " : " << getType();
+    p->printOptionalAttrDict(getAttrs(), {"in_type"});
+  }];
 }
 
 def fir_NoReassocOp : fir_OneResultOp<"no_reassoc",
@@ -1541,6 +1603,23 @@ def fir_NoReassocOp : fir_OneResultOp<"no_reassoc",
     reassociate operations when they are syntactically surrounded by
     parenthesis.
   }];
+
+  let parser = [{
+    mlir::Type type;
+    mlir::OpAsmParser::OperandType opnd;
+    if (parser->parseOperand(opnd) ||
+        parser->parseColonType(type) ||
+        parser->resolveOperand(opnd, type, result->operands) ||
+        parser->addTypeToList(type, result->types))
+      return mlir::failure();
+    return mlir::success();
+  }];
+  let printer = [{
+    *p << getOperationName() << ' ';
+    p->printOperand(val());
+    *p << " : ";
+    p->printType(getType());
+  }];
 }
 
 def fir_GlobalEntryOp : fir_Op<"global_entry", []>,
@@ -1551,6 +1630,27 @@ def fir_GlobalEntryOp : fir_Op<"global_entry", []>,
     An entry in a global.  Allows a constant to be bound to a specific
     field in a record even though the layout of the record has not yet
     been reified.
+  }];
+
+  let parser = [{
+    M::Type type;
+    M::StringAttr fieldAttr;
+    M::OpAsmParser::OperandType constant;
+    if (parser->parseAttribute(fieldAttr, "field-id", result->attributes) ||
+        parser->parseComma() ||
+        parser->parseOperand(constant) ||
+        parser->parseColonType(type) ||
+        parser->resolveOperand(constant, type, result->operands))
+      return M::failure();
+    result->addAttribute("in_type", parser->getBuilder().getTypeAttr(type));
+    return M::success();
+  }];
+  let printer = [{ 
+    *p << getOperationName() << " \""
+       << getAttr("field-id").cast<mlir::StringAttr>().getValue()
+       << "\", ";
+    p->printOperand(constant());
+    *p << " : " << getAttr("in_type");
   }];
 }
 
@@ -1566,7 +1666,15 @@ def fir_DTEntryOp : fir_Op<"dt_entry", []>,
     be called.
   }];
 
-  let parser = [{ return fir::parseDTEntryOp(parser, result); }];
+  let parser = [{
+    M::SymbolRefAttr calleeAttr;
+    M::StringAttr methodNameAttr;
+    if (parser->parseBareName(methodNameAttr, "method", result->attributes) ||
+        parser->parseComma() ||
+        parser->parseAttribute(calleeAttr, "proc", result->attributes))
+      return M::failure();
+    return M::success();
+  }];
   let printer = [{ 
     *p << getOperationName() << ' '
        << getAttr("method").cast<mlir::StringAttr>().getValue()

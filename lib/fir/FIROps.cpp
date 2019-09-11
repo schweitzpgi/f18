@@ -133,19 +133,6 @@ mlir::ParseResult parseDispatchOp(
   return M::success();
 }
 
-// DTEntryOp
-
-mlir::ParseResult parseDTEntryOp(
-    mlir::OpAsmParser *parser, mlir::OperationState *result) {
-  M::SymbolRefAttr calleeAttr;
-  M::StringAttr methodNameAttr;
-  if (parser->parseBareName(methodNameAttr, "method", result->attributes) ||
-      parser->parseComma() ||
-      parser->parseAttribute(calleeAttr, "proc", result->attributes))
-    return M::failure();
-  return M::success();
-}
-
 // GlobalOp
 
 void GlobalOp::build(M::Builder *builder, M::OperationState *result,

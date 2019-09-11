@@ -105,9 +105,6 @@ void printCallOp(mlir::OpAsmPrinter *p, fir::CallOp call);
 mlir::ParseResult parseDispatchOp(
     mlir::OpAsmParser *parser, mlir::OperationState *result);
 
-mlir::ParseResult parseDTEntryOp(
-    mlir::OpAsmParser *parser, mlir::OperationState *result);
-
 LoopOp getForInductionVarOwner(mlir::Value *val);
 
 }  // namespace fir
