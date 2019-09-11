@@ -514,7 +514,7 @@ Example:
 #### `fir.box_dims`
 
 
-Syntax:	<code><b>fir.box_dims (</b> <em>box-value</em> <b>,</b> <em>dim</em> <b>) : (</b> <em>box-type</em> <b>) -&gt; (i</b><em>n</em><b>, i</b><em>n</em><b>, i</b><em>n</em><b>)</b></code>
+Syntax:	<code><b>fir.box_dims</b> <em>box-value</em> <b>,</b> <em>dim</em> <b>: (</b> <em>box-type</em> <b>) -&gt; (i</b><em>n</em><b>, i</b><em>n</em><b>, i</b><em>n</em><b>)</b></code>
 
 
 Return the dimension vector for the boxed value, _box-value_, at dimension,
@@ -631,7 +631,7 @@ Example:
     %59 = fir.boxchar_len %45 : (!fir.boxchar<1>) -> i32
 ```
 
-##### fir.boxproc_host
+#### `fir.boxproc_host`
 
 
 Syntax:	<code><b>fir.boxproc_host</b> <em>boxproc-value</em> <b>: (</b> <em>boxproc-type</em> <b>) -&gt; </b><em>host-context</em></code>
@@ -683,7 +683,7 @@ Example:
 
 #### `fir.field_index`
 
-Syntax:	<code><b>fir.field_index ( "</b><em>field-name</em><b>" ) : !fir.field</b></code>
+Syntax:	<code><b>fir.field_index "</b><em>field-name</em><b>" : !fir.field</b></code>
 
 Compute the field offset of a particular named field in a derived
 type. Note: it is possible in Fortran to write code that can only determine
@@ -693,12 +693,12 @@ runtime.
 Example:
 
 ```mlir
-    %62 = fir.field_index("member_1") : !fir.field
+    %62 = fir.field_index "member_1" : !fir.field
 ```
 
 #### `fir.gendims`
 
-Syntax:	<code><b>fir.gendims (</b> <em>triple-list</em> <b>) : (</b> <em>type-list</em> <b>) -&gt; !fir.dims&lt;</b><em>R</em><b>&gt;</b></code>
+Syntax:	<code><b>fir.gendims</b> <em>triple-list</em> <b>: (</b> <em>type-list</em> <b>) -&gt; !fir.dims&lt;</b><em>R</em><b>&gt;</b></code>
 
 
 Generate dimension information. This is needed to embox array entities.
@@ -846,7 +846,7 @@ Example:
 
 #### `fir.convert`
 
-Syntax:	<code><b>fir.convert (</b> <em>ssa-value</em> <b>) : (</b> <em>T</em> <b>) -&gt;</b> <em>U</em></code>
+Syntax:	<code><b>fir.convert</b> <em>ssa-value</em> <b> : (</b> <em>T</em> <b>) -&gt;</b> <em>U</em></code>
 
 
 Generalized type conversion. Convert the _ssa-value_ from type _T_ to type
@@ -858,7 +858,7 @@ Example:
 
 ```mlir
     %92 = fir.call @foo() : i64
-    %93 = fir.convert(%92) : i64 -> i32
+    %93 = fir.convert %92 : i64 -> i32
 ```
 
 The above conversion truncates a 64-bit integer value to 32-bits.
@@ -882,8 +882,7 @@ Example:
 
 #### `fir.no_reassoc`
 
-Syntax:	<code><b>fir.no_reassoc (</b> <em>ssa-value</em> <b>) :</b> <em>T</em></code>
-
+Syntax:	<code><b>fir.no_reassoc</b> <em>ssa-value</em> <b>:</b> <em>T</em></code>
 
 Primitive operation meant to intrusively prevent operator reassociation.
 The operation is otherwise a nop and the value returned is the same as the
@@ -894,7 +893,7 @@ Example:
 
 ```mlir
     %98 = mulf %96,%97 : (f32,f32) -> f32
-    %99 = fir.no_reassoc(%98) : f32
+    %99 = fir.no_reassoc %98 : f32
     %100 = addf %99,%95 : (f32,f32) -> f32
 ```
 
