@@ -68,6 +68,14 @@ public:
   // the token.
   Token lexToken();
 
+  int nextNonWSChar() {
+    skipWhitespace();
+    if (atEnd()) {
+      return -1;
+    }
+    return *srcPtr++;
+  }
+
   // peek ahead to the next non-whitespace character, leaving it on the input
   // stream
   char nextChar() {
@@ -471,6 +479,7 @@ M::Type FIRTypeParser::parseNextType() {
 SequenceType::Shape FIRTypeParser::parseShape() {
   SequenceType::Bounds bounds;
   int extent;
+  int nextChar;
   Token token = lexer.lexToken();
   if (token.kind == TokenKind::star) {
     token = lexer.lexToken();
@@ -494,11 +503,11 @@ SequenceType::Shape FIRTypeParser::parseShape() {
     token.text.getAsInteger(10, extent);
     bounds.emplace_back(true, extent);
   check_xchar:
-    token = lexer.lexToken();
-    if (token.kind == TokenKind::colon) {
+    nextChar = lexer.nextNonWSChar();
+    if (nextChar == ':') {
       return SequenceType::Shape(bounds);
     }
-    if ((token.kind != TokenKind::ident) || (token.text != std::string("x"))) {
+    if (nextChar != 'x') {
       emitError(loc, "expected an 'x' or ':' after integer");
       return {};
     }
@@ -863,7 +872,7 @@ struct BoxCharTypeStorage : public M::TypeStorage {
     return new (storage) BoxCharTypeStorage{kind};
   }
 
-  KindTy getFKind() const { return kind / 8; }
+  KindTy getFKind() const { return kind; }
 
   // a !fir.boxchar<k> always wraps a !fir.char<k>
   CharacterType getElementType(M::MLIRContext *ctxt) const {

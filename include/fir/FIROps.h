@@ -97,14 +97,6 @@ mlir::ParseResult parseSelector(mlir::OpAsmParser *parser,
 #define GET_OP_CLASSES
 #include "fir/FIROps.h.inc"
 
-mlir::ParseResult parseCallOp(
-    mlir::OpAsmParser *parser, mlir::OperationState *result);
-
-void printCallOp(mlir::OpAsmPrinter *p, fir::CallOp call);
-
-mlir::ParseResult parseDispatchOp(
-    mlir::OpAsmParser *parser, mlir::OperationState *result);
-
 LoopOp getForInductionVarOwner(mlir::Value *val);
 
 }  // namespace fir

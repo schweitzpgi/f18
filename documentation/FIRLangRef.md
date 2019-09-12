@@ -338,7 +338,7 @@ A terminator for a simple switch like control flow.
 
 Example:
 
-    To do
+    fir.select %arg:i32 [ 1,^bb1(%0:i32), 2,^bb2(%2,%arg,%arg2:i32,i32,i32), -3,^bb3(%arg2,%2:i32,i32), 4,^bb4(%1:i32), unit,^bb5 ]
 
 
 #### `fir.select_case`
@@ -354,7 +354,7 @@ A terminator for the SELECT CASE construct.
 
 Example:
 
-    To do
+    fir.select_case %arg : i32 [#fir.point, %0, ^bb1(%0:i32), #fir.lower, %1, ^bb2(%2,%arg,%arg2,%1:i32,i32,i32,i32), #fir.interval, %2, %3, ^bb3(%2,%arg2:i32,i32), #fir.upper, %arg, ^bb4(%1:i32), unit, ^bb5]
 
 #### `fir.select_rank`
 
@@ -364,7 +364,7 @@ A terminator for the SELECT RANK construct.
 
 Example:
 
-    To do
+    fir.select_rank %arg:i32 [ 1,^bb1(%0:i32), 2,^bb2(%2,%arg,%arg2:i32,i32,i32), 3,^bb3(%arg2,%2:i32,i32), -1,^bb4(%1:i32), unit,^bb5 ]
 
 
 #### `fir.select_type`
@@ -379,7 +379,7 @@ A terminator for the SELECT TYPE construct.
 
 Example:
 
-    To do
+    fir.select_type %arg : !fir.box<()> [ #fir.instance<!fir.type<type1{f1:i32,f2:i64,f3:i1}>>,^bb1(%0:i32), #fir.instance<!fir.type<type2{...}>>,^bb2(%2:i32), #fir.subsumed<!fir.type<type3{...}>>,^bb3(%2:i32), #fir.instance<!fir.type<type4{...}>>,^bb4(%1:i32), unit,^bb5 ]
 
 #### `fir.unreachable`
 
@@ -580,7 +580,7 @@ Example:
     %55 = fir.box_isarray %40 : (!fir.box<!fir.array<*:f64>>, i32) -> i1
 ```
 
-#### fir.box_isptr
+#### `fir.box_isptr`
 
 
 Syntax:	<code><b>fir.box_isptr</b> <em>box-value</em> <b>: (</b> <em>box-type</em> <b>) -&gt; i1</b></code>
@@ -643,7 +643,7 @@ Return the host context of a boxproc value, if any.
 Example:
 
 ```mlir
-    %60 = fir.boxproc_host %47 : (!fir.boxproc<() -> none>) -> (!fir.ref<() -> none>, !fir.ref<(f32, i64)>)
+    %60 = fir.boxproc_host %47 : (!fir.boxproc<() -> none>) -> (() -> none, !fir.ref<(f32, i64)>)
 ```
 
 The content and type of _host-context_ is to be determined.
@@ -683,7 +683,7 @@ Example:
 
 #### `fir.field_index`
 
-Syntax:	<code><b>fir.field_index "</b><em>field-name</em><b>" : !fir.field</b></code>
+Syntax:	<code><b>fir.field_index ("</b><em>field-name</em><b>") : !fir.field</b></code>
 
 Compute the field offset of a particular named field in a derived
 type. Note: it is possible in Fortran to write code that can only determine
@@ -693,7 +693,7 @@ runtime.
 Example:
 
 ```mlir
-    %62 = fir.field_index "member_1" : !fir.field
+    %62 = fir.field_index ("member_1") : !fir.field
 ```
 
 #### `fir.gendims`
@@ -714,7 +714,7 @@ Example:
 
 #### `fir.insert_value`
 
-Syntax:	<code><b>fir.insert_value (</b> <em>entity</em> <b>,</b> <em>value</em> <b>,</b> <em>index-field-list</em> <b>) (</b> <em>entity-type</em> <b>,</b> <em>value-type</em> <b>,</b> <em>index-field-type-list</em> <b>) -&gt;</b> <em>entity-type</em></code>
+Syntax:	<code><b>fir.insert_value (</b> <em>entity</em> <b>,</b> <em>value</em> <b>,</b> <em>index-field-list</em> <b>) : (</b> <em>entity-type</em> <b>,</b> <em>value-type</em> <b>,</b> <em>index-field-type-list</em> <b>) -&gt;</b> <em>entity-type</em></code>
 
 Insert a value into an entity with a type composed arrays and/or derived
 types. Returns a new value of the same type as _entity_.
@@ -739,7 +739,7 @@ The above is a possible translation of the following Fortran code sequence.
 
 #### `fir.len_param_index`
 
-Syntax:	<code><b>fir.len_param_index</b> <em>len-param-name</em> <b>: !fir.field -> index</code>
+Syntax:	<code><b>fir.len_param_index ("</b><em>len-param-name</em><b>") : !fir.field -> index</code>
 
 Compute the LEN type parameter offset of a particular named parameter in a
 derived type.
@@ -806,7 +806,7 @@ generalized and not restricted to affine loop nests.
 Example:
 
 ```mlir
-    %78 = fir.call %75(%74) : !fir.ref<!T>
+    %78 = fir.icall %75(%74) : !fir.ref<!T>
     fir.where %56 {
       fir.store %76 to %78 : !fir.ref<!T>
     } otherwise {
@@ -818,13 +818,24 @@ Example:
 
 Syntax:	<code><b>fir.call</b> <em>callee</em> <b>(</b> <em>arg-list</em> <b>) :</b> <em>func-type</em></code>
 
-Call the specified function or function reference.
+Call the specified function.
 
 Example:
 
 ```mlir
-    %89 = fir.call %funcref(%arg0) : !FT1
     %90 = fir.call @function(%arg1, %arg2) : !FT2
+```
+
+#### `fir.icall`
+
+Syntax:	<code><b>fir.icall</b> <em>callee</em> <b>(</b> <em>arg-list</em> <b>) :</b> <em>func-type</em></code>
+
+Call the specified function reference.
+
+Example:
+
+```mlir
+    %89 = fir.icall %funcref(%arg0) : !FT1
 ```
 
 #### `fir.dispatch`
@@ -956,7 +967,7 @@ Example:
 
 #### `fir.dt_entry`
 
-Syntax:	<code><b>fir.dt_entry</b> "<em>method-id</em>" <b>,</b> <em>callee</em> <b>:</b> <em>func-type</em></code>
+Syntax:	<code><b>fir.dt_entry</b> "<em>method-id</em>" <b>,</b> <em>callee</em></code>
 
 
 A dispatch table entry is a mapping in a dispatch table that binds a
@@ -967,8 +978,8 @@ Example:
 
 ```mlir
     fir.dispatch_table @_QDTMquuzTfoo {
-      fir.dt_entry "method1", @_QFNMquuzTfooPmethod1AfooR : !FT1
-      fir.dt_entry "method2", @_QFNMquuzTfooPmethod2AfooII : !FT2
+      fir.dt_entry "method1", @_QFNMquuzTfooPmethod1AfooR
+      fir.dt_entry "method2", @_QFNMquuzTfooPmethod2AfooII
     }
 ```
 

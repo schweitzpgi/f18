@@ -95,6 +95,9 @@ def AnyCoordinateType : Type<AnyCoordinateLike.predicate, "coordinate type">;
 class fir_Op<string mnemonic, list<OpTrait> traits>
   : Op<fir_Dialect, mnemonic, traits>;
 
+def SimplePrettyParserPrinter {
+}
+
 class fir_SimpleOp<string mnemonic, list<OpTrait> traits>
   : fir_Op<mnemonic, traits> {
   let parser = [{
@@ -157,25 +160,9 @@ class fir_OneResultOp<string mnemonic, list<OpTrait> traits = []> :
   let builders = [fir_OneResultOpBuilder];
 }
 
-class fir_SimpleOneResultOp<string mnemonic, list<OpTrait> traits>
-  : fir_Op<mnemonic, traits> {
-  let parser = [{
-    mlir::FunctionType type;
-    mlir::OpAsmParser::OperandType opnd;
-    if (parser->parseOperand(opnd) ||
-        parser->parseColonType(type) ||
-        parser->resolveOperand(opnd, type.getInput(0), result->operands) ||
-        parser->addTypesToList(type.getResults(), result->types))
-      return mlir::failure();
-    return mlir::success();
-  }];
-
-  let printer = [{
-    *p << getOperationName() << ' ';
-    p->printOperand(*getODSOperands(0).begin());
-    *p << " : ";
-    p->printFunctionalType(getOperation());
-  }];
+class fir_SimpleOneResultOp<string mnemonic, list<OpTrait> traits = []> :
+    fir_SimpleOp<mnemonic, traits>, Results<(outs fir_Type:$res)> {
+  let builders = [fir_OneResultOpBuilder];
 }
 
 class fir_TwoBuilders<OpBuilder b1, OpBuilder b2> {
@@ -798,6 +785,9 @@ def fir_UnreachableOp : fir_Op<"unreachable", [Terminator]> {
     program, for example.
   }];
 
+  let parser = [{
+    return M::success();
+  }];
   let printer = [{
     *p << getOperationName();
   }];
@@ -817,7 +807,7 @@ def fir_FirEndOp : fir_Op<"end", [Terminator]> {
 // Operations on !fir.box<T> type objects
 
 def fir_EmboxOp : fir_Op<"embox", [NoSideEffect]>, Results<(outs fir_BoxType)>,
-    Arguments<(ins AnyReferenceLike:$memref, fir_DimsType:$dims)> {
+    Arguments<(ins AnyReferenceLike:$memref, Variadic<fir_DimsType>:$dims)> {
   let summary = "boxes a given reference and (optional) dimension information";
 
   let description = [{
@@ -852,7 +842,7 @@ def fir_EmboxOp : fir_Op<"embox", [NoSideEffect]>, Results<(outs fir_BoxType)>,
     p->printOperand(memref());
     if (getNumOperands() == 2) {
       *p << ", ";
-      p->printOperand(dims());
+      p->printOperands(dims());
     }
     *p << " : ";
     p->printFunctionalType(getOperation());
@@ -1012,7 +1002,7 @@ def fir_BoxCharLenOp : fir_SimpleOp<"boxchar_len", [NoSideEffect]>,
 }
 
 def fir_BoxDimsOp : fir_Op<"box_dims", [NoSideEffect]>,
-    Results<(outs AnyInteger, AnyInteger, AnyInteger)>,
+    Results<(outs AnyIntegerLike, AnyIntegerLike, AnyIntegerLike)>,
     Arguments<(ins fir_BoxType:$val, AnyIntegerLike:$dim)> {
   let summary = "return the dynamic dimension information for the boxed value";
 
@@ -1203,7 +1193,7 @@ def fir_FieldIndexOp : fir_OneResultOp<"field_index", [NoSideEffect]> {
     subobjects.
   }];
 
-  let arguments = (ins StrAttr:$field);
+  let arguments = (ins StrAttr:$field_id);
 
   let builders = [OpBuilder<
     "Builder *builder, OperationState *result, StringRef fieldName",
@@ -1215,7 +1205,9 @@ def fir_FieldIndexOp : fir_OneResultOp<"field_index", [NoSideEffect]> {
   let parser = [{
     mlir::StringAttr attr;
     mlir::Type type;
-    if (parser->parseAttribute(attr, "field_id", result->attributes) ||
+    if (parser->parseLParen() ||
+        parser->parseAttribute(attr, "field_id", result->attributes) ||
+        parser->parseRParen() ||
         parser->parseColonType(type) ||
         parser->addTypeToList(type, result->types))
       return mlir::failure();
@@ -1225,7 +1217,7 @@ def fir_FieldIndexOp : fir_OneResultOp<"field_index", [NoSideEffect]> {
   let printer = [{
     *p << getOperationName() << ' '
        << getAttrOfType<mlir::StringAttr>("field_id").getValue() << " : ";
-    p->printFunctionalType(getOperation());
+    p->printType(getType());
   }];
 }
 
@@ -1296,8 +1288,7 @@ def fir_InsertValueOp : fir_OneResultOp<"insert_value", [NoSideEffect]>,
   }];
 }
 
-def fir_LenParamIndexOp :
-    fir_SimpleOneResultOp<"len_param_index", [NoSideEffect]> {
+def fir_LenParamIndexOp : fir_OneResultOp<"len_param_index", [NoSideEffect]> {
   let summary =
     "create a field index value from a LEN type parameter identifier";
 
@@ -1310,7 +1301,7 @@ def fir_LenParamIndexOp :
     (abstract) addresses of subobjects.
   }];
 
-  let arguments = (ins StrAttr:$field);
+  let arguments = (ins StrAttr:$field_id);
 
   let builders = [OpBuilder<
     "Builder *builder, OperationState *result, StringRef fieldName",
@@ -1318,6 +1309,24 @@ def fir_LenParamIndexOp :
       result->addAttribute("name", builder->getStringAttr(fieldName));
     }]
   >];
+
+  let parser = [{
+    mlir::StringAttr attr;
+    mlir::Type type;
+    if (parser->parseLParen() ||
+        parser->parseAttribute(attr, "field_id", result->attributes) ||
+        parser->parseRParen() ||
+        parser->parseColonType(type) ||
+        parser->addTypeToList(type, result->types))
+      return mlir::failure();
+    return mlir::success();
+  }];
+
+  let printer = [{
+    *p << getOperationName() << ' '
+       << getAttrOfType<mlir::StringAttr>("field_id").getValue() << " : ";
+    p->printType(getType());
+  }];
 }
 
 // Fortran loops
@@ -1464,63 +1473,103 @@ def fir_CallOp : fir_Op<"call", []>,
     readable syntax in the FIR dialect, e.g. `fir.call @sub(%12)`.
   }];
 
-  let parser = [{ return fir::parseCallOp(parser, result); }];
+  let parser = [{
+    M::FunctionType calleeType;
+    M::StringAttr proc;
+    L::SmallVector<M::OpAsmParser::OperandType, 4> operands;
+    if (parser->parseAttribute(proc, "proc", result->attributes) ||
+        parser->parseOperandList(operands, M::OpAsmParser::Delimiter::Paren) ||
+        parser->parseOptionalAttributeDict(result->attributes) ||
+        parser->parseColonType(calleeType) ||
+        parser->resolveOperands(operands, calleeType.getInputs(),
+            parser->getNameLoc(), result->operands) ||
+        parser->addTypesToList(calleeType.getResults(), result->types))
+      return M::failure();
+    return M::success();
+  }];
   let printer = [{
-    M::Type callType;
-    *p << getOperationName() << ' ';
-    if (isIndirect()) {
-      p->printOperand(getIndirectCallee());
-      *p << '(';
-      p->printOperands(getIndirectArgOperands());
-      *p << ')';
-      p->printOptionalAttrDict(getAttrs(), {"proc"});
-      callType = getIndirectCallee()->getType();
-    } else {
-      *p << getAttr("proc") << '(';
-      p->printOperands(getDirectArgOperands());
-      *p << ')';
-      p->printOptionalAttrDict(getAttrs(), {"proc"});
-      llvm::SmallVector<M::Type, 2> resultTypes(getResultTypes());
-      llvm::SmallVector<M::Type, 8> argTypes(getOperandTypes());
-      callType = mlir::FunctionType::get(argTypes, resultTypes, getContext());
-    }
+    *p << getOperationName() << ' ' << getAttr("proc") << '(';
+    p->printOperands(args());
+    *p << ')';
+    p->printOptionalAttrDict(getAttrs(), {"proc"});
     *p << " : ";
-    p->printType(callType);
+    p->printFunctionalType(getOperation());
+  }];
+}
+
+def fir_ICallOp : fir_Op<"icall", []>,
+    Results<(outs Variadic<AnyType>)>,
+    Arguments<(ins FunctionType:$proc, Variadic<AnyType>:$args)> {
+  let summary = "call a procedure indirectly";
+
+  let description = [{
+    Provides a custom parser and pretty printer to allow for a slightly more
+    readable syntax in the FIR dialect, e.g. `fir.icall %fun(%12)`.
   }];
 
-  let extraClassDeclaration = [{
-    bool isIndirect() {
-      return getAttr("proc").cast<mlir::SymbolRefAttr>().getValue() == "";
-    }
-    mlir::Value *getIndirectCallee() { return getOperand(0); }
-    operand_range getIndirectArgOperands() {
-      return {arg_ind_operand_begin(), arg_ind_operand_end()};
-    }
-    operand_iterator arg_ind_operand_begin() { return ++operand_begin(); }
-    operand_iterator arg_ind_operand_end() { return operand_end(); }
-    operand_range getDirectArgOperands() {
-      return {arg_dir_operand_begin(), arg_dir_operand_end()};
-    }
-    operand_iterator arg_dir_operand_begin() { return operand_begin(); }
-    operand_iterator arg_dir_operand_end() { return operand_end(); }
+  let parser = [{ 
+    M::FunctionType calleeType;
+    L::SmallVector<M::OpAsmParser::OperandType, 4> operands;
+    M::OpAsmParser::OperandType callee;
+    auto calleeLoc = parser->getNameLoc();
+    if (parser->parseOperand(callee))
+      return M::failure();
+    operands.push_back(callee);
+    if (parser->parseOperandList(operands, M::OpAsmParser::Delimiter::Paren) ||
+        parser->parseOptionalAttributeDict(result->attributes) ||
+        parser->parseColonType(calleeType) ||
+        parser->addTypesToList(calleeType.getResults(), result->types) ||
+        parser->resolveOperands(
+            operands, calleeType.getInputs(), calleeLoc, result->operands))
+      return M::failure();
+    return M::success();
+  }];
+  let printer = [{
+    *p << getOperationName() << ' ';
+    p->printOperand(proc());
+    *p << '(';
+    p->printOperands(args());
+    *p << ')';
+    p->printOptionalAttrDict(getAttrs(), {"proc"});
+    *p << " : ";
+    p->printFunctionalType(getOperation());
   }];
 }
 
 def fir_DispatchOp : fir_Op<"dispatch", []>,
     Results<(outs Variadic<AnyType>)>,
-    Arguments<(ins StrAttr:$method, Variadic<AnyType>:$args)> {
+    Arguments<(ins StrAttr:$method, fir_BoxType:$object,
+               Variadic<AnyType>:$args)> {
   let summary = "call a type-bound procedure";
 
   let description = [{
     Dynamic dispatch to the specified method.
   }];
 
-  let parser = [{ return fir::parseDispatchOp(parser, result); }];
+  let parser = [{
+    M::FunctionType calleeType;
+    L::SmallVector<M::OpAsmParser::OperandType, 4> operands;
+    auto calleeLoc = parser->getNameLoc();
+    M::StringAttr calleeAttr;
+    if (parser->parseAttribute(calleeAttr, "method", result->attributes) ||
+        parser->parseOperandList(operands, M::OpAsmParser::Delimiter::Paren) ||
+        parser->parseOptionalAttributeDict(result->attributes) ||
+        parser->parseColonType(calleeType) ||
+        parser->addTypesToList(calleeType.getResults(), result->types) ||
+        parser->resolveOperands(
+            operands, calleeType.getInputs(), calleeLoc, result->operands))
+      return M::failure();
+    return M::success();
+  }];
   let printer = [{ 
-    *p << getAttr("proc") << '(';
-    p->printOperands(getArgOperands());
+    *p << getAttr("method") << '(';
+    p->printOperand(object());
+    if (arg_operand_begin() != arg_operand_end()) {
+      *p << ", ";
+      p->printOperands(args());
+    }
     *p << ')';
-    p->printOptionalAttrDict(getAttrs(), {"proc"});
+    p->printOptionalAttrDict(getAttrs(), {"method"});
     llvm::SmallVector<mlir::Type, 2> resultTypes(getResultTypes());
     llvm::SmallVector<mlir::Type, 8> argTypes(getOperandTypes());
     *p << " : ";
@@ -1531,7 +1580,7 @@ def fir_DispatchOp : fir_Op<"dispatch", []>,
     operand_range getArgOperands() {
       return {arg_operand_begin(), arg_operand_end()};
     }
-    operand_iterator arg_operand_begin() { return operand_begin(); }
+    operand_iterator arg_operand_begin() { return operand_begin() + 1; }
     operand_iterator arg_operand_end() { return operand_end(); }
   }];
 }
@@ -1668,8 +1717,8 @@ def fir_DTEntryOp : fir_Op<"dt_entry", []>,
 
   let parser = [{
     M::SymbolRefAttr calleeAttr;
-    M::StringAttr methodNameAttr;
-    if (parser->parseBareName(methodNameAttr, "method", result->attributes) ||
+    M::StringAttr methodAttr;
+    if (parser->parseAttribute(methodAttr, "method", result->attributes) ||
         parser->parseComma() ||
         parser->parseAttribute(calleeAttr, "proc", result->attributes))
       return M::failure();

@@ -34,8 +34,7 @@ M::Type AllocaOp::getAllocatedType() {
 
 void DispatchTableOp::build(M::Builder *builder, M::OperationState *result,
     L::StringRef name, M::Type type, L::ArrayRef<M::NamedAttribute> attrs) {
-  result->addAttribute(
-      M::SymbolTable::getSymbolAttrName(), builder->getStringAttr(name));
+  result->addAttribute("method", builder->getStringAttr(name));
   for (const auto &pair : attrs) {
     result->addAttribute(pair.first, pair.second);
   }
@@ -45,8 +44,7 @@ M::ParseResult DispatchTableOp::parse(
     M::OpAsmParser *parser, M::OperationState *result) {
   // Parse the name as a symbol reference attribute.
   SymbolRefAttr nameAttr;
-  if (parser->parseAttribute(
-          nameAttr, M::SymbolTable::getSymbolAttrName(), result->attributes))
+  if (parser->parseAttribute(nameAttr, "method", result->attributes))
     return failure();
 
   // Convert the parsed name attr into a string attr.
@@ -64,8 +62,7 @@ M::ParseResult DispatchTableOp::parse(
 }
 
 void DispatchTableOp::print(M::OpAsmPrinter *p) {
-  auto tableName =
-      getAttrOfType<StringAttr>(M::SymbolTable::getSymbolAttrName()).getValue();
+  auto tableName = getAttrOfType<StringAttr>("method").getValue();
   *p << getOperationName() << " @" << tableName;
 
   Region &body = getOperation()->getRegion(0);
@@ -83,54 +80,6 @@ M::Region &DispatchTableOp::front() {
 void DispatchTableOp::appendTableEntry(M::Operation *op) {
   assert(M::isa<fir::DTEntryOp>(*op) && "operation must be a DTEntryOp");
   front().front().push_back(op);
-}
-
-M::ParseResult parseCallOp(M::OpAsmParser *parser, M::OperationState *result) {
-  M::FunctionType calleeType;
-  L::SmallVector<M::OpAsmParser::OperandType, 4> operands;
-  M::OpAsmParser::OperandType callee;
-  auto calleeLoc = parser->getNameLoc();
-  if (parser->parseOperand(callee)) {
-    M::SymbolRefAttr calleeAttr;
-    if (parser->parseAttribute(calleeAttr, "proc", result->attributes) ||
-        parser->parseOperandList(operands, M::OpAsmParser::Delimiter::Paren) ||
-        parser->parseOptionalAttributeDict(result->attributes) ||
-        parser->parseColonType(calleeType) ||
-        parser->addTypesToList(calleeType.getResults(), result->types) ||
-        parser->resolveOperands(
-            operands, calleeType.getInputs(), calleeLoc, result->operands))
-      return M::failure();
-  } else {
-    result->attributes.push_back(parser->getBuilder().getNamedAttr(
-        "proc", parser->getBuilder().getSymbolRefAttr("")));
-    if (parser->getCurrentLocation(&calleeLoc) ||
-        parser->parseOperandList(operands, M::OpAsmParser::Delimiter::Paren) ||
-        parser->parseOptionalAttributeDict(result->attributes) ||
-        parser->parseColonType(calleeType) ||
-        parser->resolveOperand(callee, calleeType, result->operands) ||
-        parser->resolveOperands(
-            operands, calleeType.getInputs(), calleeLoc, result->operands) ||
-        parser->addTypesToList(calleeType.getResults(), result->types))
-      return M::failure();
-  }
-  return M::success();
-}
-
-mlir::ParseResult parseDispatchOp(
-    mlir::OpAsmParser *parser, mlir::OperationState *result) {
-  M::FunctionType calleeType;
-  L::SmallVector<M::OpAsmParser::OperandType, 4> operands;
-  auto calleeLoc = parser->getNameLoc();
-  M::StringAttr calleeAttr;
-  if (parser->parseAttribute(calleeAttr, "proc", result->attributes) ||
-      parser->parseOperandList(operands, M::OpAsmParser::Delimiter::Paren) ||
-      parser->parseOptionalAttributeDict(result->attributes) ||
-      parser->parseColonType(calleeType) ||
-      parser->addTypesToList(calleeType.getResults(), result->types) ||
-      parser->resolveOperands(
-          operands, calleeType.getInputs(), calleeLoc, result->operands))
-    return M::failure();
-  return M::success();
 }
 
 // GlobalOp
