@@ -31,6 +31,7 @@
 /// as a "fir.apply_expr" operation. Case (2) is represented as a
 /// "fir.locate_expr" operation.
 
+
 namespace mlir {
 class MLIRContext;
 class Value;
@@ -44,8 +45,7 @@ struct SomeType;
 
 namespace Fortran::burnside {
 
-// In the Fortran::burnside namespace, the code will default follow the
-// LLVM/MLIR coding standards
+/// [Coding style](https://llvm.org/docs/CodingStandards.html)
 
 class ApplyExpr;
 class LocateExpr;

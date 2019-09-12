@@ -1288,8 +1288,7 @@ def fir_InsertValueOp : fir_OneResultOp<"insert_value", [NoSideEffect]>,
   }];
 }
 
-def fir_LenParamIndexOp :
-    fir_SimpleOneResultOp<"len_param_index", [NoSideEffect]> {
+def fir_LenParamIndexOp : fir_OneResultOp<"len_param_index", [NoSideEffect]> {
   let summary =
     "create a field index value from a LEN type parameter identifier";
 

@@ -26,39 +26,39 @@ LabelBuilder::LabelBuilder() : referenced(32), counter{0u} {}
 
 LabelRef LabelBuilder::getNext() {
   LabelRef next{counter++};
-  auto cap{referenced.capacity()};
+  auto cap{referenced.size()};
   if (cap < counter) {
-    referenced.reserve(2 * cap);
+    referenced.resize(2 * cap);
   }
-  referenced.resize(counter, false);
+  referenced.reset(next);
   return next;
 }
 
-void LabelBuilder::setReferenced(LabelRef label) { 
-  CHECK(label < referenced.size());
-  referenced[label] = true; 
+void LabelBuilder::setReferenced(LabelRef label) {
+  CHECK(label < referenced.getBitCapacity());
+  referenced.set(label);
 }
 
 bool LabelBuilder::isReferenced(LabelRef label) const {
-  CHECK(label < referenced.size());
-  return referenced[label];
+  CHECK(label < referenced.getBitCapacity());
+  return referenced.test(label);
 }
 
 LabelOp::LabelOp(LabelBuilder &builder)
-  : builder_{builder}, label_{builder.getNext()} {}
+  : builder{builder}, label{builder.getNext()} {}
 
 LabelOp::LabelOp(const LabelOp &that)
-  : builder_{that.builder_}, label_{that.label_} {}
+  : builder{that.builder}, label{that.label} {}
 
 LabelOp &LabelOp::operator=(const LabelOp &that) {
-  CHECK(&builder_ == &that.builder_);
-  label_ = that.label_;
+  CHECK(&builder == &that.builder);
+  label = that.label;
   return *this;
 }
 
-void LabelOp::setReferenced() const { builder_.setReferenced(label_); }
+void LabelOp::setReferenced() const { builder.setReferenced(label); }
 
-bool LabelOp::isReferenced() const { return builder_.isReferenced(label_); }
+bool LabelOp::isReferenced() const { return builder.isReferenced(label); }
 
 static void AddAssign(AnalysisData &ad, const semantics::Symbol *symbol,
     const parser::Label &label) {
