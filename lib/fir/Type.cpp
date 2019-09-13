@@ -98,6 +98,61 @@ public:
 
   const char *getMarker() { return srcPtr; }
 
+  L::StringRef getNextType() {
+    char const *const marker = srcPtr;
+    L::SmallVector<char, 8> nestedPunc;
+    for (bool scanning = true; scanning && !atEnd(); ++srcPtr) {
+      char c = *srcPtr;
+      switch (c) {
+      case '<':
+      case '[':
+      case '(':
+      case '{': {
+        nestedPunc.push_back(c);
+      } break;
+      case '>':
+        if (nestedPunc.empty() || nestedPunc.pop_back_val() != '<') {
+          goto done;
+        }
+        continue;
+      case ']':
+        if (nestedPunc.empty() || nestedPunc.pop_back_val() != '[') {
+          goto done;
+        }
+        continue;
+      case ')':
+        if (nestedPunc.empty() || nestedPunc.pop_back_val() != '(') {
+          goto done;
+        }
+        continue;
+      case '}':
+        if (nestedPunc.empty() || nestedPunc.pop_back_val() != '{') {
+          goto done;
+        }
+        continue;
+      case ',':
+        if (nestedPunc.empty()) {
+          goto done;
+        }
+        continue;
+      case '-':
+        if ((srcPtr + 1 != srcBuff.end()) && *(srcPtr + 1) == '>') {
+          ++srcPtr;
+        }
+        continue;
+      done:
+        --srcPtr;
+        [[fallthrough]];
+      case '\0': {
+        scanning = false;
+      } break;
+      default: break;
+      }
+    }
+    std::size_t count = srcPtr - marker;
+    return {marker, count};
+  }
+
 private:
   void skipWhitespace() {
     while (!atEnd()) {
@@ -288,8 +343,6 @@ protected:
     return A::get(ofTy);
   }
 
-  const char *advanceFuncType();
-  std::pair<bool, M::Type> advanceNonFuncType(const Token &lastTkn);
   M::Type parseNextType();
 
   bool checkAtEnd() {
@@ -370,108 +423,10 @@ private:
   int recursiveCall{-1};
 };
 
-const char *FIRTypeParser::advanceFuncType() {
-  Token token;
-  int lparen = 0;
-  while (true) {
-    token = lexer.lexToken();
-    if (token.kind == TokenKind::leftparen) {
-      lparen++;
-    } else if (token.kind == TokenKind::rightparen) {
-      if (lparen == 0) break;
-      lparen--;
-    }
-  }
-  token = lexer.lexToken();
-  if (token.kind != TokenKind::arrow) {
-    return lexer.getMarker();
-  }
-  advanceNonFuncType(lexer.lexToken());
-  return lexer.getMarker();
-}
-
-std::pair<bool, M::Type> FIRTypeParser::advanceNonFuncType(
-    const Token &lastTkn) {
-  if (lastTkn.kind == TokenKind::ecphoneme) {  // `!`
-    auto token = lexer.lexToken();
-    if (token.kind == TokenKind::ident) {  // `!` ident
-      if (token.text == "fir") {
-        token = lexer.lexToken();
-        if (token.kind == TokenKind::period) {  // `!fir.`
-          return {true, parseType()};
-        }
-      }
-      char nextCh = lexer.nextChar();
-      if (nextCh == '.') {  // `!` ident `.`
-        lexer.lexToken();  // `.`
-        lexer.lexToken();  // ident
-        nextCh = lexer.nextChar();
-      }
-      if (nextCh == '<') {  // `!` ... `<` ... `>`
-        token = lexer.lexToken();
-        int lang = 0;
-        while (true) {
-          token = lexer.lexToken();
-          if (token.kind == TokenKind::leftang) {
-            lang++;
-          } else if (token.kind == TokenKind::rightang) {
-            if (lang == 0) break;
-            lang--;
-          }
-        }
-      }
-    }
-  } else if (lastTkn.kind == TokenKind::ident) {  // ident
-    char nextCh = lexer.nextChar();
-    if (nextCh == '<') {  // ident `<` ... `>`
-      auto token = lexer.lexToken();
-      int lang = 0;
-      while (true) {
-        token = lexer.lexToken();
-        if (token.kind == TokenKind::leftang) {
-          lang++;
-        } else if (token.kind == TokenKind::rightang) {
-          if (lang == 0) break;
-          lang--;
-        }
-      }
-    }
-  } else if (lastTkn.kind == TokenKind::leftparen) {  // `(` ... `)`
-    int lparen = 0;
-    while (true) {
-      auto token = lexer.lexToken();
-      if (token.kind == TokenKind::leftparen) {
-        lparen++;
-      } else if (token.kind == TokenKind::rightparen) {
-        if (lparen == 0) break;
-        lparen--;
-      }
-    }
-  } else {
-    // This doesn't really look like a valid type. Let the standard type parser
-    // deal with it.
-  }
-  return {false, {}};
-}
-
 // If this is a `!fir.x` type then recursively parse it now, otherwise figure
 // out its extent and call into the standard type parser.
-// FIXME: advance by tracking matching pairs as in Parser.cpp
 M::Type FIRTypeParser::parseNextType() {
-  const char *marker = lexer.getMarker();
-  Token token = lexer.lexToken();
-  if (token.kind == TokenKind::leftparen) {
-    auto count = advanceFuncType() - marker;
-    assert(count > 0);
-    return M::parseType(L::StringRef(marker, count), getContext());
-  }
-  auto pair = advanceNonFuncType(token);
-  if (pair.first) {
-    return pair.second;
-  }
-  auto count = lexer.getMarker() - marker;
-  assert(count > 0);
-  return M::parseType(L::StringRef(marker, count), getContext());
+  return M::parseType(lexer.getNextType(), getContext());
 }
 
 // Parses either `*` `:`
@@ -1015,8 +970,7 @@ protected:
 
 private:
   SequenceTypeStorage() = delete;
-  explicit SequenceTypeStorage(
-      const SequenceType::Shape &shape, M::Type eleTy)
+  explicit SequenceTypeStorage(const SequenceType::Shape &shape, M::Type eleTy)
     : shape{shape}, eleTy{eleTy} {}
 };
 

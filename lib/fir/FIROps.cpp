@@ -105,6 +105,13 @@ M::ParseResult GlobalOp::parse(
   auto &builder = parser->getBuilder();
   result->attributes.back().second = builder.getStringAttr(nameAttr.getValue());
 
+  if (parser->parseOptionalKeyword("constant")) {
+    result->addAttribute("constant", builder.getBoolAttr(false));
+  } else {
+    // if "constant" keyword then mark this as a constant, not a variable
+    result->addAttribute("constant", builder.getBoolAttr(true));
+  }
+
   M::Type globalType;
   if (parser->parseColonType(globalType)) {
     return M::failure();
@@ -124,7 +131,10 @@ M::ParseResult GlobalOp::parse(
 void GlobalOp::print(M::OpAsmPrinter *p) {
   auto varName =
       getAttrOfType<StringAttr>(M::SymbolTable::getSymbolAttrName()).getValue();
-  *p << getOperationName() << " @" << varName << " : ";
+  *p << getOperationName() << " @" << varName;
+  if (getAttr("constant").cast<M::BoolAttr>().getValue())
+    *p << " constant";
+  *p << " : ";
   p->printType(getType());
   Region &body = getOperation()->getRegion(0);
   if (!body.empty())

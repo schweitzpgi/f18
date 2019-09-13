@@ -89,7 +89,7 @@ attributes into the constraints of FIR's static type system.
 </code></pre>
 
 This is the type of a Fortran procedure (function or subroutine) and is the
-same as the standard dialect. The void type is simply `none`.
+same as the standard dialect. The void type is simply `()`.
 
 ### Sequence Type
 
@@ -450,18 +450,23 @@ Example:
 #### `fir.unbox`
 
 
-Syntax:	<code><b>fir.unbox</b> <em>box-value</em> <b>: (</b> <em>arg-type</em> <b>) -&gt;</b> <em>tuple-of-box</em></code>
+Syntax:	<code><b>fir.unbox</b> <em>box-value</em> <b>: (</b> <em>arg-type</em> <b>) -&gt; (</b>!fir.ref&lt;<em>Tx</em><b>&gt;, i</b><em>v</em><b>, i</b><em>w</em><b>, !fir.tdesc&lt;</b><em>Tx</em><b>&gt;, i</b><em>y</em><b>, !fir.dims&lt;</b><em>z</em><b>&gt;)</b></code>
 
-Unbox a boxed value into a tuple of its component data.
+Unbox a boxed value into a result of multiple values from the box's
+component data.  The values are, minimally, a reference to the data of the
+entity, the byte-size of one element, the rank, the type descriptor, a set
+of flags (packed in an integer, and an array of dimension information (of
+size rank).
 
 Example:
 
 ```mlir
     %40 = fir.call @foo() : !fir.box<!fir.type<"T"{field:i32}>>
-    %41 = fir.unbox %40 : (!fir.box<!fir.type<"T"{field:i32}>>) -> (!fir.ref<!fir.type<"T"{field:i32}>>, i32, i32, i32, !fir.tdesc<!fir.type<"T"{field:i32}>>, !fir.dims<4>)
+    %41 = fir.unbox %40 : (!fir.box<!fir.type<"T"{field:i32}>>) -> (!fir.ref<!fir.type<"T"{field:i32}>>, i32, i32, !fir.tdesc<!fir.type<"T"{field:i32}>>, i32, !fir.dims<4>)
 ```
 
-Note: the exact content of the returned tuple type is to be determined.
+Note: the exact type and content of the returned multiple value is still to
+be determined and may change.
 
 #### `fir.unboxchar`
 
