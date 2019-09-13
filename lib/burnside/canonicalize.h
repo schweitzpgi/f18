@@ -15,8 +15,7 @@
 #ifndef FORTRAN_BURNSIDE_CANONICALIZE_H_
 #define FORTRAN_BURNSIDE_CANONICALIZE_H_
 
-// In the Fortran::burnside namespace, the code will default follow the
-// LLVM/MLIR coding standards
+/// [Coding style](https://llvm.org/docs/CodingStandards.html)
 
 namespace mlir {
 class Location;

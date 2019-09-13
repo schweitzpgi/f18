@@ -33,15 +33,16 @@ M::Type AllocaOp::getAllocatedType() {
 // DispatchTableOp
 
 void DispatchTableOp::build(M::Builder *builder, M::OperationState *result,
-    L::StringRef name, M::Type type, L::ArrayRef<M::NamedAttribute> attrs) {
+                            L::StringRef name, M::Type type,
+                            L::ArrayRef<M::NamedAttribute> attrs) {
   result->addAttribute("method", builder->getStringAttr(name));
   for (const auto &pair : attrs) {
     result->addAttribute(pair.first, pair.second);
   }
 }
 
-M::ParseResult DispatchTableOp::parse(
-    M::OpAsmParser *parser, M::OperationState *result) {
+M::ParseResult DispatchTableOp::parse(M::OpAsmParser *parser,
+                                      M::OperationState *result) {
   // Parse the name as a symbol reference attribute.
   SymbolRefAttr nameAttr;
   if (parser->parseAttribute(nameAttr, "method", result->attributes))
@@ -54,7 +55,8 @@ M::ParseResult DispatchTableOp::parse(
   // Parse the optional table body.
   M::Region *body = result->addRegion();
   if (parser->parseOptionalRegion(*body,
-          L::ArrayRef<M::OpAsmParser::OperandType>{}, L::ArrayRef<M::Type>{}))
+                                  L::ArrayRef<M::OpAsmParser::OperandType>{},
+                                  L::ArrayRef<M::Type>{}))
     return M::failure();
 
   ensureTerminator(*body, parser->getBuilder(), result->location);
@@ -68,7 +70,7 @@ void DispatchTableOp::print(M::OpAsmPrinter *p) {
   Region &body = getOperation()->getRegion(0);
   if (!body.empty())
     p->printRegion(body, /*printEntryBlockArgs=*/false,
-        /*printBlockTerminators=*/false);
+                   /*printBlockTerminators=*/false);
 }
 
 M::LogicalResult DispatchTableOp::verify() { return M::success(); }
@@ -85,21 +87,22 @@ void DispatchTableOp::appendTableEntry(M::Operation *op) {
 // GlobalOp
 
 void GlobalOp::build(M::Builder *builder, M::OperationState *result,
-    L::StringRef name, M::Type type, L::ArrayRef<M::NamedAttribute> attrs) {
+                     L::StringRef name, M::Type type,
+                     L::ArrayRef<M::NamedAttribute> attrs) {
   result->addAttribute(getTypeAttrName(), builder->getTypeAttr(type));
-  result->addAttribute(
-      M::SymbolTable::getSymbolAttrName(), builder->getStringAttr(name));
+  result->addAttribute(M::SymbolTable::getSymbolAttrName(),
+                       builder->getStringAttr(name));
   for (const auto &pair : attrs) {
     result->addAttribute(pair.first, pair.second);
   }
 }
 
-M::ParseResult GlobalOp::parse(
-    M::OpAsmParser *parser, M::OperationState *result) {
+M::ParseResult GlobalOp::parse(M::OpAsmParser *parser,
+                               M::OperationState *result) {
   // Parse the name as a symbol reference attribute.
   SymbolRefAttr nameAttr;
-  if (parser->parseAttribute(
-          nameAttr, M::SymbolTable::getSymbolAttrName(), result->attributes))
+  if (parser->parseAttribute(nameAttr, M::SymbolTable::getSymbolAttrName(),
+                             result->attributes))
     return failure();
 
   auto &builder = parser->getBuilder();
@@ -121,7 +124,8 @@ M::ParseResult GlobalOp::parse(
   // Parse the optional initializer body.
   M::Region *body = result->addRegion();
   if (parser->parseOptionalRegion(*body,
-          L::ArrayRef<M::OpAsmParser::OperandType>{}, L::ArrayRef<M::Type>{}))
+                                  L::ArrayRef<M::OpAsmParser::OperandType>{},
+                                  L::ArrayRef<M::Type>{}))
     return M::failure();
 
   ensureTerminator(*body, builder, result->location);
@@ -139,7 +143,7 @@ void GlobalOp::print(M::OpAsmPrinter *p) {
   Region &body = getOperation()->getRegion(0);
   if (!body.empty())
     p->printRegion(body, /*printEntryBlockArgs=*/false,
-        /*printBlockTerminators=*/false);
+                   /*printBlockTerminators=*/false);
 }
 
 M::LogicalResult GlobalOp::verify() { return M::success(); }
@@ -177,7 +181,7 @@ M::ParseResult LoadOp::getElementOf(M::Type &ele, M::Type ref) {
 // LoopOp
 
 void LoopOp::build(M::Builder *builder, M::OperationState *result, M::Value *lb,
-    M::Value *ub, L::ArrayRef<M::Value *> step) {
+                   M::Value *ub, L::ArrayRef<M::Value *> step) {
   if (step.empty())
     result->addOperands({lb, ub});
   else
@@ -203,9 +207,9 @@ M::ParseResult parseLoopOp(M::OpAsmParser *parser, M::OperationState *result) {
     return M::failure();
   if (parser->parseOptionalKeyword(LoopOp::getStepKeyword())) {
     result->addAttribute(LoopOp::getStepKeyword(),
-        builder.getIntegerAttr(builder.getIndexType(), 1));
+                         builder.getIntegerAttr(builder.getIndexType(), 1));
   } else if (parser->parseOperand(step) ||
-      parser->resolveOperand(step, indexType, result->operands)) {
+             parser->resolveOperand(step, indexType, result->operands)) {
     return M::failure();
   }
 
@@ -242,16 +246,19 @@ fir::LoopOp getForInductionVarOwner(M::Value *val) {
 // StoreOp
 
 M::Type StoreOp::elementType(M::Type refType) {
-  if (auto ref = refType.dyn_cast<ReferenceType>()) return ref.getEleTy();
-  if (auto ref = refType.dyn_cast<PointerType>()) return ref.getEleTy();
-  if (auto ref = refType.dyn_cast<HeapType>()) return ref.getEleTy();
+  if (auto ref = refType.dyn_cast<ReferenceType>())
+    return ref.getEleTy();
+  if (auto ref = refType.dyn_cast<PointerType>())
+    return ref.getEleTy();
+  if (auto ref = refType.dyn_cast<HeapType>())
+    return ref.getEleTy();
   return {};
 }
 
 // WhereOp
 
 void WhereOp::build(M::Builder *builder, M::OperationState *result,
-    M::Value *cond, bool withElseRegion) {
+                    M::Value *cond, bool withElseRegion) {
   result->addOperands(cond);
   M::Region *thenRegion = result->addRegion();
   M::Region *elseRegion = result->addRegion();
@@ -276,15 +283,15 @@ M::ParseResult parseWhereOp(M::OpAsmParser *parser, M::OperationState *result) {
   if (parser->parseRegion(*thenRegion, {}, {})) {
     return M::failure();
   }
-  WhereOp::ensureTerminator(
-      *thenRegion, parser->getBuilder(), result->location);
+  WhereOp::ensureTerminator(*thenRegion, parser->getBuilder(),
+                            result->location);
 
   if (!parser->parseOptionalKeyword("otherwise")) {
     if (parser->parseRegion(*elseRegion, {}, {})) {
       return M::failure();
     }
-    WhereOp::ensureTerminator(
-        *elseRegion, parser->getBuilder(), result->location);
+    WhereOp::ensureTerminator(*elseRegion, parser->getBuilder(),
+                              result->location);
   }
 
   // Parse the optional attribute list.
@@ -320,8 +327,9 @@ unsigned getCaseArgumentOffset(L::ArrayRef<M::Attribute> cases, unsigned dest) {
 }
 
 mlir::ParseResult parseSelector(mlir::OpAsmParser *parser,
-    mlir::OperationState *result, mlir::OpAsmParser::OperandType &selector,
-    mlir::Type &type) {
+                                mlir::OperationState *result,
+                                mlir::OpAsmParser::OperandType &selector,
+                                mlir::Type &type) {
   if (parser->parseOperand(selector) || parser->parseColonType(type) ||
       parser->resolveOperand(selector, type, result->operands) ||
       parser->parseLSquare())
@@ -334,4 +342,4 @@ mlir::ParseResult parseSelector(mlir::OpAsmParser *parser,
 #define GET_OP_CLASSES
 #include "fir/FIROps.cpp.inc"
 
-}  // fir
+} // namespace fir

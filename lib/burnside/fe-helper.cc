@@ -300,9 +300,17 @@ M::Location Br::dummyLoc(M::MLIRContext *ctxt) {
 
 // What do we need to convert a CharBlock to actual source locations?
 // FIXME: replace with a map from a provenance to a source location
-M::Location Br::parserPosToLoc(
-    M::MLIRContext &context, const Pa::CharBlock &position) {
-  return dummyLoc(&context);
+M::Location Br::parserPosToLoc(M::MLIRContext &context,
+    const Pa::CookedSource *cooked, const Pa::CharBlock &position) {
+  if (cooked) {
+    auto loc{cooked->GetSourcePositionRange(position)};
+    if (loc.has_value()) {
+      auto &filePos{loc->first};
+      return M::FileLineColLoc::get(
+          filePos.file.path(), filePos.line, filePos.column, &context);
+    }
+  }
+  return M::UnknownLoc::get(&context);
 }
 
 M::Type Br::genTypeFromCategoryAndKind(

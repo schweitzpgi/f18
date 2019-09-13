@@ -1218,8 +1218,7 @@ def fir_FieldIndexOp : fir_OneResultOp<"field_index", [NoSideEffect]> {
   }];
 
   let printer = [{
-    *p << getOperationName() << ' '
-       << getAttrOfType<mlir::StringAttr>("field_id").getValue() << " : "
+    *p << getOperationName() << " (" << getAttr("field_id") << ") : "
        << getType();
   }];
 }
@@ -1326,8 +1325,7 @@ def fir_LenParamIndexOp : fir_OneResultOp<"len_param_index", [NoSideEffect]> {
   }];
 
   let printer = [{
-    *p << getOperationName() << ' '
-       << getAttrOfType<mlir::StringAttr>("field_id").getValue() << " : "
+    *p << getOperationName() << " (" << getAttr("field_id") << ") : "
        << getType();
   }];
 }
@@ -1601,6 +1599,32 @@ def fir_DispatchOp : fir_Op<"dispatch", []>,
 
 // Other misc. operations
 
+def fir_AddrOfOp : fir_OneResultOp<"address_of", [NoSideEffect]> {
+  let summary = "convert a symbol to an SSA value";
+
+  let description = [{
+  }];
+
+  let arguments = (ins SymbolRefAttr:$symbol);
+
+  let parser = [{
+    mlir::SymbolRefAttr attr;
+    mlir::Type type;
+    if (parser->parseLParen() ||
+        parser->parseAttribute(attr, "symbol", result->attributes) ||
+        parser->parseRParen() ||
+        parser->parseColonType(type) ||
+        parser->addTypeToList(type, result->types))
+      return mlir::failure();
+    return mlir::success();
+  }];
+
+  let printer = [{
+    *p << getOperationName() << " (" << getAttr("symbol") << ") : "
+       << getType();
+  }];
+}
+
 def fir_ConvertOp : fir_OneResultOp<"convert", [NoSideEffect]>,
     Arguments<(ins AnyType:$value)> {
   let summary = "encapsulates all Fortran scalar type conversions";
@@ -1736,9 +1760,8 @@ def fir_DTEntryOp : fir_Op<"dt_entry", []>,
     return M::success();
   }];
   let printer = [{ 
-    *p << getOperationName() << ' '
-       << getAttr("method").cast<mlir::StringAttr>().getValue()
-       << ", " << getAttr("proc");
+    *p << getOperationName() << ' ' << getAttr("method") << ", "
+       << getAttr("proc");
   }];
 }
 

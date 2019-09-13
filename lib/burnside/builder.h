@@ -28,13 +28,11 @@ class StringRef;
 
 namespace Fortran::burnside {
 
-// In the Fortran::burnside namespace, the code will default follow the
-// LLVM/MLIR coding standards
-
-// Miscellaneous helper routines for building MLIR
+/// Miscellaneous helper routines for building MLIR
+/// [Coding style](https://llvm.org/docs/CodingStandards.html)
 
 class SymMap {
-  llvm::DenseMap<const semantics::Symbol *, mlir::Value *> sMap;
+  llvm::DenseMap<const semantics::Symbol *, mlir::Value *> symbolMap;
 
 public:
   void addSymbol(const semantics::Symbol *symbol, mlir::Value *value);
@@ -44,27 +42,33 @@ public:
 
 std::string applyNameMangling(llvm::StringRef parserName);
 
+/// Get the current Module
 inline mlir::ModuleOp getModule(mlir::OpBuilder *bldr) {
   return bldr->getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
 }
 
+/// Get the current Function
 inline mlir::FuncOp getFunction(mlir::OpBuilder *bldr) {
   return bldr->getBlock()->getParent()->getParentOfType<mlir::FuncOp>();
 }
 
+/// Get the entry block of the current Function
 inline mlir::Block *getEntryBlock(mlir::OpBuilder *bldr) {
   return &getFunction(bldr).front();
 }
 
+/// Create a new basic block
 inline mlir::Block *createBlock(mlir::OpBuilder *bldr) {
   auto *region{bldr->getBlock()->getParent()};
   return bldr->createBlock(region, region->end());
 }
 
+/// Get a function by name (or null)
 mlir::FuncOp getNamedFunction(llvm::StringRef name);
 
+/// Create a new Function
 mlir::FuncOp createFunction(
-    mlir::ModuleOp module, const std::string &name, mlir::FunctionType funcTy);
+    mlir::ModuleOp module, llvm::StringRef name, mlir::FunctionType funcTy);
 
 }  // Fortran::burnside
 

@@ -14,6 +14,12 @@
 
 // Temporary Fortran front end driver main program for development scaffolding.
 
+#include "fir/Dialect.h"
+#include "fir/Tilikum/LLVMConverter.h"
+#include "fir/Tilikum/StdConverter.h"
+#include "fir/Transforms/MemToReg.h"
+#include "../../lib/burnside/bridge.h"
+#include "../../lib/burnside/canonicalize.h"
 #include "../../lib/common/default-kinds.h"
 #include "../../lib/parser/characters.h"
 #include "../../lib/parser/dump-parse-tree.h"
@@ -37,12 +43,6 @@
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/Passes.h"
-#include "fir/Dialect.h"
-#include "fir/Tilikum/LLVMConverter.h"
-#include "fir/Tilikum/StdConverter.h"
-#include "fir/Transforms/MemToReg.h"
-#include "../../lib/burnside/bridge.h"
-#include "../../lib/burnside/canonicalize.h"
 #include <cerrno>
 #include <cstdio>
 #include <cstring>
@@ -267,7 +267,8 @@ std::string CompileFortran(std::string path, Fortran::parser::Options options,
   }
 
   // MLIR+FIR
-  Br::instantiateBurnsideBridge(semanticsContext.defaultKinds());
+  Br::instantiateBurnsideBridge(
+      semanticsContext.defaultKinds(), &parsing.cooked());
   Br::crossBurnsideBridge(Br::getBridge(), parseTree);
   mlir::ModuleOp mlirModule{Br::getBridge().getModule()};
   mlir::PassManager pm{mlirModule.getContext()};
@@ -427,7 +428,7 @@ int main(int argc, char *const argv[]) {
             suffix == "cuf" || suffix == "CUF" || suffix == "f18" ||
             suffix == "F18" || suffix == "ff18") {
           fortranSources.push_back(arg);
-        } else if (suffix == "fir" || suffix == "ir" || suffix == "mlir")  {
+        } else if (suffix == "fir" || suffix == "ir" || suffix == "mlir") {
           firSources.push_back(arg);
         } else if (suffix == "o" || suffix == "a") {
           relocatables.push_back(arg);

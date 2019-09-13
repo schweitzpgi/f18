@@ -714,12 +714,12 @@ Example:
 ```mlir
     %c1 = constant 1 : i32
     %c10 = constant 10 : i32
-    %63 = fir.gendims(%c1,%c10,%c1) : (i32,i32,i32) -> !fir.dims<1>
+    %63 = fir.gendims %c1,%c10,%c1 : (i32,i32,i32) -> !fir.dims<1>
 ```
 
 #### `fir.insert_value`
 
-Syntax:	<code><b>fir.insert_value (</b> <em>entity</em> <b>,</b> <em>value</em> <b>,</b> <em>index-field-list</em> <b>) : (</b> <em>entity-type</em> <b>,</b> <em>value-type</em> <b>,</b> <em>index-field-type-list</em> <b>) -&gt;</b> <em>entity-type</em></code>
+Syntax:	<code><b>fir.insert_value</b> <em>entity</em> <b>,</b> <em>value</em> <b>,</b> <em>index-field-list</em> <b>: (</b> <em>entity-type</em> <b>,</b> <em>value-type</em> <b>,</b> <em>index-field-type-list</em> <b>) -&gt;</b> <em>entity-type</em></code>
 
 Insert a value into an entity with a type composed arrays and/or derived
 types. Returns a new value of the same type as _entity_.
@@ -744,7 +744,7 @@ The above is a possible translation of the following Fortran code sequence.
 
 #### `fir.len_param_index`
 
-Syntax:	<code><b>fir.len_param_index ("</b><em>len-param-name</em><b>") : !fir.field -> index</code>
+Syntax:	<code><b>fir.len_param_index ("</b><em>len-param-name</em><b>") : !fir.field</b></code>
 
 Compute the LEN type parameter offset of a particular named parameter in a
 derived type.
@@ -752,7 +752,7 @@ derived type.
 Example:
 
 ```mlir
-    %62 = fir.len_param_index("param_1") : !fir.field -> index
+    %62 = fir.len_param_index("param_1") : !fir.field
 ```
 
 ### Generalized Control Flow Ops
@@ -828,7 +828,7 @@ Call the specified function.
 Example:
 
 ```mlir
-    %90 = fir.call @function(%arg1, %arg2) : !FT2
+    %90 = fir.call @function(%arg1, %arg2) : (!fir.ref<f32>, !fir.ref<f32>) -> f32
 ```
 
 #### `fir.icall`
@@ -840,7 +840,7 @@ Call the specified function reference.
 Example:
 
 ```mlir
-    %89 = fir.icall %funcref(%arg0) : !FT1
+    %89 = fir.icall %funcref(%arg0) : (!fir.ref<f32>) -> f32
 ```
 
 #### `fir.dispatch`
@@ -855,10 +855,22 @@ associated with the first argument.
 Example:
 
 ```mlir
-    %91 = fir.dispatch "methodA"(%89, %90) : !FT3
+    %91 = fir.dispatch "methodA"(%89, %90) : (!fir.box<!fir.type<T>>, !fir.ref<f32>) -> i32
 ```
 
 ### Other Ops
+
+#### `fir.address_of`
+
+Syntax:	<code><b>fir.address_of (@</b><em>symbol</em><b>) :</b> <em>T</em></code>
+
+Converts a symbol to an SSA-value.
+
+Example:
+
+```mlir
+    %func = fir.address_of(@func) : !fir.ref<(!fir.ref<i32>) -> ()>
+```
 
 #### `fir.convert`
 
@@ -873,8 +885,8 @@ are the same type, this instruction is a NOP.
 Example:
 
 ```mlir
-    %92 = fir.call @foo() : i64
-    %93 = fir.convert %92 : i64 -> i32
+    %92 = fir.call @foo() : () -> i64
+    %93 = fir.convert %92 : (i64) -> i32
 ```
 
 The above conversion truncates a 64-bit integer value to 32-bits.
@@ -908,9 +920,9 @@ argument.
 Example:
 
 ```mlir
-    %98 = mulf %96,%97 : (f32,f32) -> f32
+    %98 = mulf %96,%97 : f32
     %99 = fir.no_reassoc %98 : f32
-    %100 = addf %99,%95 : (f32,f32) -> f32
+    %100 = addf %99,%95 : f32
 ```
 
 The presence of this operation prevents any local optimizations. In the
@@ -988,141 +1000,3 @@ Example:
     }
 ```
 
-# Optimization Examples
-
-## Loop Transformations
-
-To do: normalization. fission, fusion, interchange, index-set splitting,
-reversal, skewing, tiling, unswitching. unrolling, vectorization,
-inversion, and code motion.
-
-## Data Choreography
-
-To do: alignment, allocation, index mapping, copy elimination
-
-
-## Function Calls
-
-### Inlining
-
-While LLVM has a low-level inlining optimization, we may want to have a
-high-level inliner as well.  Without the semantics knowledge, the low-level
-optimizer may have to "look into" opaque calls to the Fortran runtime to
-accomplish the same level of optimization.
-
-For example, say we have some code that is passing an assumed-size array,
-`%arr`, to a rather large function, `@foo`, which takes an assumed-rank
-array dummy argument. Let's say that there is a Fortran runtime routine
-that the `fir.select_rank` calls to determine the rank of the argument, and
-that if the effective argument was an assumed-size array that routine will
-return the special value `-1`.
-
-
-```mlir
-    func @foo(%dummy : !fir.box<!fir.array<*:!T>>) {
-       fir.select_rank %dummy, 1, ^bb1 ... n, ^bbn, -1, ^bbstar,
-                               undef, ^bbdef
-       ^bb1:
-         ...
-       ...
-       ^bbn:
-         ...
-       ^bbstar:
-         return
-       ^bbdef:
-         ...
-       ... 
-       return
-    }
-
-    !BoxAT = type !fir.box<!fir.array<?:!T>>
-    %ref = ... : !fir.ref<!fir.array<?:!T>>
-    %dims = fir.gendims(1, -1, 1) : !fir.dims<1>  ;assumed-size
-    %arr = fir.embox %ref, %dims : !BoxAT
-    %result = fir.call @foo(%arr)
-    %next = ... 
-```
-
-At the LLVM IR level, the compiler will generate code that calls this
-opaque Fortran runtime library routine to determine the rank of the boxed
-argument, and thus prevent the LLVM inliner from knowing that the case that
-must be chosen here is a NOP. The low-level inliner only sees the large
-`@foo` routine. With a high-level inliner, the compiler can "see around the
-corner" and perform the inlining. After inlining and DCE, this example
-would reduce to nothing more than the following.
-
-
-```mlir
-    %ref = ... : !fir.ref<!fir.array<?:!T>>
-    %next = ...
-```
-
-It is clear that this result will be better in terms of performance.
-
-
-### Specialization
-
-Specialization is the optimization of cloning a function into multiple
-copies, each copy of which has a distinctive property.  For example, a
-Fortran code may have a type-bound procedure, `subr`, that takes a
-`CLASS(foo)` type argument. But the compiler may decide to version this
-type-bound procedure into two copies, one taking the `CLASS(foo)` argument
-(as before) and another taking a `TYPE(bar)`, where `bar` is a subclass of
-`foo`.
-
-The signature of the original function might look something like the
-following.
-
-```mlir
-    !foo_type = type ...
-    func @_QFBsubrACfoo(%dummy : !fir.box<!foo_type>)
-```
-
-After specialization, as described above, the compiler could add the
-signature.
-
-
-```mlir
-    !bar_type = type ... 
-    func @_QFNsubrATbar(%dummy : !fir.ref<!bar_type>)
-```
-
-Since the exact type of `%dummy` is known by the compiler, the second
-function is passed an unboxed reference value, which may help reduce, say,
-the call overhead.  Further analysis might be able to prove that `subr`
-does not modify the entity referenced by `%dummy` and specialize once
-again, giving a function that expects `%dummy` to be passed as a value.
-
-```mlir
-    func @_QFNsubrAVbar(%dummy : !bar_type)
-```
-
-
-### Devirtualization
-
-Devirtualization is the optimization of converting a virtual call
-(dispatch) to a regular call.
-
-Let's say we generate the following for a virtual call to `method1`, which
-for the type `foo` in module `quark` is the type-bound procedure
-`@foo_method_one`.
-
-```mlir
-    fir.dispatch_table @_QDT_Mquark_Tfoo {
-       fir.dt_entry "method1", @foo_method_one
-       fir.dt_entry "method2", @foo_method_two
-    }
-
-    %result = fir.dispatch method1(%box)
-```
-
-If the compiler can prove the type of `%box` must be `type(foo)` rather
-than `class(foo)`, devirtualization would replace the dispatch instruction
-with
-
-```mlir
-    %result = fir.call @foo_method_one(%box)
-```
-
-This eliminates the extra indirection through the dispatch table at
-runtime.

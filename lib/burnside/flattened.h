@@ -15,9 +15,9 @@
 #ifndef FORTRAN_BURNSIDE_FLATTENED_H_
 #define FORTRAN_BURNSIDE_FLATTENED_H_
 
-#include "common.h"
 #include "mixin.h"
 #include "../parser/parse-tree.h"
+#include "llvm/ADT/BitVector.h"
 #include <cstdint>
 #include <list>
 #include <map>
@@ -30,9 +30,11 @@ struct AnalysisData;
 
 namespace flat {
 
-// This is a flattened, linearized representation of the parse tree. It captures
-// the executable specification of the input program. The flattened IR can be
-// used to construct the Fortran IR.
+/// This is a flattened, linearized representation of the parse
+/// tree. It captures the executable specification of the input
+/// program. The flattened IR can be used to construct FIR.
+///
+/// [Coding style](https://llvm.org/docs/CodingStandards.html)
 
 using LabelRef = unsigned;
 constexpr LabelRef unspecifiedLabel{UINT_MAX};
@@ -47,12 +49,12 @@ struct LabelOp {
   LabelOp &operator=(const LabelOp &that);
   void setReferenced() const;
   bool isReferenced() const;
-  LabelRef get() const { return label_; }
+  LabelRef get() const { return label; }
   operator LabelRef() const { return get(); }
 
 private:
-  LabelBuilder &builder_;
-  LabelRef label_;
+  LabelBuilder &builder;
+  LabelRef label;
 };
 
 struct ArtificialJump {};
@@ -200,7 +202,7 @@ struct LabelBuilder {
   LabelRef getNext();
   void setReferenced(LabelRef label);
   bool isReferenced(LabelRef label) const;
-  std::vector<bool> referenced;
+  llvm::BitVector referenced;
   unsigned counter;
 };
 

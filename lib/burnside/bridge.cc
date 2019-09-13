@@ -71,24 +71,26 @@ class MLIRConverter {
   };
 
   M::MLIRContext &mlirContext;
-  M::OwningModuleRef module_;
-  std::unique_ptr<M::OpBuilder> builder_;
-  LabelMapType blockMap_;  // map from flattened labels to MLIR blocks
+  const Pa::CookedSource *cooked;
+  M::OwningModuleRef module;
+  std::unique_ptr<M::OpBuilder> builder;
+  LabelMapType blockMap;  // map from flattened labels to MLIR blocks
   std::list<Closure> edgeQ;
   std::map<const Pa::NonLabelDoStmt *, DoBoundsInfo> doMap;
   SymMap symbolMap;
-  Pa::CharBlock lastKnownPos_;
+  Pa::CharBlock lastKnownPos;
   bool noInsPt{false};
 
-  inline M::OpBuilder &build() { return *builder_.get(); }
-  inline M::ModuleOp getMod() { return module_.get(); }
-  inline LabelMapType &blkMap() { return blockMap_; }
+  inline M::OpBuilder &build() { return *builder.get(); }
+  inline M::ModuleOp getMod() { return module.get(); }
+  inline LabelMapType &blkMap() { return blockMap; }
+  void setCurrentPos(const Pa::CharBlock &pos) { lastKnownPos = pos; }
 
   /// Convert a parser CharBlock to a Location
   M::Location toLocation(const Pa::CharBlock &cb) {
-    return parserPosToLoc(mlirContext, cb);
+    return parserPosToLoc(mlirContext, cooked, cb);
   }
-  M::Location toLocation() { return toLocation(lastKnownPos_); }
+  M::Location toLocation() { return toLocation(lastKnownPos); }
 
   /// Construct the type of an Expr<A> expression
   M::Type exprType(const SomeExpr *expr) {
@@ -136,7 +138,7 @@ class MLIRConverter {
 
   template<typename T> DoBoundsInfo *getBoundsInfo(const T &linearOp) {
     auto &st{std::get<Pa::Statement<Pa::NonLabelDoStmt>>(linearOp.v->t)};
-    lastKnownPos_ = st.source;
+    setCurrentPos(st.source);
     auto *s{&st.statement};
     auto iter{doMap.find(s)};
     if (iter != doMap.end()) {
@@ -311,7 +313,7 @@ class MLIRConverter {
   }
   void genEnterMLIR(const Pa::DoConstruct &construct) {
     auto &stmt{std::get<Pa::Statement<Pa::NonLabelDoStmt>>(construct.t)};
-    lastKnownPos_ = stmt.source;
+    setCurrentPos(stmt.source);
     const Pa::NonLabelDoStmt &ss{stmt.statement};
     auto &ctrl{std::get<std::optional<Pa::LoopControl>>(ss.t)};
     if (ctrl.has_value()) {
@@ -331,7 +333,7 @@ class MLIRConverter {
 
   void genExitMLIR(const Pa::DoConstruct &construct) {
     auto &stmt{std::get<Pa::Statement<Pa::NonLabelDoStmt>>(construct.t)};
-    lastKnownPos_ = stmt.source;
+    setCurrentPos(stmt.source);
     const Pa::NonLabelDoStmt &ss{stmt.statement};
     auto &ctrl{std::get<std::optional<parser::LoopControl>>(ss.t)};
     if (ctrl.has_value() &&
@@ -356,8 +358,8 @@ class MLIRConverter {
           load.getLoc(), load.getResult(), info->stepExpr)};
       build().create<fir::StoreOp>(load.getLoc(), incremented, info->doVar);
       // add: counter--
-      auto loadCtr{build().create<fir::LoadOp>(
-          info->counter->getLoc(), info->counter)};
+      auto loadCtr{
+          build().create<fir::LoadOp>(info->counter->getLoc(), info->counter)};
       auto one{build().create<M::ConstantOp>(
           loadCtr.getLoc(), build().getIntegerAttr(loadCtr.getType(), 1))};
       auto decremented{build().create<M::SubIOp>(
@@ -370,8 +372,8 @@ class MLIRConverter {
     auto *info{getBoundsInfo(op)};
     if (info->doVar && info->stepExpr) {
       // add: cond = counter > 0 (signed)
-      auto load{build().create<fir::LoadOp>(
-          info->counter->getLoc(), info->counter)};
+      auto load{
+          build().create<fir::LoadOp>(info->counter->getLoc(), info->counter)};
       auto zero{build().create<M::ConstantOp>(
           load.getLoc(), build().getIntegerAttr(load.getType(), 0))};
       auto cond{build().create<M::CmpIOp>(
@@ -410,12 +412,12 @@ class MLIRConverter {
   }
   void genMLIR(const Pa::Statement<Pa::IfThenStmt> &stmt,
       Fl::LabelRef trueLabel, Fl::LabelRef falseLabel) {
-    lastKnownPos_ = stmt.source;
+    setCurrentPos(stmt.source);
     genMLIR(stmt.statement.t, trueLabel, falseLabel);
   }
   void genMLIR(const Pa::Statement<Pa::ElseIfStmt> &stmt,
       Fl::LabelRef trueLabel, Fl::LabelRef falseLabel) {
-    lastKnownPos_ = stmt.source;
+    setCurrentPos(stmt.source);
     genMLIR(stmt.statement.t, trueLabel, falseLabel);
   }
   void genMLIR(
@@ -431,7 +433,7 @@ class MLIRConverter {
   // Conditional branch to enter loop body or exit
   void genMLIR(const Pa::Statement<Pa::NonLabelDoStmt> &stmt,
       Fl::LabelRef trueLabel, Fl::LabelRef falseLabel) {
-    lastKnownPos_ = stmt.source;
+    setCurrentPos(stmt.source);
     auto &loopCtrl{std::get<std::optional<Pa::LoopControl>>(stmt.statement.t)};
     M::Value *condition{nullptr};
     if (loopCtrl.has_value()) {
@@ -499,7 +501,7 @@ class MLIRConverter {
 
   template<typename A>
   void translateRoutine(
-      const A &routine, const std::string &name, const Se::Symbol *funcSym);
+      const A &routine, llvm::StringRef name, const Se::Symbol *funcSym);
 
   void genCondBranch(
       M::Value *cond, Fl::LabelRef trueBlock, Fl::LabelRef falseBlock) {
@@ -589,7 +591,8 @@ class MLIRConverter {
 
 public:
   MLIRConverter(BurnsideBridge &bridge)
-    : mlirContext{bridge.getMLIRContext()}, module_{bridge.getModule()} {}
+    : mlirContext{bridge.getMLIRContext()}, cooked{bridge.getCookedSource()},
+      module{bridge.getModule()} {}
   MLIRConverter() = delete;
 
   M::ModuleOp getModule() { return getMod(); }
@@ -603,19 +606,19 @@ public:
     if (auto &ps{
             std::get<std::optional<Pa::Statement<Pa::ProgramStmt>>>(mainp.t)}) {
       mainName = ps->statement.v.ToString();
-      lastKnownPos_ = ps->source;
+      setCurrentPos(ps->source);
     }
     translateRoutine(mainp, mainName, nullptr);
   }
   void Post(const Pa::FunctionSubprogram &subp) {
     auto &stmt{std::get<Pa::Statement<Pa::FunctionStmt>>(subp.t)};
-    lastKnownPos_ = stmt.source;
+    setCurrentPos(stmt.source);
     auto &name{std::get<Pa::Name>(stmt.statement.t)};
     translateRoutine(subp, name.ToString(), name.symbol);
   }
   void Post(const Pa::SubroutineSubprogram &subp) {
     auto &stmt{std::get<Pa::Statement<Pa::SubroutineStmt>>(subp.t)};
-    lastKnownPos_ = stmt.source;
+    setCurrentPos(stmt.source);
     auto &name{std::get<Pa::Name>(stmt.statement.t)};
     translateRoutine(subp, name.ToString(), name.symbol);
   }
@@ -794,7 +797,7 @@ void MLIRConverter::genMLIR(const Pa::PauseStmt &stmt) {}
 
 /// translate action statements
 void MLIRConverter::genMLIR(AnalysisData &ad, const Fl::ActionOp &op) {
-  lastKnownPos_ = op.v->source;
+  setCurrentPos(op.v->source);
   std::visit(
       Co::visitors{
           [](const Pa::ContinueStmt &) { assert(false); },
@@ -859,7 +862,7 @@ void MLIRConverter::genMLIR(AnalysisData &ad, std::list<Fl::Op> &operations) {
 /// Translate the routine to MLIR
 template<typename A>
 void MLIRConverter::translateRoutine(
-    const A &routine, const std::string &name, const Se::Symbol *funcSym) {
+    const A &routine, llvm::StringRef name, const Se::Symbol *funcSym) {
   M::FuncOp func{getNamedFunction(name)};
   if (!func) {
     // get arguments and return type if any, otherwise just use empty vectors
@@ -886,7 +889,7 @@ void MLIRConverter::translateRoutine(
     func = createFunction(getMod(), name, funcTy);
   }
   func.addEntryBlock();
-  builder_ = std::make_unique<M::OpBuilder>(func);
+  builder = std::make_unique<M::OpBuilder>(func);
   build().setInsertionPointToStart(&func.front());
   if (funcSym) {
     auto *entryBlock{&func.front()};
@@ -922,25 +925,27 @@ std::unique_ptr<llvm::Module> Br::LLVMBridge(M::ModuleOp &module) {
 }
 
 void Br::BurnsideBridge::parseSourceFile(llvm::SourceMgr &srcMgr) {
-  module_ = M::parseSourceFile(srcMgr, context_.get());
+  module = M::parseSourceFile(srcMgr, context.get());
   if (validModule()) {
     // symbols are added by ModuleManager ctor
-    manager_.reset(new M::ModuleManager(getModule()));
+    manager.reset(new M::ModuleManager(getModule()));
   }
 }
 
 Br::BurnsideBridge::BurnsideBridge(
-    const Co::IntrinsicTypeDefaultKinds &defaultKinds)
-  : defaultKinds_{defaultKinds} {
-  context_ = std::make_unique<M::MLIRContext>();
-  module_ = M::OwningModuleRef{
-      M::ModuleOp::create(M::UnknownLoc::get(context_.get()))};
-  manager_ = std::make_unique<M::ModuleManager>(getModule());
+    const Co::IntrinsicTypeDefaultKinds &defaultKinds,
+    const Pa::CookedSource *cooked)
+  : defaultKinds{defaultKinds}, cooked{cooked} {
+  context = std::make_unique<M::MLIRContext>();
+  module = M::OwningModuleRef{
+      M::ModuleOp::create(M::UnknownLoc::get(context.get()))};
+  manager = std::make_unique<M::ModuleManager>(getModule());
 }
 
 void Br::instantiateBurnsideBridge(
-    const Co::IntrinsicTypeDefaultKinds &defaultKinds) {
-  auto p{BurnsideBridge::create(defaultKinds)};
+    const Co::IntrinsicTypeDefaultKinds &defaultKinds,
+    const Pa::CookedSource *cooked) {
+  auto p{BurnsideBridge::create(defaultKinds, cooked)};
   bridgeInstance.swap(p);
 }
 

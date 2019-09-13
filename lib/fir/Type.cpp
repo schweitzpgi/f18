@@ -14,12 +14,12 @@
 
 #include "fir/Type.h"
 #include "fir/Dialect.h"
-#include "llvm/ADT/StringRef.h"
-#include "llvm/ADT/Twine.h"
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/Dialect.h"
 #include "mlir/IR/StandardTypes.h"
 #include "mlir/Parser.h"
+#include "llvm/ADT/StringRef.h"
+#include "llvm/ADT/Twine.h"
 
 namespace L = llvm;
 namespace M = mlir;
@@ -70,9 +70,8 @@ public:
 
   int nextNonWSChar() {
     skipWhitespace();
-    if (atEnd()) {
+    if (atEnd())
       return -1;
-    }
     return *srcPtr++;
   }
 
@@ -80,18 +79,16 @@ public:
   // stream
   char nextChar() {
     skipWhitespace();
-    if (atEnd()) {
+    if (atEnd())
       return '\0';
-    }
     return *srcPtr;
   }
 
   // advance the input stream `count` characters
   void advance(unsigned count = 1) {
     while (count--) {
-      if (atEnd()) {
+      if (atEnd())
         break;
-      }
       ++srcPtr;
     }
   }
@@ -107,9 +104,9 @@ public:
       case '<':
       case '[':
       case '(':
-      case '{': {
+      case '{':
         nestedPunc.push_back(c);
-      } break;
+        break;
       case '>':
         if (nestedPunc.empty() || nestedPunc.pop_back_val() != '<') {
           goto done;
@@ -146,7 +143,8 @@ public:
       case '\0': {
         scanning = false;
       } break;
-      default: break;
+      default:
+        break;
       }
     }
     std::size_t count = srcPtr - marker;
@@ -162,8 +160,11 @@ private:
       case '\n':
       case '\r':
       case '\t':
-      case '\v': ++srcPtr; continue;
-      default: break;
+      case '\v':
+        ++srcPtr;
+        continue;
+      default:
+        break;
       }
       break;
     }
@@ -195,28 +196,44 @@ Token Lexer::lexToken() {
 
   const char *tokStart = srcPtr;
   switch (*srcPtr++) {
-  case '<': return formToken(TokenKind::leftang, tokStart);
-  case '>': return formToken(TokenKind::rightang, tokStart);
-  case '{': return formToken(TokenKind::leftbrace, tokStart);
-  case '}': return formToken(TokenKind::rightbrace, tokStart);
-  case '[': return formToken(TokenKind::leftbracket, tokStart);
-  case ']': return formToken(TokenKind::rightbracket, tokStart);
-  case '(': return formToken(TokenKind::leftparen, tokStart);
-  case ')': return formToken(TokenKind::rightparen, tokStart);
-  case ':': return formToken(TokenKind::colon, tokStart);
-  case ',': return formToken(TokenKind::comma, tokStart);
-  case '"': return lexString(tokStart + 1);
+  case '<':
+    return formToken(TokenKind::leftang, tokStart);
+  case '>':
+    return formToken(TokenKind::rightang, tokStart);
+  case '{':
+    return formToken(TokenKind::leftbrace, tokStart);
+  case '}':
+    return formToken(TokenKind::rightbrace, tokStart);
+  case '[':
+    return formToken(TokenKind::leftbracket, tokStart);
+  case ']':
+    return formToken(TokenKind::rightbracket, tokStart);
+  case '(':
+    return formToken(TokenKind::leftparen, tokStart);
+  case ')':
+    return formToken(TokenKind::rightparen, tokStart);
+  case ':':
+    return formToken(TokenKind::colon, tokStart);
+  case ',':
+    return formToken(TokenKind::comma, tokStart);
+  case '"':
+    return lexString(tokStart + 1);
   case '-':
     if (*srcPtr == '>') {
       srcPtr++;
       return formToken(TokenKind::arrow, tokStart);
     }
     return lexNumber(tokStart);
-  case '+': return lexNumber(tokStart + 1);
-  case '!': return formToken(TokenKind::ecphoneme, tokStart);
-  case '?': return formToken(TokenKind::eroteme, tokStart);
-  case '*': return formToken(TokenKind::star, tokStart);
-  case '.': return formToken(TokenKind::period, tokStart);
+  case '+':
+    return lexNumber(tokStart + 1);
+  case '!':
+    return formToken(TokenKind::ecphoneme, tokStart);
+  case '?':
+    return formToken(TokenKind::eroteme, tokStart);
+  case '*':
+    return formToken(TokenKind::star, tokStart);
+  case '.':
+    return formToken(TokenKind::period, tokStart);
   default:
     if (std::isalpha(*tokStart)) {
       return lexIdent(tokStart);
@@ -267,7 +284,7 @@ private:
 class FIRTypeParser {
 public:
   FIRTypeParser(FIROpsDialect *dialect, L::StringRef rawData, M::Location loc)
-    : context{dialect->getContext()}, lexer{rawData}, loc{loc} {}
+      : context{dialect->getContext()}, lexer{rawData}, loc{loc} {}
 
   M::Type parseType();
 
@@ -280,7 +297,7 @@ protected:
     auto token = lexer.lexToken();
     if (token.kind != tk) {
       emitError(loc, msg);
-      return true;  // error!
+      return true; // error!
     }
     return false;
   }
@@ -289,13 +306,14 @@ protected:
     auto lexCh = lexer.nextChar();
     if (lexCh != ch) {
       emitError(loc, msg);
-      return true;  // error!
+      return true; // error!
     }
     lexer.advance();
     return false;
   }
 
-  template<typename A> A parseIntLitSingleton(const char *msg) {
+  template <typename A>
+  A parseIntLitSingleton(const char *msg) {
     if (consumeToken(TokenKind::leftang, "expected '<' in type")) {
       return {};
     }
@@ -312,22 +330,26 @@ protected:
     if (consumeToken(TokenKind::rightang, "expected '>' in type")) {
       return {};
     }
-    if (checkAtEnd()) return {};
+    if (checkAtEnd())
+      return {};
     return A::get(getContext(), kind);
   }
 
   // `<` kind `>`
-  template<typename A> A parseKindSingleton() {
+  template <typename A>
+  A parseKindSingleton() {
     return parseIntLitSingleton<A>("expected kind parameter");
   }
 
   // `<` rank `>`
-  template<typename A> A parseRankSingleton() {
+  template <typename A>
+  A parseRankSingleton() {
     return parseIntLitSingleton<A>("expected rank parameter");
   }
 
   // '<' type '>'
-  template<typename A> A parseTypeSingleton() {
+  template <typename A>
+  A parseTypeSingleton() {
     if (consumeToken(TokenKind::leftang, "expected '<' in type")) {
       return {};
     }
@@ -339,7 +361,8 @@ protected:
     if (consumeToken(TokenKind::rightang, "expected '>' in type")) {
       return {};
     }
-    if (checkAtEnd()) return {};
+    if (checkAtEnd())
+      return {};
     return A::get(ofTy);
   }
 
@@ -373,7 +396,8 @@ protected:
 
   // `field`
   FieldType parseField() {
-    if (checkAtEnd()) return {};
+    if (checkAtEnd())
+      return {};
     return FieldType::get(getContext());
   }
 
@@ -410,7 +434,8 @@ protected:
 
   // `void`
   M::Type parseVoid() {
-    if (checkAtEnd()) return {};
+    if (checkAtEnd())
+      return {};
     return M::TupleType::get(getContext());
   }
 
@@ -587,23 +612,40 @@ M::Type FIRTypeParser::parseType() {
   auto_counter c{recursiveCall};
   auto token = lexer.lexToken();
   if (token.kind == TokenKind::ident) {
-    if (token.text == "ref") return parseReference();
-    if (token.text == "array") return parseSequence();
-    if (token.text == "char") return parseCharacter();
-    if (token.text == "logical") return parseLogical();
-    if (token.text == "real") return parseReal();
-    if (token.text == "type") return parseDerived();
-    if (token.text == "box") return parseBox();
-    if (token.text == "boxchar") return parseBoxChar();
-    if (token.text == "boxproc") return parseBoxProc();
-    if (token.text == "ptr") return parsePointer();
-    if (token.text == "heap") return parseHeap();
-    if (token.text == "dims") return parseDims();
-    if (token.text == "tdesc") return parseTypeDesc();
-    if (token.text == "field") return parseField();
-    if (token.text == "int") return parseInteger();
-    if (token.text == "complex") return parseComplex();
-    if (token.text == "void") return parseVoid();
+    if (token.text == "ref")
+      return parseReference();
+    if (token.text == "array")
+      return parseSequence();
+    if (token.text == "char")
+      return parseCharacter();
+    if (token.text == "logical")
+      return parseLogical();
+    if (token.text == "real")
+      return parseReal();
+    if (token.text == "type")
+      return parseDerived();
+    if (token.text == "box")
+      return parseBox();
+    if (token.text == "boxchar")
+      return parseBoxChar();
+    if (token.text == "boxproc")
+      return parseBoxProc();
+    if (token.text == "ptr")
+      return parsePointer();
+    if (token.text == "heap")
+      return parseHeap();
+    if (token.text == "dims")
+      return parseDims();
+    if (token.text == "tdesc")
+      return parseTypeDesc();
+    if (token.text == "field")
+      return parseField();
+    if (token.text == "int")
+      return parseInteger();
+    if (token.text == "complex")
+      return parseComplex();
+    if (token.text == "void")
+      return parseVoid();
     emitError(loc, "not a known fir type");
     return {};
   }
@@ -615,10 +657,10 @@ M::Type FIRTypeParser::parseType() {
 // is undefined and disallowed.
 bool singleIndirectionLevel(M::Type ty) {
   return !(ty.dyn_cast<ReferenceType>() || ty.dyn_cast<PointerType>() ||
-      ty.dyn_cast<HeapType>());
+           ty.dyn_cast<HeapType>());
 }
 
-}  // anonymous
+} // namespace
 
 namespace fir::detail {
 
@@ -632,8 +674,8 @@ struct CharacterTypeStorage : public M::TypeStorage {
 
   bool operator==(const KeyTy &key) const { return key == getFKind(); }
 
-  static CharacterTypeStorage *construct(
-      M::TypeStorageAllocator &allocator, KindTy kind) {
+  static CharacterTypeStorage *construct(M::TypeStorageAllocator &allocator,
+                                         KindTy kind) {
     auto *storage = allocator.allocate<CharacterTypeStorage>();
     return new (storage) CharacterTypeStorage{kind};
   }
@@ -657,8 +699,8 @@ struct DimsTypeStorage : public M::TypeStorage {
     return key == static_cast<unsigned>(getRank());
   }
 
-  static DimsTypeStorage *construct(
-      M::TypeStorageAllocator &allocator, int rank) {
+  static DimsTypeStorage *construct(M::TypeStorageAllocator &allocator,
+                                    int rank) {
     auto *storage = allocator.allocate<DimsTypeStorage>();
     return new (storage) DimsTypeStorage{rank};
   }
@@ -681,8 +723,8 @@ struct FieldTypeStorage : public M::TypeStorage {
 
   bool operator==(const KeyTy &) const { return true; }
 
-  static FieldTypeStorage *construct(
-      M::TypeStorageAllocator &allocator, KindTy) {
+  static FieldTypeStorage *construct(M::TypeStorageAllocator &allocator,
+                                     KindTy) {
     auto *storage = allocator.allocate<FieldTypeStorage>();
     return new (storage) FieldTypeStorage{0};
   }
@@ -700,8 +742,8 @@ struct LogicalTypeStorage : public M::TypeStorage {
 
   bool operator==(const KeyTy &key) const { return key == getFKind(); }
 
-  static LogicalTypeStorage *construct(
-      M::TypeStorageAllocator &allocator, KindTy kind) {
+  static LogicalTypeStorage *construct(M::TypeStorageAllocator &allocator,
+                                       KindTy kind) {
     auto *storage = allocator.allocate<LogicalTypeStorage>();
     return new (storage) LogicalTypeStorage{kind};
   }
@@ -724,8 +766,8 @@ struct IntTypeStorage : public M::TypeStorage {
 
   bool operator==(const KeyTy &key) const { return key == getFKind(); }
 
-  static IntTypeStorage *construct(
-      M::TypeStorageAllocator &allocator, KindTy kind) {
+  static IntTypeStorage *construct(M::TypeStorageAllocator &allocator,
+                                   KindTy kind) {
     auto *storage = allocator.allocate<IntTypeStorage>();
     return new (storage) IntTypeStorage{kind};
   }
@@ -748,8 +790,8 @@ struct CplxTypeStorage : public M::TypeStorage {
 
   bool operator==(const KeyTy &key) const { return key == getFKind(); }
 
-  static CplxTypeStorage *construct(
-      M::TypeStorageAllocator &allocator, KindTy kind) {
+  static CplxTypeStorage *construct(M::TypeStorageAllocator &allocator,
+                                    KindTy kind) {
     auto *storage = allocator.allocate<CplxTypeStorage>();
     return new (storage) CplxTypeStorage{kind};
   }
@@ -772,8 +814,8 @@ struct RealTypeStorage : public M::TypeStorage {
 
   bool operator==(const KeyTy &key) const { return key == getFKind(); }
 
-  static RealTypeStorage *construct(
-      M::TypeStorageAllocator &allocator, KindTy kind) {
+  static RealTypeStorage *construct(M::TypeStorageAllocator &allocator,
+                                    KindTy kind) {
     auto *storage = allocator.allocate<RealTypeStorage>();
     return new (storage) RealTypeStorage{kind};
   }
@@ -796,8 +838,8 @@ struct BoxTypeStorage : public M::TypeStorage {
 
   bool operator==(const KeyTy &key) const { return key == getElementType(); }
 
-  static BoxTypeStorage *construct(
-      M::TypeStorageAllocator &allocator, M::Type eleTy) {
+  static BoxTypeStorage *construct(M::TypeStorageAllocator &allocator,
+                                   M::Type eleTy) {
     assert(eleTy && "element type is null");
     auto *storage = allocator.allocate<BoxTypeStorage>();
     return new (storage) BoxTypeStorage{eleTy};
@@ -821,8 +863,8 @@ struct BoxCharTypeStorage : public M::TypeStorage {
 
   bool operator==(const KeyTy &key) const { return key == getFKind(); }
 
-  static BoxCharTypeStorage *construct(
-      M::TypeStorageAllocator &allocator, KindTy kind) {
+  static BoxCharTypeStorage *construct(M::TypeStorageAllocator &allocator,
+                                       KindTy kind) {
     auto *storage = allocator.allocate<BoxCharTypeStorage>();
     return new (storage) BoxCharTypeStorage{kind};
   }
@@ -850,8 +892,8 @@ struct BoxProcTypeStorage : public M::TypeStorage {
 
   bool operator==(const KeyTy &key) const { return key == getElementType(); }
 
-  static BoxProcTypeStorage *construct(
-      M::TypeStorageAllocator &allocator, M::Type eleTy) {
+  static BoxProcTypeStorage *construct(M::TypeStorageAllocator &allocator,
+                                       M::Type eleTy) {
     assert(eleTy && "element type is null");
     auto *storage = allocator.allocate<BoxProcTypeStorage>();
     return new (storage) BoxProcTypeStorage{eleTy};
@@ -875,8 +917,8 @@ struct ReferenceTypeStorage : public M::TypeStorage {
 
   bool operator==(const KeyTy &key) const { return key == getElementType(); }
 
-  static ReferenceTypeStorage *construct(
-      M::TypeStorageAllocator &allocator, M::Type eleTy) {
+  static ReferenceTypeStorage *construct(M::TypeStorageAllocator &allocator,
+                                         M::Type eleTy) {
     assert(eleTy && "element type is null");
     auto *storage = allocator.allocate<ReferenceTypeStorage>();
     return new (storage) ReferenceTypeStorage{eleTy};
@@ -900,8 +942,8 @@ struct PointerTypeStorage : public M::TypeStorage {
 
   bool operator==(const KeyTy &key) const { return key == getElementType(); }
 
-  static PointerTypeStorage *construct(
-      M::TypeStorageAllocator &allocator, M::Type eleTy) {
+  static PointerTypeStorage *construct(M::TypeStorageAllocator &allocator,
+                                       M::Type eleTy) {
     assert(eleTy && "element type is null");
     auto *storage = allocator.allocate<PointerTypeStorage>();
     return new (storage) PointerTypeStorage{eleTy};
@@ -925,8 +967,8 @@ struct HeapTypeStorage : public M::TypeStorage {
 
   bool operator==(const KeyTy &key) const { return key == getElementType(); }
 
-  static HeapTypeStorage *construct(
-      M::TypeStorageAllocator &allocator, M::Type eleTy) {
+  static HeapTypeStorage *construct(M::TypeStorageAllocator &allocator,
+                                    M::Type eleTy) {
     assert(eleTy && "element type is null");
     auto *storage = allocator.allocate<HeapTypeStorage>();
     return new (storage) HeapTypeStorage{eleTy};
@@ -955,8 +997,8 @@ struct SequenceTypeStorage : public M::TypeStorage {
     return key == KeyTy{getShape(), getElementType()};
   }
 
-  static SequenceTypeStorage *construct(
-      M::TypeStorageAllocator &allocator, const KeyTy &key) {
+  static SequenceTypeStorage *construct(M::TypeStorageAllocator &allocator,
+                                        const KeyTy &key) {
     auto *storage = allocator.allocate<SequenceTypeStorage>();
     return new (storage) SequenceTypeStorage{key.first, key.second};
   }
@@ -971,13 +1013,13 @@ protected:
 private:
   SequenceTypeStorage() = delete;
   explicit SequenceTypeStorage(const SequenceType::Shape &shape, M::Type eleTy)
-    : shape{shape}, eleTy{eleTy} {}
+      : shape{shape}, eleTy{eleTy} {}
 };
 
 /// Derived type storage
 struct RecordTypeStorage : public M::TypeStorage {
   using KeyTy = std::tuple<L::StringRef, L::ArrayRef<RecordType::TypePair>,
-      L::ArrayRef<RecordType::TypePair>>;
+                           L::ArrayRef<RecordType::TypePair>>;
 
   static unsigned hashKey(const KeyTy &key) {
     return L::hash_combine(std::get<0>(key).str());
@@ -987,8 +1029,8 @@ struct RecordTypeStorage : public M::TypeStorage {
     return std::get<0>(key) == getName();
   }
 
-  static RecordTypeStorage *construct(
-      M::TypeStorageAllocator &allocator, const KeyTy &key) {
+  static RecordTypeStorage *construct(M::TypeStorageAllocator &allocator,
+                                      const KeyTy &key) {
     auto *storage = allocator.allocate<RecordTypeStorage>();
     auto &name = std::get<0>(key);
     auto &lens = std::get<1>(key);
@@ -1012,9 +1054,9 @@ protected:
 private:
   RecordTypeStorage() = delete;
   explicit RecordTypeStorage(L::StringRef name,
-      L::ArrayRef<RecordType::TypePair> lens,
-      L::ArrayRef<RecordType::TypePair> types)
-    : name{name}, lens{lens}, types{types} {}
+                             L::ArrayRef<RecordType::TypePair> lens,
+                             L::ArrayRef<RecordType::TypePair> types)
+      : name{name}, lens{lens}, types{types} {}
 };
 
 /// Type descriptor type storage
@@ -1025,8 +1067,8 @@ struct TypeDescTypeStorage : public M::TypeStorage {
 
   bool operator==(const KeyTy &key) const { return key == getOfType(); }
 
-  static TypeDescTypeStorage *construct(
-      M::TypeStorageAllocator &allocator, M::Type ofTy) {
+  static TypeDescTypeStorage *construct(M::TypeStorageAllocator &allocator,
+                                        M::Type ofTy) {
     assert(ofTy && "descriptor type is null");
     auto *storage = allocator.allocate<TypeDescTypeStorage>();
     return new (storage) TypeDescTypeStorage{ofTy};
@@ -1043,9 +1085,10 @@ private:
   explicit TypeDescTypeStorage(M::Type ofTy) : ofTy{ofTy} {}
 };
 
-}  // detail
+} // namespace fir::detail
 
-template<typename A, typename B> bool inbounds(A v, B lb, B ub) {
+template <typename A, typename B>
+bool inbounds(A v, B lb, B ub) {
   return v >= lb && v < ub;
 }
 
@@ -1054,8 +1097,8 @@ bool fir::isa_fir_type(mlir::Type t) {
 }
 
 bool fir::isa_std_type(mlir::Type t) {
-  return inbounds(
-      t.getKind(), M::Type::FIRST_STANDARD_TYPE, M::Type::LAST_STANDARD_TYPE);
+  return inbounds(t.getKind(), M::Type::FIRST_STANDARD_TYPE,
+                  M::Type::LAST_STANDARD_TYPE);
 }
 
 bool fir::isa_fir_or_std_type(mlir::Type t) {
@@ -1197,8 +1240,8 @@ SequenceType::Shape fir::SequenceType::getShape() const {
 }
 
 // compare if two shapes are equivalent
-bool fir::operator==(
-    const SequenceType::Shape &sh_1, const SequenceType::Shape &sh_2) {
+bool fir::operator==(const SequenceType::Shape &sh_1,
+                     const SequenceType::Shape &sh_2) {
   if (sh_1.known != sh_2.known) {
     return false;
   }
@@ -1237,7 +1280,8 @@ L::hash_code fir::hash_value(const SequenceType::Shape &sh) {
 // Derived<Ts...>
 
 RecordType fir::RecordType::get(M::MLIRContext *ctxt, L::StringRef name,
-    L::ArrayRef<TypePair> lenPList, L::ArrayRef<TypePair> typeList) {
+                                L::ArrayRef<TypePair> lenPList,
+                                L::ArrayRef<TypePair> typeList) {
   return Base::get(ctxt, FIR_DERIVED, name, lenPList, typeList);
 }
 
@@ -1262,8 +1306,8 @@ M::Type fir::TypeDescType::getOfTy() const { return getImpl()->getOfType(); }
 
 // Implementation of the thin interface from dialect to type parser
 
-M::Type fir::parseFirType(
-    FIROpsDialect *dialect, L::StringRef rawData, M::Location loc) {
+M::Type fir::parseFirType(FIROpsDialect *dialect, L::StringRef rawData,
+                          M::Location loc) {
   FIRTypeParser parser{dialect, rawData, loc};
   return parser.parseType();
 }
