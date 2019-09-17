@@ -66,7 +66,7 @@ can be trivially rewritten to `i16`.
 
 ## Fortran Derived Types
 
-<pre><code><b>!fir.type&lt;</b><em>derived-type-name [</em> <b>(</b><em>len-param-list</em><b>)</b> <em>] [</em> <b>{</b><em>field-id-list ]</em> <b>}&gt;</b><br>
+<pre><code><b>!fir.type&lt;</b><em>derived-type-name [</em> <b>(</b><em>len-param-list</em><b>)</b> <em>] [</em> <b>{</b><em>field-id-list</em><b>}</b> <em>]</em> <b>&gt;</b><br>
 &nbsp;&nbsp;&nbsp; where <em>len-param</em> := <em>len-param-name</em> <b>:</b> <em>integer-type</em><br>
 &nbsp;&nbsp;&nbsp; &nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <em>field-id</em> := <em>field-name</em> <b>:</b> <em>type</em><br>
 </code></pre>
@@ -93,7 +93,7 @@ same as the standard dialect. The void type is simply `()`.
 
 ### Sequence Type
 
-<pre><code><b>!fir.array&lt;</b> <em>extent-xlist</em> <b>:</b> <em>element-type</em><b>&gt;</b><br>
+<pre><code><b>!fir.array&lt;</b><em>extent-xlist</em> <b>:</b> <em>element-type</em><b>&gt;</b><br>
 &nbsp;&nbsp;&nbsp; where <em>extent</em> := <em>integer-constant |</em> <b>?</b> <em>|</em> <b>*</b><br>
 </code></pre>
 
