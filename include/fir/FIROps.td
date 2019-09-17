@@ -1603,6 +1603,8 @@ def fir_AddrOfOp : fir_OneResultOp<"address_of", [NoSideEffect]> {
   let summary = "convert a symbol to an SSA value";
 
   let description = [{
+    Convert a symbol (a function or global reference) to an SSA-value to be
+    used in other Operations.
   }];
 
   let arguments = (ins SymbolRefAttr:$symbol);
