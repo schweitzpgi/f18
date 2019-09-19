@@ -271,11 +271,11 @@ std::string CompileFortran(std::string path, Fortran::parser::Options options,
       semanticsContext.defaultKinds(), &parsing.cooked());
   Br::crossBurnsideBridge(Br::getBridge(), parseTree);
   mlir::ModuleOp mlirModule{Br::getBridge().getModule()};
-  mlir::PassManager pm{mlirModule.getContext()};
   if (driver.dumpHLFIR) {
     llvm::outs() << ";== 1 ==\n";
     mlirModule.dump();
   }
+  mlir::PassManager pm{mlirModule.getContext()};
   pm.addPass(fir::createMemToRegPass());
   // Run FIR lowering and CSE as a pair
   pm.addPass(mlir::createCSEPass());

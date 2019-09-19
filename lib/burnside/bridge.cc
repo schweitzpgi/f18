@@ -72,7 +72,7 @@ class MLIRConverter {
 
   M::MLIRContext &mlirContext;
   const Pa::CookedSource *cooked;
-  M::OwningModuleRef module;
+  M::ModuleOp module;
   std::unique_ptr<M::OpBuilder> builder;
   LabelMapType blockMap;  // map from flattened labels to MLIR blocks
   std::list<Closure> edgeQ;
@@ -82,7 +82,7 @@ class MLIRConverter {
   bool noInsPt{false};
 
   inline M::OpBuilder &build() { return *builder.get(); }
-  inline M::ModuleOp getMod() { return module.get(); }
+  inline M::ModuleOp getMod() { return module; }
   inline LabelMapType &blkMap() { return blockMap; }
   void setCurrentPos(const Pa::CharBlock &pos) { lastKnownPos = pos; }
 
