@@ -53,7 +53,7 @@ public:
 
   mlir::MLIRContext &getMLIRContext() { return *context.get(); }
   mlir::ModuleManager &getManager() { return *manager.get(); }
-  mlir::ModuleOp getModule() { return module.get(); }
+  mlir::ModuleOp &getModule() { return *module.get(); }
 
   void parseSourceFile(llvm::SourceMgr &);
 
@@ -74,7 +74,7 @@ private:
   const common::IntrinsicTypeDefaultKinds &defaultKinds;
   const parser::CookedSource *cooked;
   std::unique_ptr<mlir::MLIRContext> context;
-  mlir::OwningModuleRef module;
+  std::unique_ptr<mlir::ModuleOp> module;
   std::unique_ptr<mlir::ModuleManager> manager;
 };
 

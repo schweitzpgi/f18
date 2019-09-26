@@ -1349,6 +1349,7 @@ def fir_LoopOp : fir_Op<"loop", [ImplicitFirTerminator]> {
               "mlir::Value *lowerBound, mlir::Value *upperBound,"
               "llvm::ArrayRef<mlir::Value*> step">
   ];
+  let parser = [{ return parseLoopOp(parser, result); }];
 
   let printer = [{
     p << getOperationName() << ' ' << *getInductionVar() << " = "
@@ -1364,6 +1365,7 @@ def fir_LoopOp : fir_Op<"loop", [ImplicitFirTerminator]> {
         /*printBlockTerminators=*/false);
     p.printOptionalAttrDict(getAttrs(), {"unordered", "step"});
   }];
+
   let verifier = [{
     auto step = optstep();
     if (step.begin() != step.end()) {
@@ -1380,10 +1382,9 @@ def fir_LoopOp : fir_Op<"loop", [ImplicitFirTerminator]> {
     if (body->getNumArguments() != 1 ||
         !body->getArgument(0)->getType().isIndex())
       return emitOpError("expected body to have a single index argument for "
-                       "the induction variable");
+                         "the induction variable");
     return mlir::success();
   }];
-  let parser = [{ return parseLoopOp(parser, result); }];
 
   let extraClassDeclaration = [{
     mlir::Block *getBody() { return &region().front(); }
@@ -1419,6 +1420,7 @@ def fir_WhereOp : fir_Op<"where", [ImplicitFirTerminator]> {
     OpBuilder<"Builder *builder, OperationState &result, "
               "Value *cond, bool withOtherRegion">
   ];
+  let parser = [{ return parseWhereOp(parser, result); }];
 
   let printer = [{
     p << getOperationName() << ' ' << *condition();
@@ -1444,7 +1446,6 @@ def fir_WhereOp : fir_Op<"where", [ImplicitFirTerminator]> {
     }
     return mlir::success();
   }];
-  let parser = [{ return parseWhereOp(parser, result); }];
 
   let extraClassDeclaration = [{
     mlir::OpBuilder getWhereBodyBuilder() {

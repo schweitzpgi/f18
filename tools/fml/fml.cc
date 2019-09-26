@@ -273,7 +273,7 @@ std::string CompileFortran(std::string path, Fortran::parser::Options options,
   mlir::ModuleOp mlirModule{Br::getBridge().getModule()};
   mlir::PassManager pm{mlirModule.getContext()};
   if (driver.dumpHLFIR) {
-    llvm::outs() << ";== 1 ==\n";
+    llvm::errs() << ";== 1 ==\n";
     mlirModule.dump();
   }
   pm.addPass(fir::createMemToRegPass());
@@ -290,7 +290,7 @@ std::string CompileFortran(std::string path, Fortran::parser::Options options,
   }
   auto result{pm.run(mlirModule)};
   if (driver.dumpFIR) {
-    llvm::outs() << ";== 2 ==\n";
+    llvm::errs() << ";== 2 ==\n";
     mlirModule.dump();
   }
   return {};
@@ -324,7 +324,7 @@ std::string CompileFir(std::string path, Fortran::parser::Options options,
     std::exit(4);
   }
 
-  llvm::outs() << ";== 3 ==\n";
+  llvm::errs() << ";== 3 ==\n";
   mlirModule.dump();
 
   // run passes
@@ -341,10 +341,10 @@ std::string CompileFir(std::string path, Fortran::parser::Options options,
     pm.addPass(fir::createLLVMDialectToLLVMPass());
   }
   auto result{pm.run(mlirModule)};
-  llvm::outs() << ";== 4 ==\n";
+  llvm::errs() << ";== 4 ==\n";
   mlirModule.dump();
   if (mlir::succeeded(result)) {
-    llvm::outs() << "a.ll written\n";
+    llvm::errs() << "a.ll written\n";
   } else {
     llvm::errs() << "FAILED\n";
     std::exit(5);
