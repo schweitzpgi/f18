@@ -57,7 +57,7 @@ constexpr bool isStopStmt(Pa::StopStmt::Kind kind) {
   return kind == Pa::StopStmt::Kind::Stop;
 }
 
-constexpr bool firLoopOp{true};
+constexpr bool firLoopOp{false};
 
 /// Converter from Fortran to FIR
 class FIRConverter {
