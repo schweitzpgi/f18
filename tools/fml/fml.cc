@@ -19,7 +19,7 @@
 #include "fir/Tilikum/StdConverter.h"
 #include "fir/Transforms/MemToReg.h"
 #include "../../lib/burnside/bridge.h"
-#include "../../lib/burnside/canonicalize.h"
+#include "../../lib/burnside/convert-expr.h"
 #include "../../lib/common/default-kinds.h"
 #include "../../lib/parser/characters.h"
 #include "../../lib/parser/dump-parse-tree.h"

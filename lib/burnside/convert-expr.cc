@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "canonicalize.h"
+#include "convert-expr.h"
 #include "builder.h"
 #include "fe-helper.h"
 #include "fir/Dialect.h"
