@@ -179,21 +179,6 @@ class fir_AllocatableOp<string mnemonic, list<OpTrait> traits =[]> :
     fir_AllocatableBaseOp<mnemonic, !listconcat([NoSideEffect], traits)>,
     fir_TwoBuilders<fir_AllocateOpBuilder, fir_NamedAllocateOpBuilder>,
     Arguments<(ins TypeAttr:$in_type, Variadic<Index>:$shape)> {
-}
-
-// Memory SSA operations
-
-def fir_AllocaOp : fir_AllocatableOp<"alloca"> {
-  let summary = "allocate storage for a temporary on the stack given a type";
-
-  let description = [{
-    This primitive operation is used to allocate an object on the stack.  A
-    reference to the object of type `!fir.ref<T>` is returned.  The returned
-    object has an undefined state.  The allocation can be given an optional
-    name.  The allocation may have a dynamic repetition count for allocating
-    a sequence of locations for the specified type.
-  }];
-
   let parser = [{
     M::Type intype;
     if (parser.parseType(intype))
@@ -205,6 +190,7 @@ def fir_AllocaOp : fir_AllocatableOp<"alloca"> {
       llvm::SmallVector<M::OpAsmParser::OperandType, 4> operands;
       if (parser.parseOperandList(operands,
               M::OpAsmParser::Delimiter::None) ||
+          parser.parseOptionalAttributeDict(result.attributes) ||
           parser.resolveOperands(operands, builder.getIndexType(),
               parser.getNameLoc(), result.operands))
         return M::failure();
@@ -222,8 +208,22 @@ def fir_AllocaOp : fir_AllocatableOp<"alloca"> {
       p << ", ";
       p.printOperand(sh);
     }
-    p << " : " << getType();
     p.printOptionalAttrDict(getAttrs(), {"in_type"});
+    p << " : " << getType();
+  }];
+}
+
+// Memory SSA operations
+
+def fir_AllocaOp : fir_AllocatableOp<"alloca"> {
+  let summary = "allocate storage for a temporary on the stack given a type";
+
+  let description = [{
+    This primitive operation is used to allocate an object on the stack.  A
+    reference to the object of type `!fir.ref<T>` is returned.  The returned
+    object has an undefined state.  The allocation can be given an optional
+    name.  The allocation may have a dynamic repetition count for allocating
+    a sequence of locations for the specified type.
   }];
 
   let verifier = [{
@@ -270,6 +270,7 @@ def fir_LoadOp : fir_OneResultOp<"load", [NoSideEffect]>,
     M::Type type;
     M::OpAsmParser::OperandType oper;
     if (parser.parseOperand(oper) ||
+        parser.parseOptionalAttributeDict(result.attributes) ||
         parser.parseColonType(type) ||
         parser.resolveOperand(oper, type, result.operands))
        return M::failure();
@@ -283,8 +284,8 @@ def fir_LoadOp : fir_OneResultOp<"load", [NoSideEffect]>,
   let printer = [{
     p << getOperationName() << ' ';
     p.printOperand(memref());
-    p << " : " << memref()->getType();
     p.printOptionalAttrDict(getAttrs(), {});
+    p << " : " << memref()->getType();
   }];
 
   let extraClassDeclaration = [{
@@ -309,6 +310,7 @@ def fir_StoreOp : fir_Op<"store", []>,
     if (parser.parseOperand(oper) ||
         parser.parseKeyword("to") ||
         parser.parseOperand(store) ||
+        parser.parseOptionalAttributeDict(result.attributes) ||
         parser.parseColonType(type) ||
         parser.resolveOperand(oper, elementType(type),
           result.operands) ||
@@ -322,8 +324,8 @@ def fir_StoreOp : fir_Op<"store", []>,
     p.printOperand(value());
     p << " to ";
     p.printOperand(memref());
-    p << " : " << memref()->getType();
     p.printOptionalAttrDict(getAttrs(), {});
+    p << " : " << memref()->getType();
   }];
 
   let extraClassDeclaration = [{
@@ -345,13 +347,11 @@ def fir_UndefOp : fir_OneResultOp<"undefined", [NoSideEffect]> {
     if (parser.parseType(intype) ||
         parser.addTypeToList(intype, result.types))
       return M::failure();
-    auto &builder = parser.getBuilder();
-    result.addAttribute("in_type", builder.getTypeAttr(intype));
     return M::success();
   }];
-  let printer = [{
-    p << getOperationName() << ' ' << getAttr("in_type");
-  }];
+
+  let printer = [{ p << getOperationName() << ' ' << getType(); }];
+
   let verifier = [{
     if (auto ref = getType().dyn_cast<fir::ReferenceType>())
       return emitOpError("undefined values of type !fir.ref not allowed");
@@ -367,38 +367,6 @@ def fir_AllocMemOp : fir_AllocatableOp<"allocmem"> {
     given type, T.  The heap refernce returned has type `!fir.heap<T>`.
     The memory object is in an undefined state.  `allocmem` operations must
     be paired with `freemem` operations to avoid memory leaks.
-  }];
-
-  let parser = [{
-    M::Type intype;
-    if (parser.parseType(intype))
-      return M::failure();
-    auto &builder = parser.getBuilder();
-    result.addAttribute("in_type", builder.getTypeAttr(intype));
-    if (!parser.parseOptionalComma()) {
-      llvm::SmallVector<M::Type, 4> typeVec;
-      llvm::SmallVector<M::OpAsmParser::OperandType, 4> operands;
-      if (parser.parseOperandList(operands,
-              M::OpAsmParser::Delimiter::None) ||
-          parser.resolveOperands(operands, builder.getIndexType(),
-              parser.getNameLoc(), result.operands))
-        return M::failure();
-    }
-    M::Type restype;
-    if (parser.parseColonType(restype) ||
-        parser.addTypeToList(restype, result.types))
-      return M::failure();
-    return M::success();
-  }];
-
-  let printer = [{
-    p << getOperationName() << ' ' << getAttr("in_type");
-    for (auto sh : getShapeOperands()) {
-      p << ", ";
-      p.printOperand(sh);
-    }
-    p << " : " << getType();
-    p.printOptionalAttrDict(getAttrs(), {"in_type"});
   }];
 
   let verifier = [{
@@ -437,6 +405,7 @@ def fir_FreeMemOp : fir_Op<"freemem", []>,
     M::Type type;
     M::OpAsmParser::OperandType oper;
     if (parser.parseOperand(oper) ||
+        parser.parseOptionalAttributeDict(result.attributes) ||
         parser.parseColonType(type) ||
         parser.resolveOperand(oper, type, result.operands))
       return M::failure();
@@ -446,8 +415,8 @@ def fir_FreeMemOp : fir_Op<"freemem", []>,
   let printer = [{
     p << getOperationName() << ' ';
     p.printOperand(heapref());
-    p << " : " << getOperand()->getType();
     p.printOptionalAttrDict(getAttrs(), {});
+    p << " : " << getOperand()->getType();    
   }];
 }
 
@@ -1133,7 +1102,7 @@ def fir_CoordinateOp : fir_Op<"coordinate_of", [NoSideEffect]>,
 
   let description = [{
     Determine a memory reference given a memory reference of composite type
-    and a list of index values.
+    and a list of index values. (This returns the address of a value.)
   }];
 
   let parser = [{
@@ -1623,6 +1592,7 @@ def fir_AddrOfOp : fir_OneResultOp<"address_of", [NoSideEffect]> {
     if (parser.parseLParen() ||
         parser.parseAttribute(attr, "symbol", result.attributes) ||
         parser.parseRParen() ||
+        parser.parseOptionalAttributeDict(result.attributes) ||
         parser.parseColonType(type) ||
         parser.addTypeToList(type, result.types))
       return mlir::failure();
@@ -1630,8 +1600,9 @@ def fir_AddrOfOp : fir_OneResultOp<"address_of", [NoSideEffect]> {
   }];
 
   let printer = [{
-    p << getOperationName() << " (" << getAttr("symbol") << ") : "
-      << getType();
+    p << getOperationName() << " (" << getAttr("symbol") << ')';
+    p.printOptionalAttrDict(getAttrs(), {"symbol"});
+    p << " : " << getType();
   }];
 }
 
@@ -1648,6 +1619,7 @@ def fir_ConvertOp : fir_OneResultOp<"convert", [NoSideEffect]>,
     llvm::SmallVector<mlir::OpAsmParser::OperandType, 1> operands;
     if (parser.parseOperandList(operands, 1,
             mlir::OpAsmParser::Delimiter::None) ||
+        parser.parseOptionalAttributeDict(result.attributes) ||
         parser.parseColonType(type) ||
         parser.resolveOperands(operands, type.getInputs(),
             parser.getNameLoc(), result.operands) ||
@@ -1658,6 +1630,7 @@ def fir_ConvertOp : fir_OneResultOp<"convert", [NoSideEffect]>,
   let printer = [{
     p << getOperationName() << ' ';
     p.printOperand(value());
+    p.printOptionalAttrDict(getAttrs(), {});
     p << " : ";
     p.printFunctionalType(getOperation());
   }];
@@ -1735,6 +1708,7 @@ def fir_GlobalEntryOp : fir_Op<"global_entry", []>,
     if (parser.parseAttribute(fieldAttr, "field", result.attributes) ||
         parser.parseComma() ||
         parser.parseOperand(constant) ||
+        parser.parseOptionalAttributeDict(result.attributes) ||
         parser.parseColonType(type) ||
         parser.resolveOperand(constant, type, result.operands))
       return M::failure();
@@ -1744,6 +1718,7 @@ def fir_GlobalEntryOp : fir_Op<"global_entry", []>,
   let printer = [{ 
     p << getOperationName() << ' ' << getAttr("field") << ", ";
     p.printOperand(constant());
+    p.printOptionalAttrDict(getAttrs(), {"in_type", "field"});
     p << " : " << getAttr("in_type");
   }];
 }
