@@ -120,37 +120,37 @@ class fir_SimpleOp<string mnemonic, list<OpTrait> traits>
 }
 
 def fir_AllocateOpBuilder : OpBuilder<
-  "Builder *, OperationState &result, Type resultType,"
-  "ArrayRef<Value *> size = {}, ArrayRef<NamedAttribute> attributes = {}",
+  "Builder *builder, OperationState &result, Type inType,"
+  "ArrayRef<Value *> sizes = {}, ArrayRef<NamedAttribute> attributes = {}",
   [{
-    result.addTypes(resultType);
-    result.addOperands(size);
+    result.addTypes(getRefTy(inType));
+    result.addAttribute("in_type", builder->getTypeAttr(inType));
+    result.addOperands(sizes);
     for (auto namedAttr : attributes)
       result.addAttribute(namedAttr.first, namedAttr.second);
   }]>;
 
 def fir_NamedAllocateOpBuilder : OpBuilder<
-  "Builder *builder, OperationState &result, Type resultType,"
-  "StringRef name, ArrayRef<Value *> size = {},"
-  "ArrayRef<NamedAttribute> attributes = {}",
+  "Builder *builder, OperationState &result, Type inType, StringRef name,"
+  "ArrayRef<Value *> sizes = {}, ArrayRef<NamedAttribute> attributes = {}",
   [{
+    result.addTypes(getRefTy(inType));
+    result.addAttribute("in_type", builder->getTypeAttr(inType));
     result.addAttribute("name", builder->getStringAttr(name));
-    result.addTypes(resultType);
-    result.addOperands(size);
+    result.addOperands(sizes);
     for (auto namedAttr : attributes)
       result.addAttribute(namedAttr.first, namedAttr.second);
   }]>;
 
 def fir_OneResultOpBuilder : OpBuilder<
-  "Builder *, OperationState &result, Type resultType, "
+  "Builder *, OperationState &result, Type resultType,"
   "ArrayRef<Value *> operands, ArrayRef<NamedAttribute> attributes = {}",
   [{
     if (resultType)
       result.addTypes(resultType);
     result.addOperands(operands);
-    for (auto namedAttr : attributes) {
+    for (auto namedAttr : attributes)
       result.addAttribute(namedAttr.first, namedAttr.second);
-    }
   }]>;
 
 class fir_OneResultOp<string mnemonic, list<OpTrait> traits = []> :
@@ -178,7 +178,7 @@ class fir_AllocatableBaseOp<string mnemonic, list<OpTrait> traits = []> :
 class fir_AllocatableOp<string mnemonic, list<OpTrait> traits =[]> :
     fir_AllocatableBaseOp<mnemonic, !listconcat([NoSideEffect], traits)>,
     fir_TwoBuilders<fir_AllocateOpBuilder, fir_NamedAllocateOpBuilder>,
-    Arguments<(ins Variadic<Index>:$shape)> {
+    Arguments<(ins TypeAttr:$in_type, Variadic<Index>:$shape)> {
 }
 
 // Memory SSA operations
@@ -215,6 +215,7 @@ def fir_AllocaOp : fir_AllocatableOp<"alloca"> {
       return M::failure();
     return M::success();
   }];
+
   let printer = [{
     p << getOperationName() << ' ' << getAttr("in_type");
     for (auto sh : getShapeOperands()) {
@@ -224,6 +225,7 @@ def fir_AllocaOp : fir_AllocatableOp<"alloca"> {
     p << " : " << getType();
     p.printOptionalAttrDict(getAttrs(), {"in_type"});
   }];
+
   let verifier = [{
     M::Type inType = getAttrOfType<M::TypeAttr>("in_type").getValue();
     M::Type outType = getType();
@@ -241,6 +243,7 @@ def fir_AllocaOp : fir_AllocatableOp<"alloca"> {
     operand_range getShapeOperands() {
       return {operand_begin(), operand_end()};
     }
+    static mlir::Type getRefTy(mlir::Type ty);
   }];
 }
 
@@ -276,6 +279,7 @@ def fir_LoadOp : fir_OneResultOp<"load", [NoSideEffect]>,
        return M::failure();
     return M::success();
   }];
+
   let printer = [{
     p << getOperationName() << ' ';
     p.printOperand(memref());
@@ -312,6 +316,7 @@ def fir_StoreOp : fir_Op<"store", []>,
        return M::failure();
     return M::success();
   }];
+
   let printer = [{
     p << getOperationName() << ' ';
     p.printOperand(value());
@@ -385,6 +390,7 @@ def fir_AllocMemOp : fir_AllocatableOp<"allocmem"> {
       return M::failure();
     return M::success();
   }];
+
   let printer = [{
     p << getOperationName() << ' ' << getAttr("in_type");
     for (auto sh : getShapeOperands()) {
@@ -394,6 +400,7 @@ def fir_AllocMemOp : fir_AllocatableOp<"allocmem"> {
     p << " : " << getType();
     p.printOptionalAttrDict(getAttrs(), {"in_type"});
   }];
+
   let verifier = [{
     M::Type inType = getAttrOfType<M::TypeAttr>("in_type").getValue();
     M::Type outType = getType();
@@ -411,6 +418,7 @@ def fir_AllocMemOp : fir_AllocatableOp<"allocmem"> {
     operand_range getShapeOperands() {
       return {operand_begin(), operand_end()};
     }
+    static mlir::Type getRefTy(mlir::Type ty);
   }];
 }
 
@@ -434,6 +442,7 @@ def fir_FreeMemOp : fir_Op<"freemem", []>,
       return M::failure();
     return M::success();
   }];
+
   let printer = [{
     p << getOperationName() << ' ';
     p.printOperand(heapref());
@@ -1199,7 +1208,7 @@ def fir_FieldIndexOp : fir_OneResultOp<"field_index", [NoSideEffect]> {
   let builders = [OpBuilder<
     "Builder *builder, OperationState &result, StringRef fieldName",
     [{
-      result.addAttribute("name", builder->getStringAttr(fieldName));
+      result.addAttribute("field_id", builder->getStringAttr(fieldName));
     }]
   >];
 
@@ -1306,7 +1315,7 @@ def fir_LenParamIndexOp : fir_OneResultOp<"len_param_index", [NoSideEffect]> {
   let builders = [OpBuilder<
     "Builder *builder, OperationState &result, StringRef fieldName",
     [{
-      result.addAttribute("name", builder->getStringAttr(fieldName));
+      result.addAttribute("field_id", builder->getStringAttr(fieldName));
     }]
   >];
 

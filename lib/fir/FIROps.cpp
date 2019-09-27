@@ -27,8 +27,20 @@ namespace fir {
 // AllocaOp
 
 M::Type AllocaOp::getAllocatedType() {
+  // return getAttrOfType<M::TypeAttr>("in_type").getType();
   return getType().cast<ReferenceType>().getEleTy();
 }
+
+M::Type AllocaOp::getRefTy(M::Type ty) { return ReferenceType::get(ty); }
+
+// AllocMemOp
+
+M::Type AllocMemOp::getAllocatedType() {
+  // return getAttrOfType<M::TypeAttr>("in_type").getType();
+  return getType().cast<HeapType>().getEleTy();
+}
+
+M::Type AllocMemOp::getRefTy(M::Type ty) { return HeapType::get(ty); }
 
 // DispatchTableOp
 
@@ -325,15 +337,14 @@ unsigned getCaseArgumentOffset(L::ArrayRef<M::Attribute> cases, unsigned dest) {
   return o;
 }
 
-mlir::ParseResult parseSelector(mlir::OpAsmParser &parser,
-                                mlir::OperationState &result,
-                                mlir::OpAsmParser::OperandType &selector,
-                                mlir::Type &type) {
+M::ParseResult parseSelector(M::OpAsmParser &parser, M::OperationState &result,
+                             M::OpAsmParser::OperandType &selector,
+                             M::Type &type) {
   if (parser.parseOperand(selector) || parser.parseColonType(type) ||
       parser.resolveOperand(selector, type, result.operands) ||
       parser.parseLSquare())
-    return mlir::failure();
-  return mlir::success();
+    return M::failure();
+  return M::success();
 }
 
 // Tablegen operators

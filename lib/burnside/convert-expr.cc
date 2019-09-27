@@ -607,7 +607,6 @@ M::Value *Br::createTemporary(M::Location loc, M::OpBuilder &builder,
   builder.setInsertionPointToStart(getEntryBlock(&builder));
   fir::AllocaOp ae;
   assert(!type.dyn_cast<fir::ReferenceType>() && "cannot be a reference");
-  type = fir::ReferenceType::get(type);
   if (symbol) {
     ae = builder.create<fir::AllocaOp>(loc, type, symbol->name().ToString());
     symMap.addSymbol(symbol, ae);
