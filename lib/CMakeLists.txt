@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-string-conversion -Wno-covered-switch-default")
+
 add_subdirectory(burnside)
 add_subdirectory(common)
 add_subdirectory(decimal)

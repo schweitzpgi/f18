@@ -192,10 +192,10 @@ public:
       M::Type eleTy = convertType(seq.getEleTy());
       auto shape = seq.getShape();
       L::SmallVector<int64_t, 4> memshape;
-      if (shape.known) {
-        for (auto bi : shape.bounds) {
-          if (bi.known) {
-            memshape.push_back(bi.bound);
+      if (shape.hasValue()) {
+        for (auto bi : *shape) {
+          if (bi.hasValue()) {
+            memshape.push_back(*bi);
           } else {
             memshape.push_back(-1); // unknown shape
           }
@@ -672,8 +672,6 @@ inline void rewriteSelectConstruct(M::Operation *op, OperandTy operands,
 /// This pass lowers all FIR dialect operations to LLVM IR dialect.  An
 /// MLIR pass is used to lower residual Std dialect to LLVM IR dialect.
 class FIRToLLVMLoweringPass : public M::ModulePass<FIRToLLVMLoweringPass> {
-  M::OpBuilder *builder;
-
 public:
   void runOnModule() override {
     auto &context{getContext()};

@@ -473,7 +473,7 @@ SequenceType::Shape FIRTypeParser::parseShape() {
     if (token.kind != TokenKind::eroteme) {
       goto shape_spec;
     }
-    bounds.emplace_back(false, 0);
+    bounds.emplace_back(0);
     goto check_xchar;
   shape_spec:
     if (token.kind != TokenKind::intlit) {
@@ -481,7 +481,7 @@ SequenceType::Shape FIRTypeParser::parseShape() {
       return {};
     }
     token.text.getAsInteger(10, extent);
-    bounds.emplace_back(true, extent);
+    bounds.emplace_back(extent);
   check_xchar:
     nextChar = lexer.nextNonWSChar();
     if (nextChar == ':') {
@@ -1241,23 +1241,23 @@ SequenceType::Shape fir::SequenceType::getShape() const {
 
 // compare if two shapes are equivalent
 bool fir::operator==(const SequenceType::Shape &sh_1,
-                     const SequenceType::Shape &sh_2) {
-  if (sh_1.known != sh_2.known) {
+		     const SequenceType::Shape &sh_2) {
+  if (sh_1.hasValue() != sh_2.hasValue()) {
     return false;
   }
-  if (!sh_1.known) {
+  if (!sh_1.hasValue()) {
     return true;
   }
-  auto &bnd_1 = sh_1.bounds;
-  auto &bnd_2 = sh_2.bounds;
+  auto &bnd_1 = *sh_1;
+  auto &bnd_2 = *sh_2;
   if (bnd_1.size() != bnd_2.size()) {
     return false;
   }
   for (std::size_t i = 0, end = bnd_1.size(); i != end; ++i) {
-    if (bnd_1[i].known != bnd_2[i].known) {
+    if (bnd_1[i].hasValue() != bnd_2[i].hasValue()) {
       return false;
     }
-    if (bnd_1[i].known && bnd_1[i].bound != bnd_2[i].bound) {
+    if (bnd_1[i].hasValue() && *bnd_1[i] != *bnd_2[i]) {
       return false;
     }
   }
@@ -1266,13 +1266,13 @@ bool fir::operator==(const SequenceType::Shape &sh_1,
 
 // compute the hash of an Extent
 L::hash_code fir::hash_value(const SequenceType::Extent &ext) {
-  return L::hash_combine(ext.known ? ext.bound : 0);
+  return L::hash_combine(ext.hasValue() ? *ext : 0);
 }
 
 // compute the hash of a Shape
 L::hash_code fir::hash_value(const SequenceType::Shape &sh) {
-  if (sh.known) {
-    return L::hash_combine_range(sh.bounds.begin(), sh.bounds.end());
+  if (sh.hasValue()) {
+    return L::hash_combine_range(sh->begin(), sh->end());
   }
   return L::hash_combine(0);
 }

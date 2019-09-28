@@ -69,8 +69,8 @@ M::Type fir::FIROpsDialect::parseType(llvm::StringRef rawData,
 void printBounds(llvm::raw_ostream &os, const SequenceType::Bounds &bounds) {
   char ch = '<';
   for (auto &b : bounds) {
-    if (b.known) {
-      os << ch << b.bound;
+    if (b.hasValue()) {
+      os << ch << *b;
     } else {
       os << ch << '?';
     }
@@ -111,8 +111,8 @@ void fir::FIROpsDialect::printType(M::Type ty, llvm::raw_ostream &os) const {
   } else if (auto type = ty.dyn_cast<fir::SequenceType>()) {
     os << "array";
     auto shape = type.getShape();
-    if (shape.known) {
-      printBounds(os, shape.bounds);
+    if (shape.hasValue()) {
+      printBounds(os, *shape);
     } else {
       os << "<*";
     }

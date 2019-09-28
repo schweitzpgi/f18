@@ -192,12 +192,12 @@ public:
         if (lbv.has_value() && ubv.has_value() && isConstant(lbv.value()) &&
             isConstant(ubv.value())) {
           bounds.emplace_back(
-              true, toConstant(ubv.value()) - toConstant(lbv.value()) + 1);
+	      toConstant(ubv.value()) - toConstant(lbv.value()) + 1);
         } else {
-          bounds.emplace_back(false, 0);
+          bounds.emplace_back(0);
         }
       } else {
-        bounds.emplace_back(false, 0);
+        bounds.emplace_back(0);
       }
     }
     return {bounds};
@@ -263,7 +263,7 @@ public:
 
   fir::SequenceType::Shape trivialShape(int size) {
     fir::SequenceType::Bounds bounds;
-    bounds.emplace_back(true, size);
+    bounds.emplace_back(size);
     return {bounds};
   }
 

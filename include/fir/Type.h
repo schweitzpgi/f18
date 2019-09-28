@@ -16,6 +16,7 @@
 #define FIR_TYPE_H
 
 #include "mlir/IR/Types.h"
+#include "llvm/ADT/Optional.h"
 
 namespace llvm {
 class StringRef;
@@ -216,18 +217,9 @@ class SequenceType : public mlir::Type::TypeBase<SequenceType, mlir::Type,
 public:
   using Base::Base;
   using BoundInfo = int64_t;
-  struct Extent {
-    bool known;
-    BoundInfo bound;
-    explicit Extent(bool k, BoundInfo b) : known(k), bound(b) {}
-  };
+  using Extent = llvm::Optional<BoundInfo>;
   using Bounds = std::vector<Extent>;
-  struct Shape {
-    bool known;
-    Bounds bounds;
-    Shape() : known(false) {}
-    Shape(const Bounds &b) : known(true), bounds(b) {}
-  };
+  using Shape = llvm::Optional<Bounds>;
 
   mlir::Type getEleTy() const;
   Shape getShape() const;
@@ -273,5 +265,11 @@ mlir::Type parseFirType(FIROpsDialect *dialect, llvm::StringRef rawData,
                         mlir::Location loc);
 
 } // namespace fir
+
+namespace llvm {
+inline llvm::hash_code hash_value(const Optional<int64_t> &ext) {
+  return fir::hash_value(ext);
+}
+}
 
 #endif // FIR_TYPE_H

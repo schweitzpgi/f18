@@ -346,7 +346,11 @@ if (LLVM_COMPILER_IS_GCC_COMPATIBLE)
   endif ()
 
   if ((CMAKE_CXX_COMPILER_ID MATCHES "Clang"))
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} --gcc-toolchain=${CMAKE_CXX_COMPILER}")
+    if (APPLE)
+      # don't add --gcc-toolchain
+    else()
+      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} --gcc-toolchain=${CMAKE_CXX_COMPILER}")
+    endif()
   endif()
   
   check_cxx_compiler_flag("-Werror -Wnested-anon-types" CXX_SUPPORTS_NO_NESTED_ANON_TYPES_FLAG)
