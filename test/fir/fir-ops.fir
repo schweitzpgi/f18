@@ -37,6 +37,7 @@ func @user_i64(i64)
 func @user_tdesc(!fir.tdesc<!fir.type<x>>)
 func @store_tuple(tuple<i32>) -> ()
 
+func @get_method_box() -> !fir.box<!fir.type<derived3{f:f32}>>
 func @method_impl(!fir.box<!fir.type<derived3{f:f32}>>)
 
 func @nop()
@@ -173,6 +174,8 @@ func @bar_select_rank(%arg : i32, %arg2 : i32) -> i32 {
   return %d : i32
 ^bb5 :
   %zero = constant 0 : i32
+  %7 = fir.call @get_method_box() : () -> !fir.box<!fir.type<derived3{f:f32}>>
+  fir.dispatch method(%7) : (!fir.box<!fir.type<derived3{f:f32}>>) -> ()
   return %zero : i32
 }
 
