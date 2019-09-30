@@ -1168,6 +1168,12 @@ BoxType fir::BoxType::get(M::Type elementType) {
 
 M::Type fir::BoxType::getEleTy() const { return getImpl()->getElementType(); }
 
+M::LogicalResult fir::BoxType::verifyConstructionInvariants(
+    L::Optional<M::Location> loc, M::MLIRContext *context, M::Type eleTy) {
+  // TODO
+  return M::success();
+}
+
 // BoxChar<C>
 
 BoxCharType fir::BoxCharType::get(M::MLIRContext *ctxt, KindTy kind) {
@@ -1188,6 +1194,13 @@ M::Type fir::BoxProcType::getEleTy() const {
   return getImpl()->getElementType();
 }
 
+M::LogicalResult fir::BoxProcType::verifyConstructionInvariants(
+    L::Optional<M::Location> loc, M::MLIRContext *context, M::Type eleTy) {
+  if (eleTy.dyn_cast<M::FunctionType>() || eleTy.dyn_cast<ReferenceType>())
+    return M::success();
+  return M::failure();
+}
+
 // Reference<T>
 
 ReferenceType fir::ReferenceType::get(M::Type elementType) {
@@ -1196,6 +1209,14 @@ ReferenceType fir::ReferenceType::get(M::Type elementType) {
 
 M::Type fir::ReferenceType::getEleTy() const {
   return getImpl()->getElementType();
+}
+
+M::LogicalResult fir::ReferenceType::verifyConstructionInvariants(
+    L::Optional<M::Location> loc, M::MLIRContext *context, M::Type eleTy) {
+  if (eleTy.dyn_cast<DimsType>() || eleTy.dyn_cast<FieldType>() ||
+      eleTy.dyn_cast<ReferenceType>() || eleTy.dyn_cast<TypeDescType>())
+    return M::failure();
+  return M::success();
 }
 
 // Pointer<T>
@@ -1212,6 +1233,17 @@ M::Type fir::PointerType::getEleTy() const {
   return getImpl()->getElementType();
 }
 
+M::LogicalResult fir::PointerType::verifyConstructionInvariants(
+    L::Optional<M::Location> loc, M::MLIRContext *context, M::Type eleTy) {
+  if (eleTy.dyn_cast<BoxType>() || eleTy.dyn_cast<BoxCharType>() ||
+      eleTy.dyn_cast<BoxProcType>() || eleTy.dyn_cast<DimsType>() ||
+      eleTy.dyn_cast<FieldType>() || eleTy.dyn_cast<HeapType>() ||
+      eleTy.dyn_cast<PointerType>() || eleTy.dyn_cast<ReferenceType>() ||
+      eleTy.dyn_cast<TypeDescType>())
+    return M::failure();
+  return M::success();
+}
+
 // Heap<T>
 
 HeapType fir::HeapType::get(M::Type elementType) {
@@ -1223,6 +1255,17 @@ HeapType fir::HeapType::get(M::Type elementType) {
 }
 
 M::Type fir::HeapType::getEleTy() const { return getImpl()->getElementType(); }
+
+M::LogicalResult fir::HeapType::verifyConstructionInvariants(
+    L::Optional<M::Location> loc, M::MLIRContext *context, M::Type eleTy) {
+  if (eleTy.dyn_cast<BoxType>() || eleTy.dyn_cast<BoxCharType>() ||
+      eleTy.dyn_cast<BoxProcType>() || eleTy.dyn_cast<DimsType>() ||
+      eleTy.dyn_cast<FieldType>() || eleTy.dyn_cast<HeapType>() ||
+      eleTy.dyn_cast<PointerType>() || eleTy.dyn_cast<ReferenceType>() ||
+      eleTy.dyn_cast<TypeDescType>())
+    return M::failure();
+  return M::success();
+}
 
 // Sequence<T>
 
@@ -1239,9 +1282,22 @@ SequenceType::Shape fir::SequenceType::getShape() const {
   return getImpl()->getShape();
 }
 
+M::LogicalResult fir::SequenceType::verifyConstructionInvariants(
+    L::Optional<mlir::Location> loc, M::MLIRContext *context,
+    const SequenceType::Shape &shape, M::Type eleTy) {
+  // DIMENSION attribute can only be applied to an intrinsic or record type
+  if (eleTy.dyn_cast<BoxType>() || eleTy.dyn_cast<BoxCharType>() ||
+      eleTy.dyn_cast<BoxProcType>() || eleTy.dyn_cast<DimsType>() ||
+      eleTy.dyn_cast<FieldType>() || eleTy.dyn_cast<HeapType>() ||
+      eleTy.dyn_cast<PointerType>() || eleTy.dyn_cast<ReferenceType>() ||
+      eleTy.dyn_cast<TypeDescType>() || eleTy.dyn_cast<SequenceType>())
+    return M::failure();
+  return M::success();
+}
+
 // compare if two shapes are equivalent
 bool fir::operator==(const SequenceType::Shape &sh_1,
-		     const SequenceType::Shape &sh_2) {
+                     const SequenceType::Shape &sh_2) {
   if (sh_1.hasValue() != sh_2.hasValue()) {
     return false;
   }
@@ -1277,7 +1333,9 @@ L::hash_code fir::hash_value(const SequenceType::Shape &sh) {
   return L::hash_combine(0);
 }
 
-// Derived<Ts...>
+/// RecordType
+///
+/// This type captures a Fortran "derived type"
 
 RecordType fir::RecordType::get(M::MLIRContext *ctxt, L::StringRef name,
                                 L::ArrayRef<TypePair> lenPList,
@@ -1295,7 +1353,17 @@ RecordType::TypeList fir::RecordType::getLenParamList() {
   return getImpl()->getLenParamList();
 }
 
-// Type descriptor
+M::LogicalResult fir::RecordType::verifyConstructionInvariants(
+    L::Optional<mlir::Location>, M::MLIRContext *context, L::StringRef name,
+    L::ArrayRef<RecordType::TypePair> lenPList,
+    L::ArrayRef<RecordType::TypePair> typeList) {
+  // TODO
+  return M::success();
+}
+
+/// Type descriptor type
+///
+/// This is the type of a type descriptor object (similar to a class instance)
 
 TypeDescType fir::TypeDescType::get(M::Type ofType) {
   assert(!ofType.dyn_cast<ReferenceType>());
@@ -1303,6 +1371,16 @@ TypeDescType fir::TypeDescType::get(M::Type ofType) {
 }
 
 M::Type fir::TypeDescType::getOfTy() const { return getImpl()->getOfType(); }
+
+M::LogicalResult fir::TypeDescType::verifyConstructionInvariants(
+    L::Optional<M::Location> loc, M::MLIRContext *context, M::Type eleTy) {
+  if (eleTy.dyn_cast<BoxType>() || eleTy.dyn_cast<BoxCharType>() ||
+      eleTy.dyn_cast<BoxProcType>() || eleTy.dyn_cast<DimsType>() ||
+      eleTy.dyn_cast<FieldType>() || eleTy.dyn_cast<ReferenceType>() ||
+      eleTy.dyn_cast<TypeDescType>())
+    return M::failure();
+  return M::success();
+}
 
 // Implementation of the thin interface from dialect to type parser
 

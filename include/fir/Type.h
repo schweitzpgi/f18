@@ -142,6 +142,10 @@ public:
   static BoxType get(mlir::Type eleTy);
   static bool kindof(unsigned kind) { return kind == TypeKind::FIR_BOX; }
   mlir::Type getEleTy() const;
+
+  static mlir::LogicalResult
+  verifyConstructionInvariants(llvm::Optional<mlir::Location> loc,
+                               mlir::MLIRContext *context, mlir::Type eleTy);
 };
 
 class BoxCharType : public mlir::Type::TypeBase<BoxCharType, mlir::Type,
@@ -160,6 +164,10 @@ public:
   static BoxProcType get(mlir::Type eleTy);
   static bool kindof(unsigned kind) { return kind == TypeKind::FIR_BOXPROC; }
   mlir::Type getEleTy() const;
+
+  static mlir::LogicalResult
+  verifyConstructionInvariants(llvm::Optional<mlir::Location> loc,
+                               mlir::MLIRContext *context, mlir::Type eleTy);
 };
 
 class DimsType : public mlir::Type::TypeBase<DimsType, mlir::Type,
@@ -189,6 +197,10 @@ public:
   static bool kindof(unsigned kind) { return kind == TypeKind::FIR_HEAP; }
 
   mlir::Type getEleTy() const;
+
+  static mlir::LogicalResult
+  verifyConstructionInvariants(llvm::Optional<mlir::Location> loc,
+                               mlir::MLIRContext *context, mlir::Type eleTy);
 };
 
 class PointerType : public mlir::Type::TypeBase<PointerType, mlir::Type,
@@ -199,6 +211,10 @@ public:
   static bool kindof(unsigned kind) { return kind == TypeKind::FIR_POINTER; }
 
   mlir::Type getEleTy() const;
+
+  static mlir::LogicalResult
+  verifyConstructionInvariants(llvm::Optional<mlir::Location> loc,
+                               mlir::MLIRContext *context, mlir::Type eleTy);
 };
 
 class ReferenceType
@@ -210,6 +226,10 @@ public:
   static bool kindof(unsigned kind) { return kind == TypeKind::FIR_REFERENCE; }
 
   mlir::Type getEleTy() const;
+
+  static mlir::LogicalResult
+  verifyConstructionInvariants(llvm::Optional<mlir::Location> loc,
+                               mlir::MLIRContext *context, mlir::Type eleTy);
 };
 
 class SequenceType : public mlir::Type::TypeBase<SequenceType, mlir::Type,
@@ -226,6 +246,10 @@ public:
 
   static SequenceType get(const Shape &shape, mlir::Type elementType);
   static bool kindof(unsigned kind) { return kind == TypeKind::FIR_SEQUENCE; }
+  static mlir::LogicalResult
+  verifyConstructionInvariants(llvm::Optional<mlir::Location> loc,
+                               mlir::MLIRContext *context, const Shape &shape,
+                               mlir::Type eleTy);
 };
 
 bool operator==(const SequenceType::Shape &, const SequenceType::Shape &);
@@ -239,6 +263,10 @@ public:
   static TypeDescType get(mlir::Type ofType);
   static bool kindof(unsigned kind) { return kind == TypeKind::FIR_TYPEDESC; }
   mlir::Type getOfTy() const;
+
+  static mlir::LogicalResult
+  verifyConstructionInvariants(llvm::Optional<mlir::Location> loc,
+                               mlir::MLIRContext *context, mlir::Type ofType);
 };
 
 // Derived types
@@ -259,6 +287,12 @@ public:
                         llvm::ArrayRef<TypePair> typeList = {});
   constexpr static bool kindof(unsigned kind) { return kind == getId(); }
   constexpr static unsigned getId() { return TypeKind::FIR_DERIVED; }
+
+  static mlir::LogicalResult
+  verifyConstructionInvariants(llvm::Optional<mlir::Location> loc,
+                               mlir::MLIRContext *context, llvm::StringRef name,
+                               llvm::ArrayRef<TypePair> lenPList,
+                               llvm::ArrayRef<TypePair> typeList);
 };
 
 mlir::Type parseFirType(FIROpsDialect *dialect, llvm::StringRef rawData,
@@ -270,6 +304,6 @@ namespace llvm {
 inline llvm::hash_code hash_value(const Optional<int64_t> &ext) {
   return fir::hash_value(ext);
 }
-}
+} // namespace llvm
 
 #endif // FIR_TYPE_H
