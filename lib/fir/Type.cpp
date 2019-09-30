@@ -19,6 +19,7 @@
 #include "mlir/IR/StandardTypes.h"
 #include "mlir/Parser.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/ADT/StringSet.h"
 #include "llvm/ADT/Twine.h"
 
 namespace L = llvm;
@@ -1353,11 +1354,36 @@ RecordType::TypeList fir::RecordType::getLenParamList() {
   return getImpl()->getLenParamList();
 }
 
+inline static bool verifyIntegerType(M::Type ty) {
+  return ty.dyn_cast<M::IntegerType>() || ty.dyn_cast<IntType>();
+}
+
+inline static bool verifyRecordMemberType(M::Type ty) {
+  return !(ty.dyn_cast<BoxType>() || ty.dyn_cast<BoxCharType>() ||
+           ty.dyn_cast<BoxProcType>() || ty.dyn_cast<DimsType>() ||
+           ty.dyn_cast<FieldType>() || ty.dyn_cast<ReferenceType>() ||
+           ty.dyn_cast<TypeDescType>());
+}
+
 M::LogicalResult fir::RecordType::verifyConstructionInvariants(
     L::Optional<mlir::Location>, M::MLIRContext *context, L::StringRef name,
     L::ArrayRef<RecordType::TypePair> lenPList,
     L::ArrayRef<RecordType::TypePair> typeList) {
-  // TODO
+  if (name.size() == 0)
+    return M::failure();
+  llvm::StringSet uniq;
+  for (auto &p : lenPList)
+    if (!uniq.insert(p.first).second)
+      return M::failure();
+  for (auto &p : typeList)
+    if (!uniq.insert(p.first).second)
+      return M::failure();
+  for (auto &p : lenPList)
+    if (!verifyIntegerType(p.second))
+      return M::failure();
+  for (auto &p : typeList)
+    if (!verifyRecordMemberType(p.second))
+      return M::failure();
   return M::success();
 }
 

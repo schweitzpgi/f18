@@ -179,12 +179,12 @@ func @bar_select_rank(%arg : i32, %arg2 : i32) -> i32 {
   return %zero : i32
 }
 
-func @bar_select_type(%arg : !fir.box<!fir.type<name(param1:i32){fld:!fir.boxchar<1>}>>) -> i32 {
+func @bar_select_type(%arg : !fir.box<!fir.type<name(param1:i32){fld:!fir.char<1>}>>) -> i32 {
   %0 = constant 1 : i32
   %1 = constant 2 : i32
   %2 = constant 3 : i32
   %3 = constant 4 : i32
-  fir.select_type %arg : !fir.box<!fir.type<name(param1:i32){fld:!fir.boxchar<1>}>> [ #fir.instance<i32>,^bb1(%0:i32), #fir.instance<i64>,^bb2(%2:i32), #fir.subsumed<i16>,^bb3(%2:i32), #fir.instance<i8>,^bb4(%1:i32), unit,^bb5 ]
+  fir.select_type %arg : !fir.box<!fir.type<name(param1:i32){fld:!fir.char<1>}>> [ #fir.instance<i32>,^bb1(%0:i32), #fir.instance<i64>,^bb2(%2:i32), #fir.subsumed<i16>,^bb3(%2:i32), #fir.instance<i8>,^bb4(%1:i32), unit,^bb5 ]
 ^bb1(%a : i32) :
   return %a : i32
 ^bb2(%b : i32) :
