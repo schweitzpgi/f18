@@ -804,6 +804,11 @@ def fir_EmboxOp : fir_Op<"embox", [NoSideEffect]>, Results<(outs fir_BoxType)>,
       if (parser.parseOperand(dims))
         return M::failure();
       operands.push_back(dims);
+    } else if (!parser.parseOptionalLSquare()) {
+      M::AffineMapAttr map;
+      if (parser.parseAttribute(map, "layout_map", result.attributes) ||
+          parser.parseRSquare())
+        return M::failure();
     }
     if (parser.parseColonType(type) ||
         parser.resolveOperands(operands, type.getInputs(),
@@ -819,6 +824,8 @@ def fir_EmboxOp : fir_Op<"embox", [NoSideEffect]>, Results<(outs fir_BoxType)>,
     if (getNumOperands() == 2) {
       p << ", ";
       p.printOperands(dims());
+    } else if (auto map = getAttr("layout_map")) {
+      p << '[' << map << ']';
     }
     p << " : ";
     p.printFunctionalType(getOperation());

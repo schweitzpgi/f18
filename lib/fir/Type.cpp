@@ -380,8 +380,29 @@ protected:
     return false;
   }
 
-  // `box` `<` type `>`
-  BoxType parseBox() { return parseTypeSingleton<BoxType>(); }
+  // `box` `<` type (',' affine-map)? `>`
+  BoxType parseBox() { 
+    if (consumeToken(TokenKind::leftang, "expected '<' in type")) {
+      return {};
+    }
+    auto ofTy = parseNextType();
+    if (!ofTy) {
+      emitError(loc, "expected type parameter");
+      return {};
+    }
+    auto token = lexer.lexToken();
+    if (token.kind == TokenKind::comma) {
+      // TODO: parse AffineMapAttr
+      token = lexer.lexToken();
+    }
+    if (token.kind != TokenKind::rightang) {
+      emitError(loc, "expected '>' in type");
+      return {};
+    }
+    if (checkAtEnd())
+      return {};
+    return BoxType::get(ofTy);
+  }
 
   // `boxchar` `<` kind `>`
   BoxCharType parseBoxChar() { return parseKindSingleton<BoxCharType>(); }
@@ -474,7 +495,7 @@ SequenceType::Shape FIRTypeParser::parseShape() {
     if (token.kind != TokenKind::eroteme) {
       goto shape_spec;
     }
-    bounds.emplace_back(0);
+    bounds.emplace_back(SequenceType::Extent());
     goto check_xchar;
   shape_spec:
     if (token.kind != TokenKind::intlit) {
@@ -497,7 +518,7 @@ SequenceType::Shape FIRTypeParser::parseShape() {
 }
 
 // bounds ::= lo extent stride | `?`
-// `array` `<` bounds (`,` bounds)* `:` type `>`
+// `array` `<` bounds (`,` bounds)* `:` type (',' affine-map)? `>`
 SequenceType FIRTypeParser::parseSequence() {
   if (consumeToken(TokenKind::leftang, "expected '<' in array type")) {
     return {};
@@ -508,7 +529,13 @@ SequenceType FIRTypeParser::parseSequence() {
     emitError(loc, "invalid element type");
     return {};
   }
-  if (consumeToken(TokenKind::rightang, "expected '>' in array type")) {
+  auto token = lexer.lexToken();
+  if (token.kind == TokenKind::comma) {
+    // TODO: parse AffineMapAttr
+    token = lexer.lexToken();
+  }
+  if (token.kind != TokenKind::rightang) {
+    emitError(loc, "expected '>' in array type");
     return {};
   }
   if (checkAtEnd()) {
@@ -833,27 +860,37 @@ private:
 
 /// Boxed object (a Fortran descriptor)
 struct BoxTypeStorage : public M::TypeStorage {
-  using KeyTy = M::Type;
+  using KeyTy = std::tuple<M::Type, M::AffineMapAttr>;
 
-  static unsigned hashKey(const KeyTy &key) { return L::hash_combine(key); }
+  static unsigned hashKey(const KeyTy &key) {
+    auto hashVal{L::hash_combine(std::get<M::Type>(key))};
+    return L::hash_combine(hashVal,
+                           L::hash_combine(std::get<M::AffineMapAttr>(key)));
+  }
 
-  bool operator==(const KeyTy &key) const { return key == getElementType(); }
+  bool operator==(const KeyTy &key) const {
+    return std::get<M::Type>(key) == getElementType() &&
+           std::get<M::AffineMapAttr>(key) == getLayoutMap();
+  }
 
   static BoxTypeStorage *construct(M::TypeStorageAllocator &allocator,
-                                   M::Type eleTy) {
-    assert(eleTy && "element type is null");
+                                   const KeyTy &key) {
     auto *storage = allocator.allocate<BoxTypeStorage>();
-    return new (storage) BoxTypeStorage{eleTy};
+    return new (storage)
+        BoxTypeStorage{std::get<M::Type>(key), std::get<M::AffineMapAttr>(key)};
   }
 
   M::Type getElementType() const { return eleTy; }
+  M::AffineMapAttr getLayoutMap() const { return map; }
 
 protected:
   M::Type eleTy;
+  M::AffineMapAttr map;
 
 private:
   BoxTypeStorage() = delete;
-  explicit BoxTypeStorage(M::Type eleTy) : eleTy{eleTy} {}
+  explicit BoxTypeStorage(M::Type eleTy, M::AffineMapAttr map)
+      : eleTy{eleTy}, map{map} {}
 };
 
 /// Boxed CHARACTER object type
@@ -987,34 +1024,40 @@ private:
 
 /// Sequence-like object storage
 struct SequenceTypeStorage : public M::TypeStorage {
-  using KeyTy = std::pair<SequenceType::Shape, M::Type>;
+  using KeyTy = std::tuple<SequenceType::Shape, M::Type, M::AffineMapAttr>;
 
   static unsigned hashKey(const KeyTy &key) {
     auto shapeHash{hash_value(std::get<SequenceType::Shape>(key))};
-    return L::hash_combine(shapeHash, std::get<M::Type>(key));
+    shapeHash = L::hash_combine(shapeHash, std::get<M::Type>(key));
+    return L::hash_combine(shapeHash, std::get<M::AffineMapAttr>(key));
   }
 
   bool operator==(const KeyTy &key) const {
-    return key == KeyTy{getShape(), getElementType()};
+    return key == KeyTy{getShape(), getElementType(), getLayoutMap()};
   }
 
   static SequenceTypeStorage *construct(M::TypeStorageAllocator &allocator,
                                         const KeyTy &key) {
     auto *storage = allocator.allocate<SequenceTypeStorage>();
-    return new (storage) SequenceTypeStorage{key.first, key.second};
+    return new (storage) SequenceTypeStorage{std::get<SequenceType::Shape>(key),
+                                             std::get<M::Type>(key),
+                                             std::get<M::AffineMapAttr>(key)};
   }
 
   SequenceType::Shape getShape() const { return shape; }
   M::Type getElementType() const { return eleTy; }
+  M::AffineMapAttr getLayoutMap() const { return map; }
 
 protected:
   SequenceType::Shape shape;
   M::Type eleTy;
+  M::AffineMapAttr map;
 
 private:
   SequenceTypeStorage() = delete;
-  explicit SequenceTypeStorage(const SequenceType::Shape &shape, M::Type eleTy)
-      : shape{shape}, eleTy{eleTy} {}
+  explicit SequenceTypeStorage(const SequenceType::Shape &shape, M::Type eleTy,
+                               M::AffineMapAttr map)
+      : shape{shape}, eleTy{eleTy}, map{map} {}
 };
 
 /// Derived type storage
@@ -1163,14 +1206,20 @@ int fir::RealType::getSizeInBits() const { return getImpl()->getFKind(); }
 
 // Box<T>
 
-BoxType fir::BoxType::get(M::Type elementType) {
-  return Base::get(elementType.getContext(), FIR_BOX, elementType);
+BoxType fir::BoxType::get(M::Type elementType, M::AffineMapAttr map) {
+  return Base::get(elementType.getContext(), FIR_BOX, elementType, map);
 }
 
 M::Type fir::BoxType::getEleTy() const { return getImpl()->getElementType(); }
 
-M::LogicalResult fir::BoxType::verifyConstructionInvariants(
-    L::Optional<M::Location> loc, M::MLIRContext *context, M::Type eleTy) {
+M::AffineMapAttr fir::BoxType::getLayoutMap() const {
+  return getImpl()->getLayoutMap();
+}
+
+M::LogicalResult
+fir::BoxType::verifyConstructionInvariants(L::Optional<M::Location>,
+                                           M::MLIRContext *ctx, M::Type eleTy,
+                                           mlir::AffineMapAttr map) {
   // TODO
   return M::success();
 }
@@ -1270,13 +1319,18 @@ M::LogicalResult fir::HeapType::verifyConstructionInvariants(
 
 // Sequence<T>
 
-SequenceType fir::SequenceType::get(const Shape &shape, M::Type elementType) {
+SequenceType fir::SequenceType::get(const Shape &shape, M::Type elementType,
+                                    M::AffineMapAttr map) {
   auto *ctxt = elementType.getContext();
-  return Base::get(ctxt, FIR_SEQUENCE, shape, elementType);
+  return Base::get(ctxt, FIR_SEQUENCE, shape, elementType, map);
 }
 
 M::Type fir::SequenceType::getEleTy() const {
   return getImpl()->getElementType();
+}
+
+M::AffineMapAttr fir::SequenceType::getLayoutMap() const {
+  return getImpl()->getLayoutMap();
 }
 
 SequenceType::Shape fir::SequenceType::getShape() const {
@@ -1285,7 +1339,7 @@ SequenceType::Shape fir::SequenceType::getShape() const {
 
 M::LogicalResult fir::SequenceType::verifyConstructionInvariants(
     L::Optional<mlir::Location> loc, M::MLIRContext *context,
-    const SequenceType::Shape &shape, M::Type eleTy) {
+    const SequenceType::Shape &shape, M::Type eleTy, M::AffineMapAttr map) {
   // DIMENSION attribute can only be applied to an intrinsic or record type
   if (eleTy.dyn_cast<BoxType>() || eleTy.dyn_cast<BoxCharType>() ||
       eleTy.dyn_cast<BoxProcType>() || eleTy.dyn_cast<DimsType>() ||

@@ -15,6 +15,7 @@
 #ifndef FIR_TYPE_H
 #define FIR_TYPE_H
 
+#include "mlir/IR/Attributes.h"
 #include "mlir/IR/Types.h"
 #include "llvm/ADT/Optional.h"
 
@@ -139,13 +140,15 @@ class BoxType
     : public mlir::Type::TypeBase<BoxType, mlir::Type, detail::BoxTypeStorage> {
 public:
   using Base::Base;
-  static BoxType get(mlir::Type eleTy);
+  static BoxType get(mlir::Type eleTy, mlir::AffineMapAttr map = {});
   static bool kindof(unsigned kind) { return kind == TypeKind::FIR_BOX; }
   mlir::Type getEleTy() const;
+  mlir::AffineMapAttr getLayoutMap() const;
 
   static mlir::LogicalResult
-  verifyConstructionInvariants(llvm::Optional<mlir::Location> loc,
-                               mlir::MLIRContext *context, mlir::Type eleTy);
+  verifyConstructionInvariants(llvm::Optional<mlir::Location>,
+                               mlir::MLIRContext *ctx, mlir::Type eleTy,
+                               mlir::AffineMapAttr map);
 };
 
 class BoxCharType : public mlir::Type::TypeBase<BoxCharType, mlir::Type,
@@ -243,13 +246,15 @@ public:
 
   mlir::Type getEleTy() const;
   Shape getShape() const;
+  mlir::AffineMapAttr getLayoutMap() const;
 
-  static SequenceType get(const Shape &shape, mlir::Type elementType);
+  static SequenceType get(const Shape &shape, mlir::Type elementType,
+                          mlir::AffineMapAttr map = {});
   static bool kindof(unsigned kind) { return kind == TypeKind::FIR_SEQUENCE; }
   static mlir::LogicalResult
   verifyConstructionInvariants(llvm::Optional<mlir::Location> loc,
                                mlir::MLIRContext *context, const Shape &shape,
-                               mlir::Type eleTy);
+                               mlir::Type eleTy, mlir::AffineMapAttr map);
 };
 
 bool operator==(const SequenceType::Shape &, const SequenceType::Shape &);

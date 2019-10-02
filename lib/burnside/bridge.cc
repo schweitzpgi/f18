@@ -21,18 +21,11 @@
 #include "fir/Type.h"
 #include "flattened.h"
 #include "runtime.h"
-#include "../evaluate/expression.h"
 #include "../parser/parse-tree-visitor.h"
 #include "../semantics/tools.h"
-#include "llvm/ADT/SmallVector.h"
-#include "llvm/IR/Module.h"
-#include "llvm/Support/raw_ostream.h"
-#include "mlir/Dialect/AffineOps/AffineOps.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/StandardOps/Ops.h"
 #include "mlir/IR/Builders.h"
-#include "mlir/IR/Identifier.h"
-#include "mlir/IR/Module.h"
 #include "mlir/Parser.h"
 #include "mlir/Target/LLVMIR.h"
 
@@ -61,7 +54,7 @@ constexpr bool firLoopOp{false};
 
 /// Converter from Fortran to FIR
 class FIRConverter {
-  using LabelMapType = std::map<Fl::LabelRef, M::Block *>;
+  using LabelMapType = std::map<Fl::LabelMention, M::Block *>;
   using Closure = std::function<void(const LabelMapType &)>;
 
   struct DoBoundsInfo {
@@ -208,7 +201,7 @@ class FIRConverter {
     } else {
       using namespace std::placeholders;
       edgeQ.emplace_back(std::bind(
-          [](M::OpBuilder *builder, M::Block *block, Fl::LabelRef dest,
+          [](M::OpBuilder *builder, M::Block *block, Fl::LabelMention dest,
               M::Location location, const LabelMapType &map) {
             builder->setInsertionPointToEnd(block);
             assert(map.find(dest) != map.end() && "no destination");
@@ -429,24 +422,25 @@ class FIRConverter {
 
   // Conditional branch-like statements
   template<typename A>
-  void genFIR(const A &tuple, Fl::LabelRef trueLabel, Fl::LabelRef falseLabel) {
+  void genFIR(
+      const A &tuple, Fl::LabelMention trueLabel, Fl::LabelMention falseLabel) {
     auto *exprRef{Se::GetExpr(std::get<Pa::ScalarLogicalExpr>(tuple))};
     assert(exprRef && "condition expression missing");
     auto *cond{createFIRExpr(toLocation(), exprRef)};
     genCondBranch(cond, trueLabel, falseLabel);
   }
-  void genFIR(const Pa::Statement<Pa::IfThenStmt> &stmt, Fl::LabelRef trueLabel,
-      Fl::LabelRef falseLabel) {
+  void genFIR(const Pa::Statement<Pa::IfThenStmt> &stmt,
+      Fl::LabelMention trueLabel, Fl::LabelMention falseLabel) {
     setCurrentPos(stmt.source);
     genFIR(stmt.statement.t, trueLabel, falseLabel);
   }
-  void genFIR(const Pa::Statement<Pa::ElseIfStmt> &stmt, Fl::LabelRef trueLabel,
-      Fl::LabelRef falseLabel) {
+  void genFIR(const Pa::Statement<Pa::ElseIfStmt> &stmt,
+      Fl::LabelMention trueLabel, Fl::LabelMention falseLabel) {
     setCurrentPos(stmt.source);
     genFIR(stmt.statement.t, trueLabel, falseLabel);
   }
-  void genFIR(
-      const Pa::IfStmt &stmt, Fl::LabelRef trueLabel, Fl::LabelRef falseLabel) {
+  void genFIR(const Pa::IfStmt &stmt, Fl::LabelMention trueLabel,
+      Fl::LabelMention falseLabel) {
     genFIR(stmt.t, trueLabel, falseLabel);
   }
 
@@ -457,7 +451,7 @@ class FIRConverter {
 
   // Conditional branch to enter loop body or exit
   void genFIR(const Pa::Statement<Pa::NonLabelDoStmt> &stmt,
-      Fl::LabelRef trueLabel, Fl::LabelRef falseLabel) {
+      Fl::LabelMention trueLabel, Fl::LabelMention falseLabel) {
     setCurrentPos(stmt.source);
     auto &loopCtrl{std::get<std::optional<Pa::LoopControl>>(stmt.statement.t)};
     M::Value *condition{nullptr};
@@ -540,7 +534,7 @@ class FIRConverter {
       const A &routine, llvm::StringRef name, const Se::Symbol *funcSym);
 
   void genCondBranch(
-      M::Value *cond, Fl::LabelRef trueBlock, Fl::LabelRef falseBlock) {
+      M::Value *cond, Fl::LabelMention trueBlock, Fl::LabelMention falseBlock) {
     auto trueIter{blkMap().find(trueBlock)};
     auto falseIter{blkMap().find(falseBlock)};
     if (trueIter != blkMap().end() && falseIter != blkMap().end()) {
@@ -551,7 +545,7 @@ class FIRConverter {
       using namespace std::placeholders;
       edgeQ.emplace_back(std::bind(
           [](M::OpBuilder *builder, M::Block *block, M::Value *cnd,
-              Fl::LabelRef trueDest, Fl::LabelRef falseDest,
+              Fl::LabelMention trueDest, Fl::LabelMention falseDest,
               M::Location location, const LabelMapType &map) {
             llvm::SmallVector<M::Value *, 2> blk;
             builder->setInsertionPointToEnd(block);
@@ -569,7 +563,7 @@ class FIRConverter {
   template<typename A>
   void genSwitchBranch(const M::Location &loc, M::Value *selector,
       std::list<typename A::Conditions> &&conditions,
-      const std::vector<Fl::LabelRef> &labels) {
+      const std::vector<Fl::LabelMention> &labels) {
     assert(conditions.size() == labels.size());
     bool haveAllLabels{true};
     std::size_t u{0};
@@ -597,7 +591,7 @@ class FIRConverter {
       edgeQ.emplace_back(std::bind(
           [](M::OpBuilder *builder, M::Block *block, M::Value *sel,
               const std::list<typename A::Conditions> &conditions,
-              const std::vector<Fl::LabelRef> &labels, M::Location location,
+              const std::vector<Fl::LabelMention> &labels, M::Location location,
               const LabelMapType &map) {
             std::size_t u{0};
             std::vector<M::Value *> conds;
