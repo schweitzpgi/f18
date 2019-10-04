@@ -1,6 +1,7 @@
 
 fir.global @name constant : !fir.char<1> {
-  constant 1
+  constant "Your name"
+  //constant 1
 }
 
 func @get_name() -> !fir.boxchar<1> {
