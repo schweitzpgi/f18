@@ -309,8 +309,8 @@ struct MemToReg : public M::FunctionPass<MemToReg<LOAD, STORE, ALLOCA, UNDEF>> {
     // Remove the (now dead) stores and alloca.
     while (!AI.use_empty()) {
       auto *ae = AI.getResult();
-      for (auto ai = ae->use_begin(), E = ae->use_end(); ai != E; ai++)
-        if (STORE SI = M::dyn_cast<STORE>(ai->get()->getDefiningOp())) {
+      for (auto ai = ae->user_begin(), E = ae->user_end(); ai != E; ai++)
+        if (STORE SI = M::dyn_cast<STORE>(*ai)) {
           SI.erase();
           LBI.deleteValue(SI);
         }

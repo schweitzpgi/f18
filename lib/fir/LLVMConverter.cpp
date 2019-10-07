@@ -234,6 +234,7 @@ struct AddrOfOpConversion : public FIROpConversion<fir::AddrOfOp> {
   M::PatternMatchResult
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
+    auto addr = M::cast<fir::AddrOfOp>(op);
     // TODO
     assert(false);
     return matchSuccess();
@@ -248,8 +249,9 @@ struct AllocaOpConversion : public FIROpConversion<fir::AllocaOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto alloc = M::cast<fir::AllocaOp>(op);
-    rewriter.replaceOpWithNewOp<M::LLVM::AllocaOp>(
-        op, lowering.convertType(alloc.getType()), operands, alloc.getAttrs());
+    auto ty = lowering.convertType(alloc.getType());
+    rewriter.replaceOpWithNewOp<M::LLVM::AllocaOp>(alloc, ty, operands,
+                                                   alloc.getAttrs());
     return matchSuccess();
   }
 };
@@ -262,9 +264,10 @@ struct AllocMemOpConversion : public FIROpConversion<AllocMemOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto heap = M::cast<AllocMemOp>(op);
+    auto ty = lowering.convertType(heap.getType());
     // FIXME: should be a call to malloc
-    rewriter.replaceOpWithNewOp<M::LLVM::AllocaOp>(
-        op, lowering.convertType(heap.getType()), operands, heap.getAttrs());
+    rewriter.replaceOpWithNewOp<M::LLVM::AllocaOp>(heap, ty, operands,
+                                                   heap.getAttrs());
     return matchSuccess();
   }
 };
@@ -505,6 +508,7 @@ struct CoordinateOpConversion : public FIROpConversion<CoordinateOp> {
   }
 };
 
+// virtual call to a method in a dispatch table
 struct DispatchOpConversion : public FIROpConversion<DispatchOp> {
   using FIROpConversion::FIROpConversion;
 
@@ -518,6 +522,7 @@ struct DispatchOpConversion : public FIROpConversion<DispatchOp> {
   }
 };
 
+// dispatch table for a Fortran derived type
 struct DispatchTableOpConversion : public FIROpConversion<DispatchTableOp> {
   using FIROpConversion::FIROpConversion;
 
@@ -531,6 +536,7 @@ struct DispatchTableOpConversion : public FIROpConversion<DispatchTableOp> {
   }
 };
 
+// entry in a dispatch table; binds a method-name to a function
 struct DTEntryOpConversion : public FIROpConversion<DTEntryOp> {
   using FIROpConversion::FIROpConversion;
 
@@ -544,6 +550,7 @@ struct DTEntryOpConversion : public FIROpConversion<DTEntryOp> {
   }
 };
 
+// create a CHARACTER box
 struct EmboxCharOpConversion : public FIROpConversion<EmboxCharOp> {
   using FIROpConversion::FIROpConversion;
 
@@ -557,7 +564,7 @@ struct EmboxCharOpConversion : public FIROpConversion<EmboxCharOp> {
   }
 };
 
-// convert a reference to an LLVM struct value
+// create a generic box on a memory reference
 struct EmboxOpConversion : public FIROpConversion<EmboxOp> {
   using FIROpConversion::FIROpConversion;
 
@@ -597,6 +604,7 @@ struct EmboxOpConversion : public FIROpConversion<EmboxOp> {
   }
 };
 
+// create a procedure pointer box
 struct EmboxProcOpConversion : public FIROpConversion<fir::EmboxProcOp> {
   using FIROpConversion::FIROpConversion;
 
@@ -610,6 +618,7 @@ struct EmboxProcOpConversion : public FIROpConversion<fir::EmboxProcOp> {
   }
 };
 
+// extract a subobject value from an ssa-value of aggregate type
 struct ExtractValueOpConversion : public FIROpConversion<ExtractValueOp> {
   using FIROpConversion::FIROpConversion;
 
@@ -636,6 +645,7 @@ struct FieldIndexOpConversion : public FIROpConversion<fir::FieldIndexOp> {
   }
 };
 
+// call free function
 struct FreeMemOpConversion : public FIROpConversion<fir::FreeMemOp> {
   using FIROpConversion::FIROpConversion;
 
@@ -755,6 +765,7 @@ public:
   }
 };
 
+// indirect call (via a pointer); see dispatch as well
 struct ICallOpConversion : public FIROpConversion<fir::ICallOp> {
   using FIROpConversion::FIROpConversion;
 
@@ -813,6 +824,7 @@ struct LoadOpConversion : public FIROpConversion<fir::LoadOp> {
   }
 };
 
+// abstract loop construct
 struct LoopOpConversion : public FIROpConversion<fir::LoopOp> {
   using FIROpConversion::FIROpConversion;
 
@@ -914,6 +926,7 @@ struct StoreOpConversion : public FIROpConversion<fir::StoreOp> {
   }
 };
 
+// unbox a CHARACTER box value, yielding its components
 struct UnboxCharOpConversion : public FIROpConversion<UnboxCharOp> {
   using FIROpConversion::FIROpConversion;
 
@@ -927,6 +940,7 @@ struct UnboxCharOpConversion : public FIROpConversion<UnboxCharOp> {
   }
 };
 
+// unbox a generic box value, yielding its components
 struct UnboxOpConversion : public FIROpConversion<UnboxOp> {
   using FIROpConversion::FIROpConversion;
 
@@ -940,6 +954,7 @@ struct UnboxOpConversion : public FIROpConversion<UnboxOp> {
   }
 };
 
+// unbox a procedure box value, yielding its components
 struct UnboxProcOpConversion : public FIROpConversion<UnboxProcOp> {
   using FIROpConversion::FIROpConversion;
 
@@ -983,6 +998,7 @@ struct UnreachableOpConversion : public FIROpConversion<UnreachableOp> {
   }
 };
 
+// abstract conditional construct
 struct WhereOpConversion : public FIROpConversion<fir::WhereOp> {
   using FIROpConversion::FIROpConversion;
 
