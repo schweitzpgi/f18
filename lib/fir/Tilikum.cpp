@@ -36,6 +36,9 @@
 /// The bridge that performs the conversion of FIR and standard dialect
 /// operations to the LLVM-IR dialect.
 
+#undef TODO
+#define TODO(X) (void)X; assert(false && "not yet implemented")
+
 namespace L = llvm;
 namespace M = mlir;
 
@@ -136,9 +139,9 @@ public:
     case 8:
       return M::LLVM::LLVMType::getDoubleTy(llvmDialect);
     case 10:
-      return M::LLVM::LLVMType::getDoublePlusHalfTy(llvmDialect);
+      return M::LLVM::LLVMType::getX86_FP80Ty(llvmDialect);
     case 16:
-      return M::LLVM::LLVMType::getQuadTy(llvmDialect);
+      return M::LLVM::LLVMType::getFP128Ty(llvmDialect);
     }
     emitError(UnknownLoc::get(mlirContext))
         << "unsupported type: !fir.real<" << kind << ">";
@@ -146,8 +149,7 @@ public:
   }
 
   M::LLVM::LLVMType convertRecordType(RecordType derived) {
-    // FIXME: implement
-    assert(false);
+    TODO(0);
     return {};
   }
 
@@ -325,8 +327,7 @@ struct BoxCharLenOpConversion : public FIROpConversion<BoxCharLenOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto boxchar = M::cast<BoxCharLenOp>(op);
-    // TODO
-    assert(false && boxchar);
+    TODO(boxchar);
     return matchSuccess();
   }
 };
@@ -338,8 +339,7 @@ struct BoxDimsOpConversion : public FIROpConversion<BoxDimsOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto boxdims = M::cast<BoxDimsOp>(op);
-    // TODO
-    assert(false && boxdims);
+    TODO(boxdims);
     return matchSuccess();
   }
 };
@@ -351,8 +351,7 @@ struct BoxEleSizeOpConversion : public FIROpConversion<BoxEleSizeOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto boxelesz = M::cast<BoxEleSizeOp>(op);
-    // TODO
-    assert(false && boxelesz);
+    TODO(boxelesz);
     return matchSuccess();
   }
 };
@@ -364,8 +363,7 @@ struct BoxIsAllocOpConversion : public FIROpConversion<BoxIsAllocOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto boxisalloc = M::cast<BoxIsAllocOp>(op);
-    // TODO
-    assert(false && boxisalloc);
+    TODO(boxisalloc);
     return matchSuccess();
   }
 };
@@ -377,8 +375,7 @@ struct BoxIsArrayOpConversion : public FIROpConversion<BoxIsArrayOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto boxisarray = M::cast<BoxIsArrayOp>(op);
-    // TODO
-    assert(false && boxisarray);
+    TODO(boxisarray);
     return matchSuccess();
   }
 };
@@ -390,8 +387,7 @@ struct BoxIsPtrOpConversion : public FIROpConversion<BoxIsPtrOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto boxisptr = M::cast<BoxIsPtrOp>(op);
-    // TODO
-    assert(false && boxisptr);
+    TODO(boxisptr);
     return matchSuccess();
   }
 };
@@ -403,8 +399,7 @@ struct BoxProcHostOpConversion : public FIROpConversion<BoxProcHostOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto boxprochost = M::cast<BoxProcHostOp>(op);
-    // TODO
-    assert(false && boxprochost);
+    TODO(boxprochost);
     return matchSuccess();
   }
 };
@@ -416,8 +411,7 @@ struct BoxRankOpConversion : public FIROpConversion<BoxRankOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto boxrank = M::cast<BoxRankOp>(op);
-    // TODO
-    assert(false && boxrank);
+    TODO(boxrank);
     return matchSuccess();
   }
 };
@@ -429,8 +423,7 @@ struct BoxTypeDescOpConversion : public FIROpConversion<BoxTypeDescOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto boxtypedesc = M::cast<BoxTypeDescOp>(op);
-    // TODO
-    assert(false && boxtypedesc);
+    TODO(boxtypedesc);
     return matchSuccess();
   }
 };
@@ -442,8 +435,7 @@ struct CallOpConversion : public FIROpConversion<fir::CallOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto call = M::cast<fir::CallOp>(op);
-    // TODO
-    assert(false && call);
+    TODO(call);
     return matchSuccess();
   }
 };
@@ -456,21 +448,21 @@ struct ConvertOpConversion : public FIROpConversion<ConvertOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto convert = M::cast<ConvertOp>(op);
-    M::Type fromTy = lowering.convertType(convert.value()->getType());
-    M::Type toTy = lowering.convertType(convert.res()->getType());
-    auto loc = op->getLoc();
-    M::Value *op0 = operands[0];
-    auto *fromLLVMTy = fromTy.cast<M::LLVM::LLVMType>().getUnderlyingType();
-    auto *toLLVMTy = toTy.cast<M::LLVM::LLVMType>().getUnderlyingType();
-    M::Value *v = nullptr;
+    auto fromTy_ = lowering.convertType(convert.value()->getType());
+    auto fromTy = lowering.unwrap(fromTy_);
+    auto toTy_ = lowering.convertType(convert.res()->getType());
+    auto toTy = lowering.unwrap(toTy_);
+    auto *fromLLVMTy = fromTy.getUnderlyingType();
+    auto *toLLVMTy = toTy.getUnderlyingType();
+    auto *op0 = operands[0];
     if (fromLLVMTy == toLLVMTy) {
-      rewriter.replaceOp(op, op0);
+      rewriter.replaceOp(convert, op0);
       return matchSuccess();
     }
+    auto loc = convert.getLoc();
+    M::Value *v = {};
     if (fromLLVMTy->isFloatingPointTy()) {
-      if (toLLVMTy->isIntegerTy()) {
-        v = rewriter.create<M::LLVM::FPToSIOp>(loc, toTy, op0);
-      } else if (toLLVMTy->isFloatingPointTy()) {
+      if (toLLVMTy->isFloatingPointTy()) {
         unsigned fromBits = fromLLVMTy->getPrimitiveSizeInBits();
         unsigned toBits = toLLVMTy->getPrimitiveSizeInBits();
         // TODO: what if different reps (F16, BF16) are the same size?
@@ -479,6 +471,8 @@ struct ConvertOpConversion : public FIROpConversion<ConvertOp> {
           v = rewriter.create<M::LLVM::FPTruncOp>(loc, toTy, op0);
         else
           v = rewriter.create<M::LLVM::FPExtOp>(loc, toTy, op0);
+      } else if (toLLVMTy->isIntegerTy()) {
+        v = rewriter.create<M::LLVM::FPToSIOp>(loc, toTy, op0);
       }
     } else if (fromLLVMTy->isIntegerTy()) {
       if (toLLVMTy->isIntegerTy()) {
@@ -495,27 +489,16 @@ struct ConvertOpConversion : public FIROpConversion<ConvertOp> {
         v = rewriter.create<M::LLVM::IntToPtrOp>(loc, toTy, op0);
       }
     } else if (fromLLVMTy->isPointerTy()) {
-      if (toLLVMTy->isIntegerTy())
+      if (toLLVMTy->isIntegerTy()) {
         v = rewriter.create<M::LLVM::PtrToIntOp>(loc, toTy, op0);
-    }
-    if (v == nullptr) {
-      v = rewriter.create<M::LLVM::BitcastOp>(loc, toTy, op0);
-    }
-
-    if (auto fromInt = fromTy.dyn_cast<M::IntegerType>()) {
-      if (auto toInt = toTy.dyn_cast<M::IntegerType>()) {
-        M::Value *v;
-        if (fromInt.getIntOrFloatBitWidth() < toInt.getIntOrFloatBitWidth()) {
-          v = rewriter.create<M::LLVM::SExtOp>(loc, toInt, op0);
-        } else {
-          v = rewriter.create<M::LLVM::TruncOp>(loc, toInt, op0);
-        }
-        rewriter.replaceOp(op, v);
-        return matchSuccess();
+      } else if (toLLVMTy->isPointerTy()) {
+        v = rewriter.create<M::LLVM::BitcastOp>(loc, toTy, op0);
       }
-      // FIXME -- finish implementation
     }
-    assert(false);
+    if (v)
+      rewriter.replaceOp(op, v);
+    else
+      emitError(loc) << "cannot convert " << fromTy_ << " to " << toTy_;
     return matchSuccess();
   }
 };
@@ -537,7 +520,7 @@ struct CoordinateOpConversion : public FIROpConversion<CoordinateOp> {
       rewriter.replaceOp(op, v);
       return matchSuccess();
     }
-    assert(false && coor); // FIXME
+    TODO(coor);
     return matchSuccess();
   }
 };
@@ -550,8 +533,7 @@ struct DispatchOpConversion : public FIROpConversion<DispatchOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto dispatch = M::cast<DispatchOp>(op);
-    // TODO
-    assert(false && dispatch);
+    TODO(dispatch);
     return matchSuccess();
   }
 };
@@ -564,8 +546,7 @@ struct DispatchTableOpConversion : public FIROpConversion<DispatchTableOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto disptable = M::cast<DispatchTableOp>(op);
-    // TODO
-    assert(false && disptable);
+    TODO(disptable);
     return matchSuccess();
   }
 };
@@ -578,8 +559,7 @@ struct DTEntryOpConversion : public FIROpConversion<DTEntryOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto dtentry = M::cast<DTEntryOp>(op);
-    // TODO
-    assert(false && dtentry);
+    TODO(dtentry);
     return matchSuccess();
   }
 };
@@ -592,8 +572,7 @@ struct EmboxCharOpConversion : public FIROpConversion<EmboxCharOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto emboxchar = M::cast<EmboxCharOp>(op);
-    // TODO
-    assert(false && emboxchar);
+    TODO(emboxchar);
     return matchSuccess();
   }
 };
@@ -606,8 +585,7 @@ struct EmboxOpConversion : public FIROpConversion<EmboxOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto embox = M::cast<EmboxOp>(op);
-    // TODO
-    assert(false && embox);
+    TODO(embox);
     return matchSuccess();
   }
 };
@@ -620,8 +598,7 @@ struct EmboxProcOpConversion : public FIROpConversion<EmboxProcOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto emboxproc = M::cast<EmboxProcOp>(op);
-    // TODO
-    assert(false && emboxproc);
+    TODO(emboxproc);
     return matchSuccess();
   }
 };
@@ -634,12 +611,10 @@ struct ExtractValueOpConversion : public FIROpConversion<fir::ExtractValueOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto extractVal = M::cast<ExtractValueOp>(op);
-    // FIXME
-    assert(false && extractVal);
+    TODO(extractVal);
     return matchSuccess();
   }
 };
-
 
 struct FieldIndexOpConversion : public FIROpConversion<fir::FieldIndexOp> {
   using FIROpConversion::FIROpConversion;
@@ -648,8 +623,7 @@ struct FieldIndexOpConversion : public FIROpConversion<fir::FieldIndexOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto fieldindex = M::cast<FieldIndexOp>(op);
-    // TODO
-    assert(false && fieldindex);
+    TODO(fieldindex);
     return matchSuccess();
   }
 };
@@ -708,8 +682,7 @@ struct GenDimsOpConversion : public FIROpConversion<GenDimsOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto gendims = M::cast<GenDimsOp>(op);
-    // TODO
-    assert(false && gendims);
+    TODO(gendims);
     return matchSuccess();
   }
 };
@@ -721,8 +694,7 @@ struct GenTypeDescOpConversion : public FIROpConversion<GenTypeDescOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto gentypedesc = M::cast<GenTypeDescOp>(op);
-    // TODO
-    assert(false && gentypedesc);
+    TODO(gentypedesc);
     return matchSuccess();
   }
 };
@@ -734,8 +706,7 @@ struct GlobalEntryOpConversion : public FIROpConversion<GlobalEntryOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto globalentry = M::cast<GlobalEntryOp>(op);
-    // TODO
-    assert(false && globalentry);
+    TODO(globalentry);
     return matchSuccess();
   }
 };
@@ -773,8 +744,7 @@ struct ICallOpConversion : public FIROpConversion<fir::ICallOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto icall = M::cast<fir::ICallOp>(op);
-    // TODO
-    assert(false && icall);
+    TODO(icall);
     return matchSuccess();
   }
 };
@@ -786,9 +756,8 @@ struct InsertValueOpConversion : public FIROpConversion<InsertValueOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto insertVal = cast<InsertValueOp>(op);
-    // FIXME
-    assert(false && insertVal);
-    //rewriter.replaceOpWithNewOp<M::LLVM::InsertValueOp>(insertVal, ...);
+    TODO(insertVal);
+    // rewriter.replaceOpWithNewOp<M::LLVM::InsertValueOp>(insertVal, ...);
     return matchSuccess();
   }
 };
@@ -802,8 +771,7 @@ struct LenParamIndexOpConversion
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto lenparam = M::cast<LenParamIndexOp>(op);
-    // TODO
-    assert(false && lenparam);
+    TODO(lenparam);
     return matchSuccess();
   }
 };
@@ -834,8 +802,7 @@ struct LoopOpConversion : public FIROpConversion<fir::LoopOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto loop = M::cast<fir::LoopOp>(op);
-    // TODO
-    assert(false && loop);
+    TODO(loop);
     return matchSuccess();
   }
 };
@@ -847,8 +814,7 @@ struct NoReassocOpConversion : public FIROpConversion<NoReassocOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto noreassoc = M::cast<NoReassocOp>(op);
-    // FIXME
-    assert(false && noreassoc);
+    TODO(noreassoc);
     return matchSuccess();
   }
 };
@@ -862,8 +828,7 @@ struct SelectCaseOpConversion : public FIROpConversion<SelectCaseOp> {
                   L::ArrayRef<OperandTy> destOperands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto selectcase = M::cast<SelectCaseOp>(op);
-    // FIXME
-    assert(false && selectcase);
+    TODO(selectcase);
     return matchSuccess();
   }
 };
@@ -878,8 +843,7 @@ struct SelectOpConversion : public FIROpConversion<fir::SelectOp> {
                   L::ArrayRef<OperandTy> destOperands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto select = M::cast<fir::SelectOp>(op);
-    // FIXME
-    assert(false && select);
+    TODO(select);
     return matchSuccess();
   }
 };
@@ -893,8 +857,7 @@ struct SelectRankOpConversion : public FIROpConversion<SelectRankOp> {
                   L::ArrayRef<OperandTy> destOperands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto selectrank = M::cast<SelectRankOp>(op);
-    // FIXME
-    assert(false && selectrank);
+    TODO(selectrank);
     return matchSuccess();
   }
 };
@@ -909,8 +872,7 @@ struct SelectTypeOpConversion : public FIROpConversion<SelectTypeOp> {
                   L::ArrayRef<OperandTy> destOperands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto selecttype = M::cast<SelectRankOp>(op);
-    // FIXME
-    assert(false && selecttype);
+    TODO(selecttype);
     return matchSuccess();
   }
 };
@@ -1009,8 +971,7 @@ struct WhereOpConversion : public FIROpConversion<fir::WhereOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto where = M::cast<fir::WhereOp>(op);
-    // TODO
-    assert(false && where);
+    TODO(where);
     return matchSuccess();
   }
 };
@@ -1037,6 +998,71 @@ M::LLVM::InsertValueOp complexSum(OPTY sumop,
   auto r_ = rewriter.create<M::LLVM::InsertValueOp>(loc, ty, r, rx, c0);
   return rewriter.create<M::LLVM::InsertValueOp>(loc, ty, r_, ry, c1);
 }
+
+template <typename BINOP, typename LLVMOP>
+void lowerRealBinaryOp(M::Operation *op, OperandTy operands,
+                       M::ConversionPatternRewriter &rewriter,
+                       FIRToLLVMTypeConverter &lowering) {
+  auto binop = cast<BINOP>(op);
+  auto ty = lowering.convertType(binop.getType());
+  rewriter.replaceOpWithNewOp<LLVMOP>(binop, ty, operands);
+}
+
+struct AddfOpConversion : public FIROpConversion<fir::AddfOp> {
+  using FIROpConversion::FIROpConversion;
+
+  M::PatternMatchResult
+  matchAndRewrite(M::Operation *op, OperandTy operands,
+                  M::ConversionPatternRewriter &rewriter) const override {
+    lowerRealBinaryOp<fir::AddfOp, M::LLVM::FAddOp>(op, operands, rewriter,
+                                                    lowering);
+    return matchSuccess();
+  }
+};
+struct SubfOpConversion : public FIROpConversion<fir::SubfOp> {
+  using FIROpConversion::FIROpConversion;
+
+  M::PatternMatchResult
+  matchAndRewrite(M::Operation *op, OperandTy operands,
+                  M::ConversionPatternRewriter &rewriter) const override {
+    lowerRealBinaryOp<fir::SubfOp, M::LLVM::FSubOp>(op, operands, rewriter,
+                                                    lowering);
+    return matchSuccess();
+  }
+};
+struct MulfOpConversion : public FIROpConversion<fir::MulfOp> {
+  using FIROpConversion::FIROpConversion;
+
+  M::PatternMatchResult
+  matchAndRewrite(M::Operation *op, OperandTy operands,
+                  M::ConversionPatternRewriter &rewriter) const override {
+    lowerRealBinaryOp<fir::MulfOp, M::LLVM::FMulOp>(op, operands, rewriter,
+                                                    lowering);
+    return matchSuccess();
+  }
+};
+struct DivfOpConversion : public FIROpConversion<fir::DivfOp> {
+  using FIROpConversion::FIROpConversion;
+
+  M::PatternMatchResult
+  matchAndRewrite(M::Operation *op, OperandTy operands,
+                  M::ConversionPatternRewriter &rewriter) const override {
+    lowerRealBinaryOp<fir::DivfOp, M::LLVM::FDivOp>(op, operands, rewriter,
+                                                    lowering);
+    return matchSuccess();
+  }
+};
+struct ModfOpConversion : public FIROpConversion<fir::ModfOp> {
+  using FIROpConversion::FIROpConversion;
+
+  M::PatternMatchResult
+  matchAndRewrite(M::Operation *op, OperandTy operands,
+                  M::ConversionPatternRewriter &rewriter) const override {
+    lowerRealBinaryOp<fir::ModfOp, M::LLVM::FRemOp>(op, operands, rewriter,
+                                                    lowering);
+    return matchSuccess();
+  }
+};
 
 struct AddcOpConversion : public FIROpConversion<fir::AddcOp> {
   using FIROpConversion::FIROpConversion;
@@ -1183,31 +1209,29 @@ public:
     FIRToLLVMTypeConverter typeConverter{&context};
     M::OwningRewritePatternList patterns;
     patterns.insert<
-        AddcOpConversion, AddrOfOpConversion, AllocaOpConversion,
-        AllocMemOpConversion, BoxAddrOpConversion, BoxCharLenOpConversion,
-        BoxDimsOpConversion, BoxEleSizeOpConversion, BoxIsAllocOpConversion,
-        BoxIsArrayOpConversion, BoxIsPtrOpConversion, BoxProcHostOpConversion,
-        BoxRankOpConversion, BoxTypeDescOpConversion, CallOpConversion,
-        ConvertOpConversion, CoordinateOpConversion, DispatchOpConversion,
-        DispatchTableOpConversion, DivcOpConversion, DTEntryOpConversion,
-        EmboxCharOpConversion, EmboxOpConversion, EmboxProcOpConversion,
-        FirEndOpConversion, ExtractValueOpConversion, FieldIndexOpConversion,
-        FreeMemOpConversion, GenDimsOpConversion, GenTypeDescOpConversion,
-        GlobalEntryOpConversion, GlobalOpConversion, ICallOpConversion,
-        InsertValueOpConversion, LenParamIndexOpConversion, LoadOpConversion,
-        LoopOpConversion, MulcOpConversion, NoReassocOpConversion,
-        SelectCaseOpConversion, SelectOpConversion, SelectRankOpConversion,
-        SelectTypeOpConversion, StoreOpConversion, SubcOpConversion,
-        UnboxCharOpConversion, UnboxOpConversion, UnboxProcOpConversion,
-        UndefOpConversion, UnreachableOpConversion, WhereOpConversion>(
-        &context, typeConverter);
+        AddcOpConversion, AddfOpConversion, AddrOfOpConversion,
+        AllocaOpConversion, AllocMemOpConversion, BoxAddrOpConversion,
+        BoxCharLenOpConversion, BoxDimsOpConversion, BoxEleSizeOpConversion,
+        BoxIsAllocOpConversion, BoxIsArrayOpConversion, BoxIsPtrOpConversion,
+        BoxProcHostOpConversion, BoxRankOpConversion, BoxTypeDescOpConversion,
+        CallOpConversion, ConvertOpConversion, CoordinateOpConversion,
+        DispatchOpConversion, DispatchTableOpConversion, DivcOpConversion,
+        DivfOpConversion, DTEntryOpConversion, EmboxCharOpConversion,
+        EmboxOpConversion, EmboxProcOpConversion, FirEndOpConversion,
+        ExtractValueOpConversion, FieldIndexOpConversion, FreeMemOpConversion,
+        GenDimsOpConversion, GenTypeDescOpConversion, GlobalEntryOpConversion,
+        GlobalOpConversion, ICallOpConversion, InsertValueOpConversion,
+        LenParamIndexOpConversion, LoadOpConversion, LoopOpConversion,
+        ModfOpConversion, MulcOpConversion, MulfOpConversion,
+        NoReassocOpConversion, SelectCaseOpConversion, SelectOpConversion,
+        SelectRankOpConversion, SelectTypeOpConversion, StoreOpConversion,
+        SubcOpConversion, SubfOpConversion, UnboxCharOpConversion,
+        UnboxOpConversion, UnboxProcOpConversion, UndefOpConversion,
+        UnreachableOpConversion, WhereOpConversion>(&context, typeConverter);
     M::populateStdToLLVMConversionPatterns(typeConverter, patterns);
-    M::populateFuncOpTypeConversionPattern(patterns, &context, typeConverter);
     M::ConversionTarget target{context};
     target.addLegalDialect<M::LLVM::LLVMDialect>();
-    target.addDynamicallyLegalOp<M::FuncOp>([&](M::FuncOp op) {
-      return typeConverter.isSignatureLegal(op.getType());
-    });
+
     // required NOP stubs for applying a full conversion
     target.addDynamicallyLegalOp<M::ModuleOp>(
         [&](M::ModuleOp op) { return true; });
