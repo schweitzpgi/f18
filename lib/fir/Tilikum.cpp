@@ -136,15 +136,9 @@ public:
     case 8:
       return M::LLVM::LLVMType::getDoubleTy(llvmDialect);
     case 10:
-      // return M::LLVM::LLVMType::get(ctx, L::Type::getX86_FP80Ty(llvmCtx));
-      emitError(UnknownLoc::get(mlirContext),
-                "unsupported type: !fir.real<10>");
-      return {};
+      return M::LLVM::LLVMType::getDoublePlusHalfTy(llvmDialect);
     case 16:
-      // return M::LLVM::LLVMType::get(ctx, L::Type::getFP128Ty(llvmCtx));
-      emitError(UnknownLoc::get(mlirContext),
-                "unsupported type: !fir.real<16>");
-      return {};
+      return M::LLVM::LLVMType::getQuadTy(llvmDialect);
     }
     emitError(UnknownLoc::get(mlirContext))
         << "unsupported type: !fir.real<" << kind << ">";
@@ -467,7 +461,7 @@ struct ConvertOpConversion : public FIROpConversion<ConvertOp> {
     auto loc = op->getLoc();
     M::Value *op0 = operands[0];
     auto *fromLLVMTy = fromTy.cast<M::LLVM::LLVMType>().getUnderlyingType();
-    auto *toLLVMTy = fromTy.cast<M::LLVM::LLVMType>().getUnderlyingType();
+    auto *toLLVMTy = toTy.cast<M::LLVM::LLVMType>().getUnderlyingType();
     M::Value *v = nullptr;
     if (fromLLVMTy == toLLVMTy) {
       rewriter.replaceOp(op, op0);
@@ -477,8 +471,9 @@ struct ConvertOpConversion : public FIROpConversion<ConvertOp> {
       if (toLLVMTy->isIntegerTy()) {
         v = rewriter.create<M::LLVM::FPToSIOp>(loc, toTy, op0);
       } else if (toLLVMTy->isFloatingPointTy()) {
-        unsigned fromBits = fromLLVMTy->getIntegerBitWidth();
-        unsigned toBits = toLLVMTy->getIntegerBitWidth();
+        unsigned fromBits = fromLLVMTy->getPrimitiveSizeInBits();
+        unsigned toBits = toLLVMTy->getPrimitiveSizeInBits();
+        // TODO: what if different reps (F16, BF16) are the same size?
         assert(fromBits != toBits);
         if (fromBits > toBits)
           v = rewriter.create<M::LLVM::FPTruncOp>(loc, toTy, op0);
@@ -645,6 +640,7 @@ struct ExtractValueOpConversion : public FIROpConversion<fir::ExtractValueOp> {
   }
 };
 
+
 struct FieldIndexOpConversion : public FIROpConversion<fir::FieldIndexOp> {
   using FIROpConversion::FIROpConversion;
 
@@ -792,10 +788,12 @@ struct InsertValueOpConversion : public FIROpConversion<InsertValueOp> {
     auto insertVal = cast<InsertValueOp>(op);
     // FIXME
     assert(false && insertVal);
+    //rewriter.replaceOpWithNewOp<M::LLVM::InsertValueOp>(insertVal, ...);
     return matchSuccess();
   }
 };
 
+// compute the index of the LEN param in the descriptor addendum
 struct LenParamIndexOpConversion
     : public FIROpConversion<fir::LenParamIndexOp> {
   using FIROpConversion::FIROpConversion;
@@ -901,6 +899,7 @@ struct SelectRankOpConversion : public FIROpConversion<SelectRankOp> {
   }
 };
 
+// SelectTypeOp should have already been lowered
 struct SelectTypeOpConversion : public FIROpConversion<SelectTypeOp> {
   using FIROpConversion::FIROpConversion;
 
@@ -938,8 +937,8 @@ struct UnboxCharOpConversion : public FIROpConversion<UnboxCharOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto unboxchar = M::cast<UnboxCharOp>(op);
-    // TODO
-    assert(false && unboxchar);
+    unboxchar.replaceAllUsesWith(operands);
+    rewriter.replaceOp(unboxchar, {});
     return matchSuccess();
   }
 };
@@ -952,8 +951,8 @@ struct UnboxOpConversion : public FIROpConversion<UnboxOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto unbox = M::cast<UnboxOp>(op);
-    // TODO
-    assert(false && unbox);
+    unbox.replaceAllUsesWith(operands);
+    rewriter.replaceOp(unbox, {});
     return matchSuccess();
   }
 };
@@ -966,8 +965,8 @@ struct UnboxProcOpConversion : public FIROpConversion<UnboxProcOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto unboxproc = M::cast<UnboxProcOp>(op);
-    // TODO
-    assert(false && unboxproc);
+    unboxproc.replaceAllUsesWith(operands);
+    rewriter.replaceOp(unboxproc, {});
     return matchSuccess();
   }
 };
