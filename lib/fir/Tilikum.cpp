@@ -1253,7 +1253,7 @@ struct LLVMIRLoweringPass : public M::ModulePass<LLVMIRLoweringPass> {
   void runOnModule() override {
     if (auto llvmModule{M::translateModuleToLLVMIR(getModule())}) {
       std::error_code ec;
-      auto stream{L::raw_fd_ostream("a.ll", ec, L::sys::fs::F_None)};
+      L::raw_fd_ostream stream("a.ll", ec, L::sys::fs::F_None);
       stream << *llvmModule << '\n';
     } else {
       auto ctxt{getModule().getContext()};
