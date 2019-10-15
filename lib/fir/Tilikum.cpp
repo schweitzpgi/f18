@@ -15,6 +15,7 @@
 #include "fir/Tilikum/Tilikum.h"
 #include "fir/Dialect.h"
 #include "fir/FIROps.h"
+#include "fir/KindMapping.h"
 #include "fir/Type.h"
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVM.h"
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVMPass.h"
@@ -37,7 +38,9 @@
 /// operations to the LLVM-IR dialect.
 
 #undef TODO
-#define TODO(X) (void)X; assert(false && "not yet implemented")
+#define TODO(X)                                                                \
+  (void)X;                                                                     \
+  assert(false && "not yet implemented")
 
 namespace L = llvm;
 namespace M = mlir;
@@ -53,11 +56,15 @@ using AttributeTy = L::ArrayRef<M::NamedAttribute>;
 /// FIR type converter
 /// This converts FIR types to LLVM types (for now)
 class FIRToLLVMTypeConverter : public M::LLVMTypeConverter {
+  KindMapping kindMapping;
+  static L::StringMap<M::LLVM::LLVMType> identStructCache;
+
 public:
-  using LLVMTypeConverter::LLVMTypeConverter;
+  FIRToLLVMTypeConverter(M::MLIRContext *context)
+      : LLVMTypeConverter(context), kindMapping(context) {}
 
   M::LLVM::LLVMType dimsType() {
-    auto i64Ty = M::LLVM::LLVMType::getInt64Ty(llvmDialect);
+    auto i64Ty{M::LLVM::LLVMType::getInt64Ty(llvmDialect)};
     return M::LLVM::LLVMType::getVectorTy(i64Ty, 3);
   }
 
@@ -94,23 +101,20 @@ public:
     auto funcTy = convertType(boxproc.getEleTy());
     auto ptrTy = unwrap(funcTy).getPointerTo();
     auto i8Ty = M::LLVM::LLVMType::getInt8Ty(llvmDialect);
-    L::SmallVector<M::LLVM::LLVMType, 2> tuple = {ptrTy, i8Ty};
+    L::SmallVector<M::LLVM::LLVMType, 2> tuple{ptrTy, i8Ty};
     return M::LLVM::LLVMType::getStructTy(llvmDialect, tuple);
   }
 
   M::LLVM::LLVMType convertCharType(CharacterType charTy) {
-    return convertIntLike(charTy);
+    return M::LLVM::LLVMType::getIntNTy(
+        llvmDialect, kindMapping.getCharacterBitsize(charTy.getFKind()));
   }
 
   M::LLVM::LLVMType convertComplexType(KindTy kind) {
-    auto realTy = convertRealType(kind);
-    L::SmallVector<M::LLVM::LLVMType, 2> tuple = {realTy, realTy};
+    auto realID = kindMapping.getComplexTypeID(kind);
+    auto realTy = fromRealTypeID(realID, kind);
+    L::SmallVector<M::LLVM::LLVMType, 2> tuple{realTy, realTy};
     return M::LLVM::LLVMType::getStructTy(llvmDialect, tuple);
-  }
-
-  template <typename A>
-  M::LLVM::LLVMType convertIntLike(A intLike) {
-    return M::LLVM::LLVMType::getIntNTy(llvmDialect, intLike.getSizeInBits());
   }
 
   LLVM::LLVMType getDefaultInt() {
@@ -118,39 +122,39 @@ public:
     return M::LLVM::LLVMType::getInt64Ty(llvmDialect);
   }
 
+  M::LLVM::LLVMType convertIntegerType(IntType intTy) {
+    return M::LLVM::LLVMType::getIntNTy(
+        llvmDialect, kindMapping.getIntegerBitsize(intTy.getFKind()));
+  }
+
+  M::LLVM::LLVMType convertLogicalType(LogicalType boolTy) {
+    return M::LLVM::LLVMType::getIntNTy(
+        llvmDialect, kindMapping.getLogicalBitsize(boolTy.getFKind()));
+  }
+
   template <typename A>
   M::LLVM::LLVMType convertPointerLike(A &ty) {
-    auto eleTy = unwrap(convertType(ty.getEleTy()));
-    return eleTy.getPointerTo();
+    return unwrap(convertType(ty.getEleTy())).getPointerTo();
   }
 
   // convert a front-end kind value to either a std or LLVM IR dialect type
   M::LLVM::LLVMType convertRealType(KindTy kind) {
-    auto *mlirContext = llvmDialect->getContext();
-    switch (kind) {
-    case 2:
-      return M::LLVM::LLVMType::getHalfTy(llvmDialect);
-    case 3:
-      emitError(UnknownLoc::get(mlirContext),
-                "unsupported type: !fir.real<3>, BF16");
-      return {};
-    case 4:
-      return M::LLVM::LLVMType::getFloatTy(llvmDialect);
-    case 8:
-      return M::LLVM::LLVMType::getDoubleTy(llvmDialect);
-    case 10:
-      return M::LLVM::LLVMType::getX86_FP80Ty(llvmDialect);
-    case 16:
-      return M::LLVM::LLVMType::getFP128Ty(llvmDialect);
-    }
-    emitError(UnknownLoc::get(mlirContext))
-        << "unsupported type: !fir.real<" << kind << ">";
-    return {};
+    return fromRealTypeID(kindMapping.getRealTypeID(kind), kind);
   }
 
+  // The cache is needed to keep a unique mapping from name -> StructType
   M::LLVM::LLVMType convertRecordType(RecordType derived) {
-    TODO(0);
-    return {};
+    auto name{derived.getName()};
+    auto iter{identStructCache.find(name)};
+    if (iter != identStructCache.end())
+      return iter->second;
+    auto st{M::LLVM::LLVMType::createStructTy(llvmDialect, name)};
+    identStructCache[name] = st;
+    L::SmallVector<M::LLVM::LLVMType, 8> members;
+    for (auto mem : derived.getTypeList())
+      members.push_back(convertType(mem.second).cast<M::LLVM::LLVMType>());
+    M::LLVM::LLVMType::setStructTyBody(st, members);
+    return st;
   }
 
   M::LLVM::LLVMType convertSequenceType(SequenceType seq) {
@@ -199,9 +203,9 @@ public:
     if (auto heap = t.dyn_cast<HeapType>())
       return convertPointerLike(heap);
     if (auto integer = t.dyn_cast<IntType>())
-      return convertIntLike(integer);
-    if (auto log = t.dyn_cast<LogicalType>())
-      return convertIntLike(log);
+      return convertIntegerType(integer);
+    if (auto logical = t.dyn_cast<LogicalType>())
+      return convertLogicalType(logical);
     if (auto pointer = t.dyn_cast<PointerType>())
       return convertPointerLike(pointer);
     if (auto real = t.dyn_cast<RealType>())
@@ -215,7 +219,27 @@ public:
     return LLVMTypeConverter::convertType(t);
   }
 
-  // cloned from LLVMTypeConverter since this is private there
+  /// Convert llvm::Type::TypeID to mlir::LLVM::LLVMType
+  M::LLVM::LLVMType fromRealTypeID(L::Type::TypeID typeID, KindTy kind) {
+    switch (typeID) {
+    case L::Type::TypeID::HalfTyID:
+      return M::LLVM::LLVMType::getHalfTy(llvmDialect);
+    case L::Type::TypeID::FloatTyID:
+      return M::LLVM::LLVMType::getFloatTy(llvmDialect);
+    case L::Type::TypeID::DoubleTyID:
+      return M::LLVM::LLVMType::getDoubleTy(llvmDialect);
+    case L::Type::TypeID::X86_FP80TyID:
+      return M::LLVM::LLVMType::getX86_FP80Ty(llvmDialect);
+    case L::Type::TypeID::FP128TyID:
+      return M::LLVM::LLVMType::getFP128Ty(llvmDialect);
+    default:
+      emitError(UnknownLoc::get(llvmDialect->getContext()))
+          << "unsupported type: !fir.real<" << kind << ">";
+      return {};
+    }
+  }
+
+  /// HACK: cloned from LLVMTypeConverter since this is private there
   LLVM::LLVMType unwrap(Type type) {
     if (!type)
       return nullptr;
@@ -227,6 +251,8 @@ public:
     return wrappedLLVMType;
   }
 };
+
+L::StringMap<M::LLVM::LLVMType> FIRToLLVMTypeConverter::identStructCache;
 
 L::SmallVector<M::NamedAttribute, 4>
 pruneNamedAttrDict(L::ArrayRef<M::NamedAttribute> attrs,
@@ -327,7 +353,14 @@ struct BoxCharLenOpConversion : public FIROpConversion<BoxCharLenOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto boxchar = M::cast<BoxCharLenOp>(op);
-    TODO(boxchar);
+    auto a = operands[0];
+    auto loc = boxchar.getLoc();
+    auto ty = lowering.convertType(boxchar.getType()); //get .1
+    auto ctx = boxchar.getContext();
+    auto c1 = M::ArrayAttr::get(rewriter.getI32IntegerAttr(1), ctx);
+    auto r = rewriter.create<M::LLVM::ExtractValueOp>(loc, ty, a, c1);
+    boxchar.replaceAllUsesWith(r.getResult());
+    rewriter.replaceOp(boxchar, r.getResult());
     return matchSuccess();
   }
 };
@@ -572,7 +605,18 @@ struct EmboxCharOpConversion : public FIROpConversion<EmboxCharOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto emboxchar = M::cast<EmboxCharOp>(op);
-    TODO(emboxchar);
+    auto a = operands[0];
+    auto b = operands[1];
+    auto loc = emboxchar.getLoc();
+    auto ctx = emboxchar.getContext();
+    auto ty = lowering.convertType(emboxchar.getType());
+    auto c0 = M::ArrayAttr::get(rewriter.getI32IntegerAttr(0), ctx);
+    auto c1 = M::ArrayAttr::get(rewriter.getI32IntegerAttr(1), ctx);
+    auto un = rewriter.create<M::LLVM::UndefOp>(loc, ty);
+    auto r_ = rewriter.create<M::LLVM::InsertValueOp>(loc, ty, un, a, c0);
+    auto r = rewriter.create<M::LLVM::InsertValueOp>(loc, ty, r_, b, c1);
+    emboxchar.replaceAllUsesWith(r.getResult());
+    rewriter.replaceOp(emboxchar, r.getResult());
     return matchSuccess();
   }
 };
