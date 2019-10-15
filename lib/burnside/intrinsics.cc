@@ -15,6 +15,7 @@
 #include "intrinsics.h"
 #include "builder.h"
 #include "fir/FIROps.h"
+#include "llvm/ADT/Optional.h"
 #include <unordered_map>
 #include <utility>
 
@@ -55,7 +56,7 @@ public:
   /// related mlir::FuncOp if a runtime description is found.
   /// Also add a unit attribute "fir.runtime" to the function so that later
   /// it is possible to quickly know what function are intrinsics vs users.
-  std::optional<mlir::FuncOp> getFunction(
+  llvm::Optional<mlir::FuncOp> getFunction(
       mlir::OpBuilder &, llvm::StringRef, mlir::FunctionType) const;
 
 private:
@@ -94,7 +95,6 @@ private:
     mlir::Location loc;
     mlir::OpBuilder *builder{nullptr};
     llvm::StringRef name;
-    mlir::Type resultType;
     llvm::ArrayRef<mlir::Value *> arguments;
     mlir::FunctionType funcType;
   };
@@ -159,40 +159,40 @@ public:
   /// Define possible runtime function argument/return type used in signature
   /// descriptions. They follow mlir standard types naming. MLIR types cannot
   /// directly be used because they can only be dynamically built.
-  enum class Type { f32, f64 };
+  enum class TypeCode { f32, f64 };
   /// C++ does not provide variable size constexpr container yet. TypeVector
   /// implements one for Type elements. It works because Type is an enumeration.
-  struct TypeVector {
-    template<Type... v> struct Storage {
-      static constexpr Type values[]{v...};
+  struct TypeCodeVector {
+    template<TypeCode... v> struct Storage {
+      static constexpr TypeCode values[]{v...};
     };
-    template<Type... v> static constexpr TypeVector create() {
-      const Type *start{&Storage<v...>::values[0]};
-      return TypeVector{start, start + sizeof...(v)};
+    template<TypeCode... v> static constexpr TypeCodeVector create() {
+      const TypeCode *start{&Storage<v...>::values[0]};
+      return TypeCodeVector{start, start + sizeof...(v)};
     }
-    const Type *start{nullptr};
-    const Type *end{nullptr};
+    const TypeCode *start{nullptr};
+    const TypeCode *end{nullptr};
   };
   constexpr RuntimeStaticDescription(
-      const char *n, const char *s, Type r, TypeVector a)
-    : name{n}, symbol{s}, resultType{r}, argumentTypes{a} {}
+      const char *n, const char *s, TypeCode r, TypeCodeVector a)
+    : name{n}, symbol{s}, resultTypeCode{r}, argumentTypeCodes{a} {}
   llvm::StringRef getSymbol() const { return symbol; }
   llvm::StringRef getName() const { return name; }
   /// Conversion between types of the static representation and MLIR types.
   mlir::FunctionType getMLIRFunctionType(mlir::MLIRContext &) const;
 
 private:
-  static mlir::Type getMLIRType(Type, mlir::MLIRContext &);
+  static mlir::Type getMLIRType(TypeCode, mlir::MLIRContext &);
 
   const char *name{nullptr};
   const char *symbol{nullptr};
-  Type resultType;
-  TypeVector argumentTypes;
+  TypeCode resultTypeCode;
+  TypeCodeVector argumentTypeCodes;
 };
 
 /// Description of the runtime functions available on the target.
-using RType = typename RuntimeStaticDescription::Type;
-using Args = typename RuntimeStaticDescription::TypeVector;
+using RType = typename RuntimeStaticDescription::TypeCode;
+using Args = typename RuntimeStaticDescription::TypeCodeVector;
 static constexpr RuntimeStaticDescription llvmRuntime[] = {
     {"abs", "llvm.fabs.f32", RType::f32, Args::create<RType::f32>()},
     {"abs", "llvm.fabs.f64", RType::f64, Args::create<RType::f64>()},
@@ -254,7 +254,7 @@ mlir::FuncOp MathRuntimeLibrary::getFuncOp(
   return function;
 }
 
-std::optional<mlir::FuncOp> MathRuntimeLibrary::getFunction(
+llvm::Optional<mlir::FuncOp> MathRuntimeLibrary::getFunction(
     mlir::OpBuilder &builder, llvm::StringRef name,
     mlir::FunctionType funcType) const {
   auto range{library.equal_range(name)};
@@ -279,7 +279,7 @@ std::optional<mlir::FuncOp> MathRuntimeLibrary::getFunction(
   if (bestNearMatch != nullptr) {
     return getFuncOp(builder, *bestNearMatch);
   } else {
-    return std::nullopt;
+    return {};
   }
 }
 
@@ -288,8 +288,8 @@ std::optional<mlir::FuncOp> MathRuntimeLibrary::getFunction(
 mlir::Value *IntrinsicLibrary::Implementation::genval(mlir::Location loc,
     mlir::OpBuilder &builder, llvm::StringRef name, mlir::Type resultType,
     llvm::ArrayRef<mlir::Value *> args) const {
-  Context context{loc, &builder, name, resultType, args,
-      getFunctionType(resultType, args, builder)};
+  Context context{
+      loc, &builder, name, args, getFunctionType(resultType, args, builder)};
   for (const IntrinsicHanlder &handler : handlers) {
     if (name == handler.name) {
       assert(handler.generator != nullptr);
@@ -316,11 +316,13 @@ mlir::FunctionType IntrinsicLibrary::Implementation::getFunctionType(
 std::string IntrinsicLibrary::Implementation::getWrapperName(Context &c) {
   // TODO find nicer type to string infra
   llvm::StringRef typeName{"unknown"};
-  if (c.resultType.isF16()) {
+  assert(c.funcType.getNumResults() == 1);
+  mlir::Type resultType{c.funcType.getResult(0)};
+  if (resultType.isF16()) {
     typeName = "f16";
-  } else if (c.resultType.isF32()) {
+  } else if (resultType.isF32()) {
     typeName = "f32";
-  } else if (c.resultType.isF64()) {
+  } else if (resultType.isF64()) {
     typeName = "f64";
   } else {
     assert(false);
@@ -413,21 +415,21 @@ mlir::Value *IntrinsicLibrary::Implementation::generateRuntimeCall(
 // RuntimeStaticDescription implementation
 
 mlir::Type RuntimeStaticDescription::getMLIRType(
-    Type t, mlir::MLIRContext &context) {
+    TypeCode t, mlir::MLIRContext &context) {
   switch (t) {
-  case Type::f32: return mlir::FloatType::getF32(&context);
-  case Type::f64: return mlir::FloatType::getF64(&context);
+  case TypeCode::f32: return mlir::FloatType::getF32(&context);
+  case TypeCode::f64: return mlir::FloatType::getF64(&context);
   }
 }
 
 mlir::FunctionType RuntimeStaticDescription::getMLIRFunctionType(
     mlir::MLIRContext &context) const {
   llvm::SmallVector<mlir::Type, 2> argMLIRTypes;
-  for (const Type *t{argumentTypes.start};
-       t != nullptr && t != argumentTypes.end; ++t) {
+  for (const TypeCode *t{argumentTypeCodes.start};
+       t != nullptr && t != argumentTypeCodes.end; ++t) {
     argMLIRTypes.push_back(getMLIRType(*t, context));
   }
-  mlir::Type resMLIRType{getMLIRType(resultType, context)};
+  mlir::Type resMLIRType{getMLIRType(resultTypeCode, context)};
   return mlir::FunctionType::get(argMLIRTypes, resMLIRType, &context);
 }
 
