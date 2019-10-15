@@ -113,7 +113,7 @@ MatchResult parseInt(unsigned &result, char const *&ptr) {
     ptr++;
   if (beg == ptr)
     return {};
-  llvm::StringRef ref(beg, ptr - beg);
+  StringRef ref(beg, ptr - beg);
   int temp;
   if (ref.consumeInteger(10, temp))
     return {};
@@ -121,8 +121,8 @@ MatchResult parseInt(unsigned &result, char const *&ptr) {
   return {true};
 }
 
-bool matchString(char const *&ptr, llvm::StringRef literal) {
-  llvm::StringRef s(ptr);
+bool matchString(char const *&ptr, StringRef literal) {
+  StringRef s(ptr);
   if (s.startswith(literal)) {
     ptr += literal.size();
     return true;
@@ -154,12 +154,21 @@ MatchResult parseTypeID(LLVMTypeID &result, char const *&ptr) {
   return {};
 }
 
-MatchResult badMapString(char const *ptr) {
-  // TODO
-  return {};
+} // namespace
+
+fir::KindMapping::KindMapping(mlir::MLIRContext *context, StringRef map)
+    : context{context} {
+  parse(map);
 }
 
-} // namespace
+fir::KindMapping::KindMapping(mlir::MLIRContext *context)
+    : KindMapping{context, ClKindMapping} {}
+
+MatchResult fir::KindMapping::badMapString(Twine const &ptr) {
+  auto unknown = mlir::UnknownLoc::get(context);
+  mlir::emitError(unknown, ptr);
+  return {};
+}
 
 MatchResult fir::KindMapping::parse(StringRef kindMap) {
   if (kindMap.empty())

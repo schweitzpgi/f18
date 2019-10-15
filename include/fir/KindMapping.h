@@ -21,7 +21,11 @@
 namespace llvm {
 template <typename>
 class Optional;
-}
+} // namespace llvm
+
+namespace mlir {
+class MLIRContext;
+} // namespace mlir
 
 namespace fir {
 
@@ -32,16 +36,29 @@ public:
   using LLVMTypeID = llvm::Type::TypeID;
   using MatchResult = llvm::Optional<bool>;
 
+  explicit KindMapping(mlir::MLIRContext *context);
+  explicit KindMapping(mlir::MLIRContext *context, llvm::StringRef map);
+
+  /// Get the size in bits of !fir.char<kind>
   Bitsize getCharacterBitsize(KindTy kind);
+
+  /// Get the size in bits of !fir.int<kind>
   Bitsize getIntegerBitsize(KindTy kind);
+
+  /// Get the size in bits of !fir.logical<kind>
   Bitsize getLogicalBitsize(KindTy kind);
 
+  /// Get the LLVM Type::TypeID of !fir.real<kind>
   LLVMTypeID getRealTypeID(KindTy kind);
+
+  /// Get the LLVM Type::TypeID of !fir.complex<kind>
   LLVMTypeID getComplexTypeID(KindTy kind);
 
 private:
+  MatchResult badMapString(llvm::Twine const &ptr);
   MatchResult parse(llvm::StringRef kindMap);
 
+  mlir::MLIRContext *context;
   std::map<char, std::map<KindTy, Bitsize>> intMap;
   std::map<char, std::map<KindTy, LLVMTypeID>> floatMap;
 };
