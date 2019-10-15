@@ -15,6 +15,7 @@
 #include "fir/Tilikum/Tilikum.h"
 #include "fir/Dialect.h"
 #include "fir/FIROps.h"
+#include "fir/KindMapping.h"
 #include "fir/Type.h"
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVM.h"
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVMPass.h"
@@ -37,7 +38,9 @@
 /// operations to the LLVM-IR dialect.
 
 #undef TODO
-#define TODO(X) (void)X; assert(false && "not yet implemented")
+#define TODO(X)                                                                \
+  (void)X;                                                                     \
+  assert(false && "not yet implemented")
 
 namespace L = llvm;
 namespace M = mlir;
@@ -53,12 +56,21 @@ using AttributeTy = L::ArrayRef<M::NamedAttribute>;
 /// FIR type converter
 /// This converts FIR types to LLVM types (for now)
 class FIRToLLVMTypeConverter : public M::LLVMTypeConverter {
+  KindMapping kindMapping;
+  static L::StringMap<M::LLVM::LLVMType> identStructCache;
+
 public:
-  using LLVMTypeConverter::LLVMTypeConverter;
+  FIRToLLVMTypeConverter(M::MLIRContext *context)
+      : LLVMTypeConverter(context), kindMapping(context) {}
 
   M::LLVM::LLVMType dimsType() {
-    auto i64Ty = M::LLVM::LLVMType::getInt64Ty(llvmDialect);
+    auto i64Ty{M::LLVM::LLVMType::getInt64Ty(llvmDialect)};
     return M::LLVM::LLVMType::getVectorTy(i64Ty, 3);
+  }
+
+  M::LLVM::LLVMType indexType() {
+    return convertType(M::IndexType::get(llvmDialect->getContext()))
+        .cast<M::LLVM::LLVMType>();
   }
 
   // FIXME: Currently this is a stub. This should correspond to the descriptor
@@ -94,23 +106,20 @@ public:
     auto funcTy = convertType(boxproc.getEleTy());
     auto ptrTy = unwrap(funcTy).getPointerTo();
     auto i8Ty = M::LLVM::LLVMType::getInt8Ty(llvmDialect);
-    L::SmallVector<M::LLVM::LLVMType, 2> tuple = {ptrTy, i8Ty};
+    L::SmallVector<M::LLVM::LLVMType, 2> tuple{ptrTy, i8Ty};
     return M::LLVM::LLVMType::getStructTy(llvmDialect, tuple);
   }
 
   M::LLVM::LLVMType convertCharType(CharacterType charTy) {
-    return convertIntLike(charTy);
+    return M::LLVM::LLVMType::getIntNTy(
+        llvmDialect, kindMapping.getCharacterBitsize(charTy.getFKind()));
   }
 
   M::LLVM::LLVMType convertComplexType(KindTy kind) {
-    auto realTy = convertRealType(kind);
-    L::SmallVector<M::LLVM::LLVMType, 2> tuple = {realTy, realTy};
+    auto realID = kindMapping.getComplexTypeID(kind);
+    auto realTy = fromRealTypeID(realID, kind);
+    L::SmallVector<M::LLVM::LLVMType, 2> tuple{realTy, realTy};
     return M::LLVM::LLVMType::getStructTy(llvmDialect, tuple);
-  }
-
-  template <typename A>
-  M::LLVM::LLVMType convertIntLike(A intLike) {
-    return M::LLVM::LLVMType::getIntNTy(llvmDialect, intLike.getSizeInBits());
   }
 
   LLVM::LLVMType getDefaultInt() {
@@ -118,45 +127,46 @@ public:
     return M::LLVM::LLVMType::getInt64Ty(llvmDialect);
   }
 
+  M::LLVM::LLVMType convertIntegerType(IntType intTy) {
+    return M::LLVM::LLVMType::getIntNTy(
+        llvmDialect, kindMapping.getIntegerBitsize(intTy.getFKind()));
+  }
+
+  M::LLVM::LLVMType convertLogicalType(LogicalType boolTy) {
+    return M::LLVM::LLVMType::getIntNTy(
+        llvmDialect, kindMapping.getLogicalBitsize(boolTy.getFKind()));
+  }
+
   template <typename A>
   M::LLVM::LLVMType convertPointerLike(A &ty) {
-    auto eleTy = unwrap(convertType(ty.getEleTy()));
-    return eleTy.getPointerTo();
+    return unwrap(convertType(ty.getEleTy())).getPointerTo();
   }
 
   // convert a front-end kind value to either a std or LLVM IR dialect type
   M::LLVM::LLVMType convertRealType(KindTy kind) {
-    auto *mlirContext = llvmDialect->getContext();
-    switch (kind) {
-    case 2:
-      return M::LLVM::LLVMType::getHalfTy(llvmDialect);
-    case 3:
-      emitError(UnknownLoc::get(mlirContext),
-                "unsupported type: !fir.real<3>, BF16");
-      return {};
-    case 4:
-      return M::LLVM::LLVMType::getFloatTy(llvmDialect);
-    case 8:
-      return M::LLVM::LLVMType::getDoubleTy(llvmDialect);
-    case 10:
-      return M::LLVM::LLVMType::getX86_FP80Ty(llvmDialect);
-    case 16:
-      return M::LLVM::LLVMType::getFP128Ty(llvmDialect);
-    }
-    emitError(UnknownLoc::get(mlirContext))
-        << "unsupported type: !fir.real<" << kind << ">";
-    return {};
+    return fromRealTypeID(kindMapping.getRealTypeID(kind), kind);
   }
 
+  // The cache is needed to keep a unique mapping from name -> StructType
   M::LLVM::LLVMType convertRecordType(RecordType derived) {
-    TODO(0);
-    return {};
+    auto name{derived.getName()};
+    auto iter{identStructCache.find(name)};
+    if (iter != identStructCache.end())
+      return iter->second;
+    auto st{M::LLVM::LLVMType::createStructTy(llvmDialect, name)};
+    identStructCache[name] = st;
+    L::SmallVector<M::LLVM::LLVMType, 8> members;
+    for (auto mem : derived.getTypeList())
+      members.push_back(convertType(mem.second).cast<M::LLVM::LLVMType>());
+    M::LLVM::LLVMType::setStructTyBody(st, members);
+    return st;
   }
 
   M::LLVM::LLVMType convertSequenceType(SequenceType seq) {
     // FIXME: we don't want to lower to std.memref type
     auto shape = seq.getShape();
     auto eleTy = unwrap(convertType(seq.getEleTy()));
+    (void)eleTy;
     L::SmallVector<int64_t, 4> memshape;
     if (shape.hasValue()) {
       for (auto bi : *shape) {
@@ -199,9 +209,9 @@ public:
     if (auto heap = t.dyn_cast<HeapType>())
       return convertPointerLike(heap);
     if (auto integer = t.dyn_cast<IntType>())
-      return convertIntLike(integer);
-    if (auto log = t.dyn_cast<LogicalType>())
-      return convertIntLike(log);
+      return convertIntegerType(integer);
+    if (auto logical = t.dyn_cast<LogicalType>())
+      return convertLogicalType(logical);
     if (auto pointer = t.dyn_cast<PointerType>())
       return convertPointerLike(pointer);
     if (auto real = t.dyn_cast<RealType>())
@@ -215,7 +225,27 @@ public:
     return LLVMTypeConverter::convertType(t);
   }
 
-  // cloned from LLVMTypeConverter since this is private there
+  /// Convert llvm::Type::TypeID to mlir::LLVM::LLVMType
+  M::LLVM::LLVMType fromRealTypeID(L::Type::TypeID typeID, KindTy kind) {
+    switch (typeID) {
+    case L::Type::TypeID::HalfTyID:
+      return M::LLVM::LLVMType::getHalfTy(llvmDialect);
+    case L::Type::TypeID::FloatTyID:
+      return M::LLVM::LLVMType::getFloatTy(llvmDialect);
+    case L::Type::TypeID::DoubleTyID:
+      return M::LLVM::LLVMType::getDoubleTy(llvmDialect);
+    case L::Type::TypeID::X86_FP80TyID:
+      return M::LLVM::LLVMType::getX86_FP80Ty(llvmDialect);
+    case L::Type::TypeID::FP128TyID:
+      return M::LLVM::LLVMType::getFP128Ty(llvmDialect);
+    default:
+      emitError(UnknownLoc::get(llvmDialect->getContext()))
+          << "unsupported type: !fir.real<" << kind << ">";
+      return {};
+    }
+  }
+
+  /// HACK: cloned from LLVMTypeConverter since this is private there
   LLVM::LLVMType unwrap(Type type) {
     if (!type)
       return nullptr;
@@ -227,6 +257,8 @@ public:
     return wrappedLLVMType;
   }
 };
+
+L::StringMap<M::LLVM::LLVMType> FIRToLLVMTypeConverter::identStructCache;
 
 L::SmallVector<M::NamedAttribute, 4>
 pruneNamedAttrDict(L::ArrayRef<M::NamedAttribute> attrs,
@@ -307,6 +339,7 @@ struct AllocMemOpConversion : public FIROpConversion<AllocMemOp> {
   }
 };
 
+// FIXME
 struct BoxAddrOpConversion : public FIROpConversion<BoxAddrOp> {
   using FIROpConversion::FIROpConversion;
 
@@ -314,8 +347,14 @@ struct BoxAddrOpConversion : public FIROpConversion<BoxAddrOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto boxaddr = M::cast<BoxAddrOp>(op);
-    // FIXME: stub. needs a test, etc.
-    rewriter.replaceOpWithNewOp<M::LLVM::GEPOp>(boxaddr, M::Type{}, operands);
+    auto a = operands[0];
+    auto loc = boxaddr.getLoc();
+    auto ty = lowering.convertType(boxaddr.getType());
+    auto ctx = boxaddr.getContext();
+    auto c0 = M::ArrayAttr::get(rewriter.getI32IntegerAttr(0), ctx);
+    auto r = rewriter.create<M::LLVM::ExtractValueOp>(loc, ty, a, c0);
+    boxaddr.replaceAllUsesWith(r.getResult());
+    rewriter.replaceOp(boxaddr, r.getResult());
     return matchSuccess();
   }
 };
@@ -327,7 +366,11 @@ struct BoxCharLenOpConversion : public FIROpConversion<BoxCharLenOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto boxchar = M::cast<BoxCharLenOp>(op);
-    TODO(boxchar);
+    auto a = operands[0];
+    auto ty = lowering.convertType(boxchar.getType());
+    auto ctx = boxchar.getContext();
+    auto c1 = M::ArrayAttr::get(rewriter.getI32IntegerAttr(1), ctx);
+    rewriter.replaceOpWithNewOp<M::LLVM::ExtractValueOp>(boxchar, ty, a, c1);
     return matchSuccess();
   }
 };
@@ -339,7 +382,19 @@ struct BoxDimsOpConversion : public FIROpConversion<BoxDimsOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto boxdims = M::cast<BoxDimsOp>(op);
-    TODO(boxdims);
+    auto a = operands[0];
+    auto dim = operands[1];
+    auto loc = boxdims.getLoc();
+    auto ctx = boxdims.getContext();
+    auto c0attr = M::ArrayAttr::get(rewriter.getI32IntegerAttr(0), ctx);
+    auto ity = lowering.indexType();
+    auto c0 = rewriter.create<M::LLVM::ConstantOp>(loc, ity, c0attr);
+    auto c7attr = M::ArrayAttr::get(rewriter.getI32IntegerAttr(7), ctx);
+    auto c7 = rewriter.create<M::LLVM::ConstantOp>(loc, ity, c7attr);
+    auto ty = lowering.convertType(boxdims.getResult(0)->getType());
+    L::SmallVector<M::Value *, 4> args({a, c0, c7, dim});
+    auto p = rewriter.create<M::LLVM::GEPOp>(loc, ty, args);
+    rewriter.replaceOpWithNewOp<M::LLVM::LoadOp>(boxdims, ty, p);
     return matchSuccess();
   }
 };
@@ -351,7 +406,11 @@ struct BoxEleSizeOpConversion : public FIROpConversion<BoxEleSizeOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto boxelesz = M::cast<BoxEleSizeOp>(op);
-    TODO(boxelesz);
+    auto a = operands[0];
+    auto ty = lowering.convertType(boxelesz.getType());
+    auto ctx = boxelesz.getContext();
+    auto c1 = M::ArrayAttr::get(rewriter.getI32IntegerAttr(1), ctx);
+    rewriter.replaceOpWithNewOp<M::LLVM::ExtractValueOp>(boxelesz, ty, a, c1);
     return matchSuccess();
   }
 };
@@ -363,7 +422,15 @@ struct BoxIsAllocOpConversion : public FIROpConversion<BoxIsAllocOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto boxisalloc = M::cast<BoxIsAllocOp>(op);
-    TODO(boxisalloc);
+    auto a = operands[0];
+    auto loc = boxisalloc.getLoc();
+    auto ty = lowering.convertType(boxisalloc.getType());
+    auto ctx = boxisalloc.getContext();
+    auto c5 = M::ArrayAttr::get(rewriter.getI32IntegerAttr(5), ctx);
+    auto r = rewriter.create<M::LLVM::ExtractValueOp>(loc, ty, a, c5);
+    // fixme: r & 2
+    boxisalloc.replaceAllUsesWith(r.getResult());
+    rewriter.replaceOp(boxisalloc, r.getResult());
     return matchSuccess();
   }
 };
@@ -375,7 +442,15 @@ struct BoxIsArrayOpConversion : public FIROpConversion<BoxIsArrayOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto boxisarray = M::cast<BoxIsArrayOp>(op);
-    TODO(boxisarray);
+    auto a = operands[0];
+    auto loc = boxisarray.getLoc();
+    auto ty = lowering.convertType(boxisarray.getType());
+    auto ctx = boxisarray.getContext();
+    auto c3 = M::ArrayAttr::get(rewriter.getI32IntegerAttr(3), ctx);
+    auto r = rewriter.create<M::LLVM::ExtractValueOp>(loc, ty, a, c3);
+    // fixme: r != 0
+    boxisarray.replaceAllUsesWith(r.getResult());
+    rewriter.replaceOp(boxisarray, r.getResult());
     return matchSuccess();
   }
 };
@@ -387,7 +462,15 @@ struct BoxIsPtrOpConversion : public FIROpConversion<BoxIsPtrOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto boxisptr = M::cast<BoxIsPtrOp>(op);
-    TODO(boxisptr);
+    auto a = operands[0];
+    auto loc = boxisptr.getLoc();
+    auto ty = lowering.convertType(boxisptr.getType());
+    auto ctx = boxisptr.getContext();
+    auto c5 = M::ArrayAttr::get(rewriter.getI32IntegerAttr(5), ctx);
+    auto r = rewriter.create<M::LLVM::ExtractValueOp>(loc, ty, a, c5);
+    // fixme: r & 1
+    boxisptr.replaceAllUsesWith(r.getResult());
+    rewriter.replaceOp(boxisptr, r.getResult());
     return matchSuccess();
   }
 };
@@ -399,7 +482,12 @@ struct BoxProcHostOpConversion : public FIROpConversion<BoxProcHostOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto boxprochost = M::cast<BoxProcHostOp>(op);
-    TODO(boxprochost);
+    auto a = operands[0];
+    auto ty = lowering.convertType(boxprochost.getType());
+    auto ctx = boxprochost.getContext();
+    auto c1 = M::ArrayAttr::get(rewriter.getI32IntegerAttr(1), ctx);
+    rewriter.replaceOpWithNewOp<M::LLVM::ExtractValueOp>(boxprochost, ty, a,
+                                                         c1);
     return matchSuccess();
   }
 };
@@ -411,7 +499,11 @@ struct BoxRankOpConversion : public FIROpConversion<BoxRankOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto boxrank = M::cast<BoxRankOp>(op);
-    TODO(boxrank);
+    auto a = operands[0];
+    auto ty = lowering.convertType(boxrank.getType());
+    auto ctx = boxrank.getContext();
+    auto c3 = M::ArrayAttr::get(rewriter.getI32IntegerAttr(3), ctx);
+    rewriter.replaceOpWithNewOp<M::LLVM::ExtractValueOp>(boxrank, ty, a, c3);
     return matchSuccess();
   }
 };
@@ -572,7 +664,17 @@ struct EmboxCharOpConversion : public FIROpConversion<EmboxCharOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto emboxchar = M::cast<EmboxCharOp>(op);
-    TODO(emboxchar);
+    auto a = operands[0];
+    auto b = operands[1];
+    auto loc = emboxchar.getLoc();
+    auto ctx = emboxchar.getContext();
+    auto ty = lowering.convertType(emboxchar.getType());
+    auto c0 = M::ArrayAttr::get(rewriter.getI32IntegerAttr(0), ctx);
+    auto c1 = M::ArrayAttr::get(rewriter.getI32IntegerAttr(1), ctx);
+    auto un = rewriter.create<M::LLVM::UndefOp>(loc, ty);
+    auto r = rewriter.create<M::LLVM::InsertValueOp>(loc, ty, un, a, c0);
+    rewriter.replaceOpWithNewOp<M::LLVM::InsertValueOp>(emboxchar, ty, r, b,
+                                                        c1);
     return matchSuccess();
   }
 };
@@ -598,7 +700,17 @@ struct EmboxProcOpConversion : public FIROpConversion<EmboxProcOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto emboxproc = M::cast<EmboxProcOp>(op);
-    TODO(emboxproc);
+    auto a = operands[0];
+    auto b = operands[1];
+    auto loc = emboxproc.getLoc();
+    auto ctx = emboxproc.getContext();
+    auto ty = lowering.convertType(emboxproc.getType());
+    auto c0 = M::ArrayAttr::get(rewriter.getI32IntegerAttr(0), ctx);
+    auto c1 = M::ArrayAttr::get(rewriter.getI32IntegerAttr(1), ctx);
+    auto un = rewriter.create<M::LLVM::UndefOp>(loc, ty);
+    auto r = rewriter.create<M::LLVM::InsertValueOp>(loc, ty, un, a, c0);
+    rewriter.replaceOpWithNewOp<M::LLVM::InsertValueOp>(emboxproc, ty, r, b,
+                                                        c1);
     return matchSuccess();
   }
 };
@@ -941,9 +1053,8 @@ struct UndefOpConversion : public FIROpConversion<UndefOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto undef = M::cast<UndefOp>(op);
-    M::Value *v{rewriter.create<M::LLVM::UndefOp>(
-        undef.getLoc(), lowering.convertType(undef.getType()))};
-    rewriter.replaceOp(op, v);
+    rewriter.replaceOpWithNewOp<M::LLVM::UndefOp>(
+        undef, lowering.convertType(undef.getType()));
     return matchSuccess();
   }
 };
@@ -955,10 +1066,11 @@ struct UnreachableOpConversion : public FIROpConversion<UnreachableOp> {
   M::PatternMatchResult
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
+    auto unreach = M::cast<UnreachableOp>(op);
     L::SmallVector<M::Block *, 1> destinations; // none
     L::SmallVector<OperandTy, 1> destOperands;  // none
-    rewriter.create<M::LLVM::UnreachableOp>(
-        op->getLoc(), operands, destinations, destOperands, op->getAttrs());
+    rewriter.replaceOpWithNewOp<M::LLVM::UnreachableOp>(
+        unreach, operands, destinations, destOperands, unreach.getAttrs());
     return matchSuccess();
   }
 };
@@ -978,11 +1090,11 @@ struct WhereOpConversion : public FIROpConversion<fir::WhereOp> {
 
 // Generate code for complex addition/subtraction
 template <typename LLVMOP, typename OPTY>
-M::LLVM::InsertValueOp complexSum(OPTY sumop,
+M::LLVM::InsertValueOp complexSum(OPTY sumop, OperandTy opnds,
                                   M::ConversionPatternRewriter &rewriter,
                                   FIRToLLVMTypeConverter &lowering) {
-  auto a = sumop.lhs();
-  auto b = sumop.rhs();
+  auto a = opnds[0];
+  auto b = opnds[1];
   auto loc = sumop.getLoc();
   auto ctx = sumop.getContext();
   auto c0 = M::ArrayAttr::get(rewriter.getI32IntegerAttr(0), ctx);
@@ -1072,7 +1184,7 @@ struct AddcOpConversion : public FIROpConversion<fir::AddcOp> {
                   M::ConversionPatternRewriter &rewriter) const override {
     // result: (x + x') + i(y + y')
     auto addc = cast<fir::AddcOp>(op);
-    auto r = complexSum<M::LLVM::FAddOp>(addc, rewriter, lowering);
+    auto r = complexSum<M::LLVM::FAddOp>(addc, operands, rewriter, lowering);
     addc.replaceAllUsesWith(r.getResult());
     rewriter.replaceOp(addc, r.getResult());
     return matchSuccess();
@@ -1087,7 +1199,7 @@ struct SubcOpConversion : public FIROpConversion<fir::SubcOp> {
                   M::ConversionPatternRewriter &rewriter) const override {
     // result: (x - x') + i(y - y')
     auto subc = M::cast<fir::SubcOp>(op);
-    auto r = complexSum<M::LLVM::FSubOp>(subc, rewriter, lowering);
+    auto r = complexSum<M::LLVM::FSubOp>(subc, operands, rewriter, lowering);
     subc.replaceAllUsesWith(r.getResult());
     rewriter.replaceOp(subc, r.getResult());
     return matchSuccess();
@@ -1103,8 +1215,8 @@ struct MulcOpConversion : public FIROpConversion<fir::MulcOp> {
     auto mulc = M::cast<fir::MulcOp>(op);
     // TODO: should this just call __muldc3 ?
     // result: (xx'-yy')+i(xy'+yx')
-    auto a = mulc.lhs();
-    auto b = mulc.rhs();
+    auto a = operands[0];
+    auto b = operands[1];
     auto loc = mulc.getLoc();
     auto ctx = mulc.getContext();
     auto c0 = M::ArrayAttr::get(rewriter.getI32IntegerAttr(0), ctx);
@@ -1138,8 +1250,8 @@ struct DivcOpConversion : public FIROpConversion<fir::DivcOp> {
     auto divc = M::cast<fir::DivcOp>(op);
     // TODO: should this just call __divdc3 ?
     // result: ((xx'+yy')/d) + i((yx'-xy')/d) where d = x'x' + y'y'
-    auto a = divc.lhs();
-    auto b = divc.rhs();
+    auto a = operands[0];
+    auto b = operands[1];
     auto loc = divc.getLoc();
     auto ctx = divc.getContext();
     auto c0 = M::ArrayAttr::get(rewriter.getI32IntegerAttr(0), ctx);
