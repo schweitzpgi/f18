@@ -68,6 +68,11 @@ public:
     return M::LLVM::LLVMType::getVectorTy(i64Ty, 3);
   }
 
+  M::LLVM::LLVMType indexType() {
+    return convertType(M::IndexType::get(llvmDialect->getContext()))
+        .cast<M::LLVM::LLVMType>();
+  }
+
   // FIXME: Currently this is a stub. This should correspond to the descriptor
   // as defined ISO_Fortran_binding.h and the addendum defined in descriptor.h
   M::LLVM::LLVMType convertBoxType(BoxType box) {
@@ -161,6 +166,7 @@ public:
     // FIXME: we don't want to lower to std.memref type
     auto shape = seq.getShape();
     auto eleTy = unwrap(convertType(seq.getEleTy()));
+    (void)eleTy;
     L::SmallVector<int64_t, 4> memshape;
     if (shape.hasValue()) {
       for (auto bi : *shape) {
@@ -333,6 +339,7 @@ struct AllocMemOpConversion : public FIROpConversion<AllocMemOp> {
   }
 };
 
+// FIXME
 struct BoxAddrOpConversion : public FIROpConversion<BoxAddrOp> {
   using FIROpConversion::FIROpConversion;
 
@@ -340,8 +347,14 @@ struct BoxAddrOpConversion : public FIROpConversion<BoxAddrOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto boxaddr = M::cast<BoxAddrOp>(op);
-    // FIXME: stub. needs a test, etc.
-    rewriter.replaceOpWithNewOp<M::LLVM::GEPOp>(boxaddr, M::Type{}, operands);
+    auto a = operands[0];
+    auto loc = boxaddr.getLoc();
+    auto ty = lowering.convertType(boxaddr.getType());
+    auto ctx = boxaddr.getContext();
+    auto c0 = M::ArrayAttr::get(rewriter.getI32IntegerAttr(0), ctx);
+    auto r = rewriter.create<M::LLVM::ExtractValueOp>(loc, ty, a, c0);
+    boxaddr.replaceAllUsesWith(r.getResult());
+    rewriter.replaceOp(boxaddr, r.getResult());
     return matchSuccess();
   }
 };
@@ -354,13 +367,10 @@ struct BoxCharLenOpConversion : public FIROpConversion<BoxCharLenOp> {
                   M::ConversionPatternRewriter &rewriter) const override {
     auto boxchar = M::cast<BoxCharLenOp>(op);
     auto a = operands[0];
-    auto loc = boxchar.getLoc();
-    auto ty = lowering.convertType(boxchar.getType()); //get .1
+    auto ty = lowering.convertType(boxchar.getType());
     auto ctx = boxchar.getContext();
     auto c1 = M::ArrayAttr::get(rewriter.getI32IntegerAttr(1), ctx);
-    auto r = rewriter.create<M::LLVM::ExtractValueOp>(loc, ty, a, c1);
-    boxchar.replaceAllUsesWith(r.getResult());
-    rewriter.replaceOp(boxchar, r.getResult());
+    rewriter.replaceOpWithNewOp<M::LLVM::ExtractValueOp>(boxchar, ty, a, c1);
     return matchSuccess();
   }
 };
@@ -372,7 +382,19 @@ struct BoxDimsOpConversion : public FIROpConversion<BoxDimsOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto boxdims = M::cast<BoxDimsOp>(op);
-    TODO(boxdims);
+    auto a = operands[0];
+    auto dim = operands[1];
+    auto loc = boxdims.getLoc();
+    auto ctx = boxdims.getContext();
+    auto c0attr = M::ArrayAttr::get(rewriter.getI32IntegerAttr(0), ctx);
+    auto ity = lowering.indexType();
+    auto c0 = rewriter.create<M::LLVM::ConstantOp>(loc, ity, c0attr);
+    auto c7attr = M::ArrayAttr::get(rewriter.getI32IntegerAttr(7), ctx);
+    auto c7 = rewriter.create<M::LLVM::ConstantOp>(loc, ity, c7attr);
+    auto ty = lowering.convertType(boxdims.getResult(0)->getType());
+    L::SmallVector<M::Value*, 4> args({a, c0, c7, dim});
+    auto p = rewriter.create<M::LLVM::GEPOp>(loc, ty, args);
+    rewriter.replaceOpWithNewOp<M::LLVM::LoadOp>(boxdims, ty, p);
     return matchSuccess();
   }
 };
@@ -384,7 +406,11 @@ struct BoxEleSizeOpConversion : public FIROpConversion<BoxEleSizeOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto boxelesz = M::cast<BoxEleSizeOp>(op);
-    TODO(boxelesz);
+    auto a = operands[0];
+    auto ty = lowering.convertType(boxelesz.getType());
+    auto ctx = boxelesz.getContext();
+    auto c1 = M::ArrayAttr::get(rewriter.getI32IntegerAttr(1), ctx);
+    rewriter.replaceOpWithNewOp<M::LLVM::ExtractValueOp>(boxelesz, ty, a, c1);
     return matchSuccess();
   }
 };
@@ -396,7 +422,15 @@ struct BoxIsAllocOpConversion : public FIROpConversion<BoxIsAllocOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto boxisalloc = M::cast<BoxIsAllocOp>(op);
-    TODO(boxisalloc);
+    auto a = operands[0];
+    auto loc = boxisalloc.getLoc();
+    auto ty = lowering.convertType(boxisalloc.getType());
+    auto ctx = boxisalloc.getContext();
+    auto c5 = M::ArrayAttr::get(rewriter.getI32IntegerAttr(5), ctx);
+    auto r = rewriter.create<M::LLVM::ExtractValueOp>(loc, ty, a, c5);
+    // fixme: r & 2
+    boxisalloc.replaceAllUsesWith(r.getResult());
+    rewriter.replaceOp(boxisalloc, r.getResult());
     return matchSuccess();
   }
 };
@@ -408,7 +442,15 @@ struct BoxIsArrayOpConversion : public FIROpConversion<BoxIsArrayOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto boxisarray = M::cast<BoxIsArrayOp>(op);
-    TODO(boxisarray);
+    auto a = operands[0];
+    auto loc = boxisarray.getLoc();
+    auto ty = lowering.convertType(boxisarray.getType());
+    auto ctx = boxisarray.getContext();
+    auto c3 = M::ArrayAttr::get(rewriter.getI32IntegerAttr(3), ctx);
+    auto r = rewriter.create<M::LLVM::ExtractValueOp>(loc, ty, a, c3);
+    // fixme: r != 0
+    boxisarray.replaceAllUsesWith(r.getResult());
+    rewriter.replaceOp(boxisarray, r.getResult());
     return matchSuccess();
   }
 };
@@ -420,7 +462,15 @@ struct BoxIsPtrOpConversion : public FIROpConversion<BoxIsPtrOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto boxisptr = M::cast<BoxIsPtrOp>(op);
-    TODO(boxisptr);
+    auto a = operands[0];
+    auto loc = boxisptr.getLoc();
+    auto ty = lowering.convertType(boxisptr.getType());
+    auto ctx = boxisptr.getContext();
+    auto c5 = M::ArrayAttr::get(rewriter.getI32IntegerAttr(5), ctx);
+    auto r = rewriter.create<M::LLVM::ExtractValueOp>(loc, ty, a, c5);
+    // fixme: r & 1
+    boxisptr.replaceAllUsesWith(r.getResult());
+    rewriter.replaceOp(boxisptr, r.getResult());
     return matchSuccess();
   }
 };
@@ -432,7 +482,14 @@ struct BoxProcHostOpConversion : public FIROpConversion<BoxProcHostOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto boxprochost = M::cast<BoxProcHostOp>(op);
-    TODO(boxprochost);
+    auto a = operands[0];
+    auto loc = boxprochost.getLoc();
+    auto ty = lowering.convertType(boxprochost.getType());
+    auto ctx = boxprochost.getContext();
+    auto c1 = M::ArrayAttr::get(rewriter.getI32IntegerAttr(1), ctx);
+    auto r = rewriter.create<M::LLVM::ExtractValueOp>(loc, ty, a, c1);
+    boxprochost.replaceAllUsesWith(r.getResult());
+    rewriter.replaceOp(boxprochost, r.getResult());
     return matchSuccess();
   }
 };
@@ -444,7 +501,14 @@ struct BoxRankOpConversion : public FIROpConversion<BoxRankOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto boxrank = M::cast<BoxRankOp>(op);
-    TODO(boxrank);
+    auto a = operands[0];
+    auto loc = boxrank.getLoc();
+    auto ty = lowering.convertType(boxrank.getType());
+    auto ctx = boxrank.getContext();
+    auto c3 = M::ArrayAttr::get(rewriter.getI32IntegerAttr(3), ctx);
+    auto r = rewriter.create<M::LLVM::ExtractValueOp>(loc, ty, a, c3);
+    boxrank.replaceAllUsesWith(r.getResult());
+    rewriter.replaceOp(boxrank, r.getResult());
     return matchSuccess();
   }
 };
@@ -642,7 +706,18 @@ struct EmboxProcOpConversion : public FIROpConversion<EmboxProcOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto emboxproc = M::cast<EmboxProcOp>(op);
-    TODO(emboxproc);
+    auto a = operands[0];
+    auto b = operands[1];
+    auto loc = emboxproc.getLoc();
+    auto ctx = emboxproc.getContext();
+    auto ty = lowering.convertType(emboxproc.getType());
+    auto c0 = M::ArrayAttr::get(rewriter.getI32IntegerAttr(0), ctx);
+    auto c1 = M::ArrayAttr::get(rewriter.getI32IntegerAttr(1), ctx);
+    auto un = rewriter.create<M::LLVM::UndefOp>(loc, ty);
+    auto r_ = rewriter.create<M::LLVM::InsertValueOp>(loc, ty, un, a, c0);
+    auto r = rewriter.create<M::LLVM::InsertValueOp>(loc, ty, r_, b, c1);
+    emboxproc.replaceAllUsesWith(r.getResult());
+    rewriter.replaceOp(emboxproc, r.getResult());
     return matchSuccess();
   }
 };
@@ -1022,11 +1097,11 @@ struct WhereOpConversion : public FIROpConversion<fir::WhereOp> {
 
 // Generate code for complex addition/subtraction
 template <typename LLVMOP, typename OPTY>
-M::LLVM::InsertValueOp complexSum(OPTY sumop,
+M::LLVM::InsertValueOp complexSum(OPTY sumop, OperandTy opnds,
                                   M::ConversionPatternRewriter &rewriter,
                                   FIRToLLVMTypeConverter &lowering) {
-  auto a = sumop.lhs();
-  auto b = sumop.rhs();
+  auto a = opnds[0];
+  auto b = opnds[1];
   auto loc = sumop.getLoc();
   auto ctx = sumop.getContext();
   auto c0 = M::ArrayAttr::get(rewriter.getI32IntegerAttr(0), ctx);
@@ -1116,7 +1191,7 @@ struct AddcOpConversion : public FIROpConversion<fir::AddcOp> {
                   M::ConversionPatternRewriter &rewriter) const override {
     // result: (x + x') + i(y + y')
     auto addc = cast<fir::AddcOp>(op);
-    auto r = complexSum<M::LLVM::FAddOp>(addc, rewriter, lowering);
+    auto r = complexSum<M::LLVM::FAddOp>(addc, operands, rewriter, lowering);
     addc.replaceAllUsesWith(r.getResult());
     rewriter.replaceOp(addc, r.getResult());
     return matchSuccess();
@@ -1131,7 +1206,7 @@ struct SubcOpConversion : public FIROpConversion<fir::SubcOp> {
                   M::ConversionPatternRewriter &rewriter) const override {
     // result: (x - x') + i(y - y')
     auto subc = M::cast<fir::SubcOp>(op);
-    auto r = complexSum<M::LLVM::FSubOp>(subc, rewriter, lowering);
+    auto r = complexSum<M::LLVM::FSubOp>(subc, operands, rewriter, lowering);
     subc.replaceAllUsesWith(r.getResult());
     rewriter.replaceOp(subc, r.getResult());
     return matchSuccess();
@@ -1147,8 +1222,8 @@ struct MulcOpConversion : public FIROpConversion<fir::MulcOp> {
     auto mulc = M::cast<fir::MulcOp>(op);
     // TODO: should this just call __muldc3 ?
     // result: (xx'-yy')+i(xy'+yx')
-    auto a = mulc.lhs();
-    auto b = mulc.rhs();
+    auto a = operands[0];
+    auto b = operands[1];
     auto loc = mulc.getLoc();
     auto ctx = mulc.getContext();
     auto c0 = M::ArrayAttr::get(rewriter.getI32IntegerAttr(0), ctx);
@@ -1182,8 +1257,8 @@ struct DivcOpConversion : public FIROpConversion<fir::DivcOp> {
     auto divc = M::cast<fir::DivcOp>(op);
     // TODO: should this just call __divdc3 ?
     // result: ((xx'+yy')/d) + i((yx'-xy')/d) where d = x'x' + y'y'
-    auto a = divc.lhs();
-    auto b = divc.rhs();
+    auto a = operands[0];
+    auto b = operands[1];
     auto loc = divc.getLoc();
     auto ctx = divc.getContext();
     auto c0 = M::ArrayAttr::get(rewriter.getI32IntegerAttr(0), ctx);
