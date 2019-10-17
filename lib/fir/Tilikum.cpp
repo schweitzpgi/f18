@@ -65,12 +65,11 @@ public:
 
   M::LLVM::LLVMType dimsType() {
     auto i64Ty{M::LLVM::LLVMType::getInt64Ty(llvmDialect)};
-    return M::LLVM::LLVMType::getVectorTy(i64Ty, 3);
+    return M::LLVM::LLVMType::getArrayTy(i64Ty, 3);
   }
 
   M::LLVM::LLVMType indexType() {
-    return convertType(M::IndexType::get(llvmDialect->getContext()))
-        .cast<M::LLVM::LLVMType>();
+    return M::LLVM::LLVMType::getInt32Ty(llvmDialect);
   }
 
   // FIXME: Currently this is a stub. This should correspond to the descriptor
@@ -78,20 +77,28 @@ public:
   M::LLVM::LLVMType convertBoxType(BoxType box) {
     // (buffer*, ele-size, rank, type-descriptor, attribute, [dims])
     L::SmallVector<M::LLVM::LLVMType, 6> parts;
-    // buffer*
     M::Type ele = box.getEleTy();
-    auto *ctx = box.getContext();
+    // auto *ctx = box.getContext();
     auto eleTy = unwrap(convertType(ele));
+    // buffer*
     parts.push_back(eleTy.getPointerTo());
     // ele-size
     parts.push_back(M::LLVM::LLVMType::getInt64Ty(llvmDialect));
+    // version
+    parts.push_back(M::LLVM::LLVMType::getInt32Ty(llvmDialect));
     // rank
-    parts.push_back(convertTypeDescType(ctx));
+    parts.push_back(M::LLVM::LLVMType::getInt8Ty(llvmDialect));
+    // type (code)
+    parts.push_back(M::LLVM::LLVMType::getInt8Ty(llvmDialect));
     // attribute
-    parts.push_back(M::LLVM::LLVMType::getInt64Ty(llvmDialect));
-    // [(int,int,int)]
-    parts.push_back(dimsType().getPointerTo());
-    return M::LLVM::LLVMType::getStructTy(llvmDialect, parts);
+    parts.push_back(M::LLVM::LLVMType::getInt8Ty(llvmDialect));
+    // addendum
+    parts.push_back(M::LLVM::LLVMType::getInt8Ty(llvmDialect));
+    // opt-dims: [0..15 x [int,int,int]]
+    // opt-type-ptr: i8*, aka convertTypeDescType(ctx)
+    // opt-flags: i64
+    // opt-len-params: [? x i64]
+    return M::LLVM::LLVMType::getStructTy(llvmDialect, parts).getPointerTo();
   }
 
   M::LLVM::LLVMType convertBoxCharType(BoxCharType boxchar) {
@@ -385,11 +392,10 @@ struct BoxDimsOpConversion : public FIROpConversion<BoxDimsOp> {
     auto a = operands[0];
     auto dim = operands[1];
     auto loc = boxdims.getLoc();
-    auto ctx = boxdims.getContext();
-    auto c0attr = M::ArrayAttr::get(rewriter.getI32IntegerAttr(0), ctx);
     auto ity = lowering.indexType();
+    auto c0attr = rewriter.getI32IntegerAttr(0);
     auto c0 = rewriter.create<M::LLVM::ConstantOp>(loc, ity, c0attr);
-    auto c7attr = M::ArrayAttr::get(rewriter.getI32IntegerAttr(7), ctx);
+    auto c7attr = rewriter.getI32IntegerAttr(7);
     auto c7 = rewriter.create<M::LLVM::ConstantOp>(loc, ity, c7attr);
     auto ty = lowering.convertType(boxdims.getResult(0)->getType());
     L::SmallVector<M::Value *, 4> args({a, c0, c7, dim});
@@ -407,10 +413,16 @@ struct BoxEleSizeOpConversion : public FIROpConversion<BoxEleSizeOp> {
                   M::ConversionPatternRewriter &rewriter) const override {
     auto boxelesz = M::cast<BoxEleSizeOp>(op);
     auto a = operands[0];
+    auto loc = boxelesz.getLoc();
     auto ty = lowering.convertType(boxelesz.getType());
-    auto ctx = boxelesz.getContext();
-    auto c1 = M::ArrayAttr::get(rewriter.getI32IntegerAttr(1), ctx);
-    rewriter.replaceOpWithNewOp<M::LLVM::ExtractValueOp>(boxelesz, ty, a, c1);
+    auto ity = lowering.indexType();
+    auto c0attr = rewriter.getI32IntegerAttr(0);
+    auto c0 = rewriter.create<M::LLVM::ConstantOp>(loc, ity, c0attr);
+    auto c1attr = rewriter.getI32IntegerAttr(1);
+    auto c1 = rewriter.create<M::LLVM::ConstantOp>(loc, ity, c1attr);
+    L::SmallVector<M::Value *, 4> args({a, c0, c1});
+    auto p = rewriter.create<M::LLVM::GEPOp>(loc, ty, args);
+    rewriter.replaceOpWithNewOp<M::LLVM::LoadOp>(boxelesz, ty, p);
     return matchSuccess();
   }
 };
@@ -425,12 +437,19 @@ struct BoxIsAllocOpConversion : public FIROpConversion<BoxIsAllocOp> {
     auto a = operands[0];
     auto loc = boxisalloc.getLoc();
     auto ty = lowering.convertType(boxisalloc.getType());
-    auto ctx = boxisalloc.getContext();
-    auto c5 = M::ArrayAttr::get(rewriter.getI32IntegerAttr(5), ctx);
-    auto r = rewriter.create<M::LLVM::ExtractValueOp>(loc, ty, a, c5);
-    // fixme: r & 2
-    boxisalloc.replaceAllUsesWith(r.getResult());
-    rewriter.replaceOp(boxisalloc, r.getResult());
+    auto ity = lowering.indexType();
+    auto c0attr = rewriter.getI32IntegerAttr(0);
+    auto c0 = rewriter.create<M::LLVM::ConstantOp>(loc, ity, c0attr);
+    auto c5attr = rewriter.getI32IntegerAttr(5);
+    auto c5 = rewriter.create<M::LLVM::ConstantOp>(loc, ity, c5attr);
+    L::SmallVector<M::Value *, 4> args({a, c0, c5});
+    auto p = rewriter.create<M::LLVM::GEPOp>(loc, ty, args);
+    auto ld = rewriter.create<M::LLVM::LoadOp>(loc, ty, p);
+    auto c2attr = rewriter.getI32IntegerAttr(2);
+    auto ab = rewriter.create<M::LLVM::ConstantOp>(loc, ity, c2attr);
+    auto bit = rewriter.create<M::LLVM::AndOp>(loc, ity, ld, ab);
+    rewriter.replaceOpWithNewOp<M::LLVM::ICmpOp>(
+        boxisalloc, M::LLVM::ICmpPredicate::ne, bit, c0);
     return matchSuccess();
   }
 };
@@ -445,12 +464,16 @@ struct BoxIsArrayOpConversion : public FIROpConversion<BoxIsArrayOp> {
     auto a = operands[0];
     auto loc = boxisarray.getLoc();
     auto ty = lowering.convertType(boxisarray.getType());
-    auto ctx = boxisarray.getContext();
-    auto c3 = M::ArrayAttr::get(rewriter.getI32IntegerAttr(3), ctx);
-    auto r = rewriter.create<M::LLVM::ExtractValueOp>(loc, ty, a, c3);
-    // fixme: r != 0
-    boxisarray.replaceAllUsesWith(r.getResult());
-    rewriter.replaceOp(boxisarray, r.getResult());
+    auto ity = lowering.indexType();
+    auto c0attr = rewriter.getI32IntegerAttr(0);
+    auto c0 = rewriter.create<M::LLVM::ConstantOp>(loc, ity, c0attr);
+    auto c3attr = rewriter.getI32IntegerAttr(3);
+    auto c3 = rewriter.create<M::LLVM::ConstantOp>(loc, ity, c3attr);
+    L::SmallVector<M::Value *, 4> args({a, c0, c3});
+    auto p = rewriter.create<M::LLVM::GEPOp>(loc, ty, args);
+    auto ld = rewriter.create<M::LLVM::LoadOp>(loc, ty, p);
+    rewriter.replaceOpWithNewOp<M::LLVM::ICmpOp>(
+        boxisarray, M::LLVM::ICmpPredicate::ne, ld, c0);
     return matchSuccess();
   }
 };
@@ -465,12 +488,19 @@ struct BoxIsPtrOpConversion : public FIROpConversion<BoxIsPtrOp> {
     auto a = operands[0];
     auto loc = boxisptr.getLoc();
     auto ty = lowering.convertType(boxisptr.getType());
-    auto ctx = boxisptr.getContext();
-    auto c5 = M::ArrayAttr::get(rewriter.getI32IntegerAttr(5), ctx);
-    auto r = rewriter.create<M::LLVM::ExtractValueOp>(loc, ty, a, c5);
-    // fixme: r & 1
-    boxisptr.replaceAllUsesWith(r.getResult());
-    rewriter.replaceOp(boxisptr, r.getResult());
+    auto ity = lowering.indexType();
+    auto c0attr = rewriter.getI32IntegerAttr(0);
+    auto c0 = rewriter.create<M::LLVM::ConstantOp>(loc, ity, c0attr);
+    auto c5attr = rewriter.getI32IntegerAttr(5);
+    auto c5 = rewriter.create<M::LLVM::ConstantOp>(loc, ity, c5attr);
+    L::SmallVector<M::Value *, 4> args({a, c0, c5});
+    auto p = rewriter.create<M::LLVM::GEPOp>(loc, ty, args);
+    auto ld = rewriter.create<M::LLVM::LoadOp>(loc, ty, p);
+    auto c1attr = rewriter.getI32IntegerAttr(1);
+    auto ab = rewriter.create<M::LLVM::ConstantOp>(loc, ity, c1attr);
+    auto bit = rewriter.create<M::LLVM::AndOp>(loc, ity, ld, ab);
+    rewriter.replaceOpWithNewOp<M::LLVM::ICmpOp>(
+        boxisptr, M::LLVM::ICmpPredicate::ne, bit, c0);
     return matchSuccess();
   }
 };
@@ -500,10 +530,17 @@ struct BoxRankOpConversion : public FIROpConversion<BoxRankOp> {
                   M::ConversionPatternRewriter &rewriter) const override {
     auto boxrank = M::cast<BoxRankOp>(op);
     auto a = operands[0];
+    auto loc = boxrank.getLoc();
     auto ty = lowering.convertType(boxrank.getType());
-    auto ctx = boxrank.getContext();
-    auto c3 = M::ArrayAttr::get(rewriter.getI32IntegerAttr(3), ctx);
-    rewriter.replaceOpWithNewOp<M::LLVM::ExtractValueOp>(boxrank, ty, a, c3);
+    auto ity = lowering.indexType();
+    auto c0attr = rewriter.getI32IntegerAttr(0);
+    auto c0 = rewriter.create<M::LLVM::ConstantOp>(loc, ity, c0attr);
+    auto c3attr = rewriter.getI32IntegerAttr(3);
+    auto c3 = rewriter.create<M::LLVM::ConstantOp>(loc, ity, c3attr);
+    L::SmallVector<M::Value *, 4> args({a, c0, c3});
+    auto pty = ty.cast<M::LLVM::LLVMType>().getPointerTo();
+    auto p = rewriter.create<M::LLVM::GEPOp>(loc, pty, args);
+    rewriter.replaceOpWithNewOp<M::LLVM::LoadOp>(boxrank, ty, p);
     return matchSuccess();
   }
 };
