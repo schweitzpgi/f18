@@ -181,9 +181,18 @@ public:
     return st;
   }
 
-  // fir.array<...:any>  -->  llvm<"any*">
+  // fir.array<c ... :any>  -->  llvm<"[...[c x any]]">
   M::LLVM::LLVMType convertSequenceType(SequenceType seq) {
-    return unwrap(convertType(seq.getEleTy())).getPointerTo();
+    auto baseTy = unwrap(convertType(seq.getEleTy()));
+    if (auto shape = seq.getShape()) {
+      for (auto e : shape.getValue())
+        if (e.hasValue())
+          baseTy = M::LLVM::LLVMType::getArrayTy(baseTy, e.getValue());
+        else
+          return baseTy.getPointerTo();
+      return baseTy;
+    }
+    return baseTy.getPointerTo();
   }
 
   // fir.tdesc<any>  -->  llvm<"i8*">
@@ -263,6 +272,7 @@ public:
   }
 };
 
+// instantiate static data member
 L::StringMap<M::LLVM::LLVMType> FIRToLLVMTypeConverter::identStructCache;
 
 L::SmallVector<M::NamedAttribute, 4>
@@ -321,8 +331,12 @@ struct AllocaOpConversion : public FIROpConversion<fir::AllocaOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto alloc = M::cast<fir::AllocaOp>(op);
+    auto loc = alloc.getLoc();
     auto ty = lowering.convertType(alloc.getType());
-    rewriter.replaceOpWithNewOp<M::LLVM::AllocaOp>(alloc, ty, operands,
+    auto ity = lowering.indexType();
+    auto c1attr = rewriter.getI32IntegerAttr(1);
+    auto c1 = rewriter.create<M::LLVM::ConstantOp>(loc, ity, c1attr);
+    rewriter.replaceOpWithNewOp<M::LLVM::AllocaOp>(alloc, ty, c1.getResult(),
                                                    alloc.getAttrs());
     return matchSuccess();
   }
@@ -556,11 +570,25 @@ struct BoxTypeDescOpConversion : public FIROpConversion<BoxTypeDescOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto boxtypedesc = M::cast<BoxTypeDescOp>(op);
-    TODO(boxtypedesc);
+    auto a = operands[0];
+    auto loc = boxtypedesc.getLoc();
+    auto ty = lowering.convertType(boxtypedesc.getType());
+    auto ity = lowering.indexType();
+    auto c0attr = rewriter.getI32IntegerAttr(0);
+    auto c0 = rewriter.create<M::LLVM::ConstantOp>(loc, ity, c0attr);
+    auto c4attr = rewriter.getI32IntegerAttr(4);
+    auto c4 = rewriter.create<M::LLVM::ConstantOp>(loc, ity, c4attr);
+    L::SmallVector<M::Value *, 4> args({a, c0, c4});
+    auto pty = lowering.unwrap(ty).getPointerTo();
+    auto p = rewriter.create<M::LLVM::GEPOp>(loc, pty, args);
+    auto ld = rewriter.create<M::LLVM::LoadOp>(loc, ty, p);
+    auto i8ptr = M::LLVM::LLVMType::getInt8PtrTy(getDialect());
+    rewriter.replaceOpWithNewOp<M::LLVM::IntToPtrOp>(boxtypedesc, i8ptr, ld);
     return matchSuccess();
   }
 };
 
+// direct call LLVM function
 struct CallOpConversion : public FIROpConversion<fir::CallOp> {
   using FIROpConversion::FIROpConversion;
 
@@ -568,7 +596,11 @@ struct CallOpConversion : public FIROpConversion<fir::CallOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto call = M::cast<fir::CallOp>(op);
-    TODO(call);
+    L::SmallVector<M::Type, 4> resultTys;
+    for (auto r : call.getResults())
+      resultTys.push_back(lowering.convertType(r->getType()));
+    rewriter.replaceOpWithNewOp<M::LLVM::CallOp>(call, resultTys, operands,
+                                                 call.getAttrs());
     return matchSuccess();
   }
 };
@@ -666,6 +698,9 @@ struct DispatchOpConversion : public FIROpConversion<DispatchOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto dispatch = M::cast<DispatchOp>(op);
+    auto ty = lowering.convertType(dispatch.getFunctionType());
+    // get the table, lookup the method, fetch the func-ptr
+    rewriter.replaceOpWithNewOp<M::LLVM::CallOp>(dispatch, ty, operands);
     TODO(dispatch);
     return matchSuccess();
   }
@@ -821,12 +856,12 @@ struct FreeMemOpConversion : public FIROpConversion<fir::FreeMemOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto freemem = M::cast<fir::FreeMemOp>(op);
-    M::FuncOp freeFunc = genFreeFunc(freemem, rewriter);
+    auto freeFunc = genFreeFunc(freemem, rewriter);
     M::Value *casted = rewriter.create<M::LLVM::BitcastOp>(
         freemem.getLoc(), getVoidPtrType(), operands[0]);
+    auto sym = rewriter.getSymbolRefAttr(freeFunc);
     rewriter.replaceOpWithNewOp<M::LLVM::CallOp>(
-        freemem, llvm::ArrayRef<M::Type>(), rewriter.getSymbolRefAttr(freeFunc),
-        casted);
+        freemem, llvm::ArrayRef<M::Type>(), sym, casted);
     return matchSuccess();
   }
 };
@@ -868,8 +903,7 @@ struct GlobalEntryOpConversion : public FIROpConversion<GlobalEntryOp> {
   }
 };
 
-class GlobalOpConversion : public FIROpConversion<fir::GlobalOp> {
-public:
+struct GlobalOpConversion : public FIROpConversion<fir::GlobalOp> {
   using FIROpConversion::FIROpConversion;
 
   M::PatternMatchResult
@@ -901,11 +935,13 @@ struct ICallOpConversion : public FIROpConversion<fir::ICallOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto icall = M::cast<fir::ICallOp>(op);
-    TODO(icall);
+    rewriter.replaceOpWithNewOp<M::LLVM::CallOp>(icall, operands);
     return matchSuccess();
   }
 };
 
+// InsertValue is the generalized instruction for the composition of new
+// aggregate type values.
 struct InsertValueOpConversion : public FIROpConversion<InsertValueOp> {
   using FIROpConversion::FIROpConversion;
 
@@ -1362,8 +1398,7 @@ inline void rewriteSelectConstruct(M::Operation *op, OperandTy operands,
 ///
 /// This pass lowers all FIR dialect operations to LLVM IR dialect.  An
 /// MLIR pass is used to lower residual Std dialect to LLVM IR dialect.
-class FIRToLLVMLoweringPass : public M::ModulePass<FIRToLLVMLoweringPass> {
-public:
+struct FIRToLLVMLoweringPass : public M::ModulePass<FIRToLLVMLoweringPass> {
   void runOnModule() override {
     auto &context{getContext()};
     FIRToLLVMTypeConverter typeConverter{&context};
