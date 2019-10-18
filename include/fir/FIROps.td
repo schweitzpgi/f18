@@ -420,6 +420,32 @@ def fir_FreeMemOp : fir_Op<"freemem", []>,
   }];
 }
 
+def fir_ComplexZipOp : fir_SimpleOp<"czip", [NoSideEffect]>,
+    Results<(outs fir_ComplexType:$complex)>,
+    Arguments<(ins AnyRealLike:$real, AnyRealLike:$imag)> {
+  let summary = "Construct a complex from two reals";
+
+  let description = [{
+    Return a `fir.complex` of from the real an imaginary parts.
+    The two real argument must have the same kind and the complex kind is the
+    one of the real parts.
+  }];
+  // SimpleOp printer seems to only print one arg
+  let printer = [{
+    return fir::printComplexBinaryOp(this->getOperation(), p);
+  }];
+}
+
+def fir_ComplexUnzipOp : fir_SimpleOp<"cunzip", [NoSideEffect]>,
+    Results<(outs AnyRealLike:$real, AnyRealLike:$imag)>,
+    Arguments<(ins fir_ComplexType:$complex)> {
+  let summary = "Extract the real and imaginary part from a complex";
+
+  let description = [{
+    Return two reals that are the real and imaginary part of the argument.
+  }];
+}
+
 // Terminator operations
 
 class fir_SwitchTerminatorOp<string mnemonic, list<OpTrait> traits = []> :
@@ -1642,6 +1668,7 @@ def fir_SubfOp : RealArithmeticOp<"subf">;
 def fir_MulfOp : RealArithmeticOp<"mulf", [Commutative]>;
 def fir_DivfOp : RealArithmeticOp<"divf">;
 def fir_ModfOp : RealArithmeticOp<"modf">;
+
 
 class ComplexArithmeticOp<string mnemonic, list<OpTrait> traits = []> :
       fir_ArithmeticOp<mnemonic, traits>,

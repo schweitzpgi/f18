@@ -1213,6 +1213,55 @@ struct ModfOpConversion : public FIROpConversion<fir::ModfOp> {
   }
 };
 
+struct ComplexZipOpConversion : public FIROpConversion<fir::ComplexZipOp> {
+  using FIROpConversion::FIROpConversion;
+
+  M::PatternMatchResult
+  matchAndRewrite(M::Operation *op, OperandTy operands,
+                  M::ConversionPatternRewriter &rewriter) const override {
+    auto czip = M::cast<fir::ComplexZipOp>(op);
+    auto real = operands[0];
+    auto imag = operands[1];
+    auto loc = czip.getLoc();
+    auto ctx = czip.getContext();
+    auto c0 = M::ArrayAttr::get(rewriter.getI32IntegerAttr(0), ctx);
+    auto c1 = M::ArrayAttr::get(rewriter.getI32IntegerAttr(1), ctx);
+    auto ty = lowering.convertType(czip.getType());
+    auto r = rewriter.create<M::LLVM::UndefOp>(loc, ty);
+    auto r_ = rewriter.create<M::LLVM::InsertValueOp>(loc, ty, r, real, c0);
+    auto res = rewriter.create<M::LLVM::InsertValueOp>(loc, ty, r_, imag, c1);
+
+    czip.replaceAllUsesWith(res.getResult());
+    rewriter.replaceOp(czip, res.getResult());
+    return matchSuccess();
+  }
+};
+
+struct ComplexUnzipOpConversion : public FIROpConversion<fir::ComplexUnzipOp> {
+  using FIROpConversion::FIROpConversion;
+
+  M::PatternMatchResult
+  matchAndRewrite(M::Operation *op, OperandTy operands,
+                  M::ConversionPatternRewriter &rewriter) const override {
+    auto cunzip = M::cast<fir::ComplexUnzipOp>(op);
+    auto z = operands[0];
+    auto loc = cunzip.getLoc();
+    auto ctx = cunzip.getContext();
+    auto c0 = M::ArrayAttr::get(rewriter.getI32IntegerAttr(0), ctx);
+    auto c1 = M::ArrayAttr::get(rewriter.getI32IntegerAttr(1), ctx);
+    auto ty = lowering.convertType(z->getType());
+    auto realType = ty.cast<M::LLVM::LLVMType>().getStructElementType(0);
+    auto real = rewriter.create<M::LLVM::ExtractValueOp>(loc, realType, z, c0);
+    auto imag = rewriter.create<M::LLVM::ExtractValueOp>(loc, realType, z, c1);
+
+    cunzip.getResult(0)->replaceAllUsesWith(real);
+    cunzip.getResult(1)->replaceAllUsesWith(imag);
+    L::SmallVector<M::Value *, 2> newValues{real, imag};
+    rewriter.replaceOp(cunzip, newValues);
+    return matchSuccess();
+  }
+};
+
 struct AddcOpConversion : public FIROpConversion<fir::AddcOp> {
   using FIROpConversion::FIROpConversion;
 
@@ -1363,20 +1412,21 @@ public:
         BoxCharLenOpConversion, BoxDimsOpConversion, BoxEleSizeOpConversion,
         BoxIsAllocOpConversion, BoxIsArrayOpConversion, BoxIsPtrOpConversion,
         BoxProcHostOpConversion, BoxRankOpConversion, BoxTypeDescOpConversion,
-        CallOpConversion, ConvertOpConversion, CoordinateOpConversion,
-        DispatchOpConversion, DispatchTableOpConversion, DivcOpConversion,
-        DivfOpConversion, DTEntryOpConversion, EmboxCharOpConversion,
-        EmboxOpConversion, EmboxProcOpConversion, FirEndOpConversion,
-        ExtractValueOpConversion, FieldIndexOpConversion, FreeMemOpConversion,
-        GenDimsOpConversion, GenTypeDescOpConversion, GlobalEntryOpConversion,
-        GlobalOpConversion, ICallOpConversion, InsertValueOpConversion,
-        LenParamIndexOpConversion, LoadOpConversion, LoopOpConversion,
-        ModfOpConversion, MulcOpConversion, MulfOpConversion,
-        NoReassocOpConversion, SelectCaseOpConversion, SelectOpConversion,
-        SelectRankOpConversion, SelectTypeOpConversion, StoreOpConversion,
-        SubcOpConversion, SubfOpConversion, UnboxCharOpConversion,
-        UnboxOpConversion, UnboxProcOpConversion, UndefOpConversion,
-        UnreachableOpConversion, WhereOpConversion>(&context, typeConverter);
+        CallOpConversion, ComplexZipOpConversion, ComplexUnzipOpConversion,
+        ConvertOpConversion, CoordinateOpConversion, DispatchOpConversion,
+        DispatchTableOpConversion, DivcOpConversion, DivfOpConversion,
+        DTEntryOpConversion, EmboxCharOpConversion, EmboxOpConversion,
+        EmboxProcOpConversion, FirEndOpConversion, ExtractValueOpConversion,
+        FieldIndexOpConversion, FreeMemOpConversion, GenDimsOpConversion,
+        GenTypeDescOpConversion, GlobalEntryOpConversion, GlobalOpConversion,
+        ICallOpConversion, InsertValueOpConversion, LenParamIndexOpConversion,
+        LoadOpConversion, LoopOpConversion, ModfOpConversion, MulcOpConversion,
+        MulfOpConversion, NoReassocOpConversion, SelectCaseOpConversion,
+        SelectOpConversion, SelectRankOpConversion, SelectTypeOpConversion,
+        StoreOpConversion, SubcOpConversion, SubfOpConversion,
+        UnboxCharOpConversion, UnboxOpConversion, UnboxProcOpConversion,
+        UndefOpConversion, UnreachableOpConversion, WhereOpConversion>(
+        &context, typeConverter);
     M::populateStdToLLVMConversionPatterns(typeConverter, patterns);
     M::ConversionTarget target{context};
     target.addLegalDialect<M::LLVM::LLVMDialect>();
