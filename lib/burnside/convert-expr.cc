@@ -239,8 +239,11 @@ class ExprLowering {
   template<int KIND> M::Value *genval(Ev::TypeParamInquiry<KIND> const &) {
     TODO();
   }
-  template<int KIND> M::Value *genval(Ev::ComplexComponent<KIND> const &) {
-    TODO();
+  template<int KIND> M::Value *genval(Ev::ComplexComponent<KIND> const &part) {
+    M::Type realTy{getFIRType(builder.getContext(), defaults, RealCat, KIND)};
+    auto x = builder.create<fir::ComplexUnzipOp>(
+        getLoc(), realTy, realTy, genval(part.left()));
+    return x.getResult(part.isImaginaryPart ? 1 : 0);
   }
   template<Co::TypeCategory TC, int KIND>
   M::Value *genval(Ev::Negate<Ev::Type<TC, KIND>> const &) {
@@ -253,7 +256,8 @@ class ExprLowering {
     } else if constexpr (TC == RealCat) {
       return createBinaryOp<M::AddFOp>(op);
     } else {
-      TODO();
+      static_assert(TC == ComplexCat, "Expected numeric type");
+      return createBinaryOp<fir::AddcOp>(op);
     }
   }
   template<Co::TypeCategory TC, int KIND>
@@ -263,7 +267,8 @@ class ExprLowering {
     } else if constexpr (TC == RealCat) {
       return createBinaryOp<M::SubFOp>(op);
     } else {
-      TODO();
+      static_assert(TC == ComplexCat, "Expected numeric type");
+      return createBinaryOp<fir::SubcOp>(op);
     }
   }
   template<Co::TypeCategory TC, int KIND>
@@ -273,7 +278,8 @@ class ExprLowering {
     } else if constexpr (TC == RealCat) {
       return createBinaryOp<M::MulFOp>(op);
     } else {
-      TODO();
+      static_assert(TC == ComplexCat, "Expected numeric type");
+      return createBinaryOp<fir::MulcOp>(op);
     }
   }
   template<Co::TypeCategory TC, int KIND>
@@ -282,28 +288,35 @@ class ExprLowering {
       return createBinaryOp<M::DivISOp>(op);
     } else if constexpr (TC == RealCat) {
       return createBinaryOp<M::DivFOp>(op);
-    } else if constexpr (TC == ComplexCat) {
-      return createBinaryFIRTCall<TC, KIND>(op, FIRT_CDIV);
     } else {
-      TODO();
+      static_assert(TC == ComplexCat, "Expected numeric type");
+      return createBinaryOp<fir::MulcOp>(op);
     }
   }
   template<Co::TypeCategory TC, int KIND>
   M::Value *genval(Ev::Power<Ev::Type<TC, KIND>> const &op) {
-    if constexpr (TC == IntegerCat) {
-      return createBinaryFIRTCall<TC, KIND>(op, FIRT_POW);
-    } else {
-      TODO();
-    }
+    llvm::SmallVector<mlir::Value *, 2> operands{
+        genval(op.left()), genval(op.right())};
+    M::Type ty{getFIRType(builder.getContext(), defaults, TC, KIND)};
+    return intrinsics.genval(getLoc(), builder, "pow", ty, operands);
   }
   template<Co::TypeCategory TC, int KIND>
-  M::Value *genval(Ev::RealToIntPower<Ev::Type<TC, KIND>> const &) {
-    TODO();
+  M::Value *genval(Ev::RealToIntPower<Ev::Type<TC, KIND>> const &op) {
+    // TODO: runtime as limited integer kind support. Look if the conversions
+    // are ok
+    llvm::SmallVector<mlir::Value *, 2> operands{
+        genval(op.left()), genval(op.right())};
+    M::Type ty{getFIRType(builder.getContext(), defaults, TC, KIND)};
+    return intrinsics.genval(getLoc(), builder, "pow", ty, operands);
   }
-  template<int KIND> M::Value *genval(Ev::ComplexConstructor<KIND> const &) {
-    TODO();
+  template<int KIND> M::Value *genval(Ev::ComplexConstructor<KIND> const &op) {
+    mlir::Type complexTy{fir::CplxType::get(builder.getContext(), KIND)};
+    auto x = builder.create<fir::ComplexZipOp>(
+        getLoc(), complexTy, genval(op.left()), genval(op.right()));
+    return x.getResult();
   }
   template<int KIND> M::Value *genval(Ev::Concat<KIND> const &op) {
+    // TODO this is a bogus call
     return createBinaryFIRTCall<CharacterCat, KIND>(op, FIRT_CONCAT);
   }
 
@@ -360,6 +373,10 @@ class ExprLowering {
 
   template<Co::TypeCategory TC, int KIND>
   M::Value *genval(Ev::Constant<Ev::Type<TC, KIND>> const &con) {
+    // TODO:
+    // - character type constant
+    // - array constant not handled
+    // - derived type constant
     if constexpr (TC == IntegerCat) {
       auto opt{con.GetScalarValue()};
       if (opt.has_value())
@@ -396,6 +413,15 @@ class ExprLowering {
       }
       assert(false && "real constant has no value");
       return {};
+    } else if constexpr (TC == ComplexCat) {
+      auto opt{con.GetScalarValue()};
+      if (opt.has_value()) {
+        using TR = Ev::Type<RealCat, KIND>;
+        return genval(Ev::ComplexConstructor<KIND>{
+            Ev::Expr<TR>{Ev::Constant<TR>{opt->REAL()}},
+            Ev::Expr<TR>{Ev::Constant<TR>{opt->AIMAG()}}});
+      }
+      assert(false && "array of complex unhandled");
     } else {
       assert(false && "unhandled constant");
       return {};
