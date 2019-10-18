@@ -57,7 +57,8 @@ def fir_SequenceType : Type<CPred<"$_self.isa<fir::SequenceType>()">,
     "array type">;
 
 def AnyCompositeLike : TypeConstraint<Or<[fir_RecordType.predicate,
-    fir_SequenceType.predicate, IsTupleTypePred]>, "any composite">;
+    fir_SequenceType.predicate, fir_ComplexType.predicate,
+    IsTupleTypePred]>, "any composite">;
 
 def fir_ReferenceType : Type<CPred<"$_self.isa<fir::ReferenceType>()">,
     "reference type">;
