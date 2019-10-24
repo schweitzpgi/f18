@@ -14,6 +14,7 @@
 
 #include "convert-expr.h"
 #include "builder.h"
+#include "complex.h"
 #include "fe-helper.h"
 #include "fir/Dialect.h"
 #include "fir/FIROps.h"
@@ -69,6 +70,7 @@ class ExprLowering {
   M::OpBuilder &builder;
   SomeExpr const &expr;
   SymMap &symMap;
+  SymMap loadedSymbols{};
   Co::IntrinsicTypeDefaultKinds const &defaults;
   IntrinsicLibrary const &intrinsics;
 
@@ -107,7 +109,7 @@ class ExprLowering {
   /// Generate an integral constant of `value`
   template<int KIND>
   M::Value *genIntegerConstant(M::MLIRContext *context, std::int64_t value) {
-    M::Type type{getFIRType(context, defaults, IntegerCat, 8)};
+    M::Type type{getFIRType(context, defaults, IntegerCat, KIND)};
     auto attr{builder.getIntegerAttr(type, value)};
     auto res{builder.create<M::ConstantOp>(getLoc(), type, attr)};
     return res.getResult();
@@ -151,6 +153,8 @@ class ExprLowering {
   M::FuncOp getFunction(L::StringRef name, M::FunctionType funTy) {
     auto module{getModule(&builder)};
     if (M::FuncOp func{getNamedFunction(module, name)}) {
+      assert(func.getType() == funTy &&
+          "function already declared with a different type");
       return func;
     }
     return createFunction(module, name, funTy);
@@ -226,7 +230,16 @@ class ExprLowering {
   }
   M::Value *gendef(Se::Symbol const *sym) { return gen(sym); }
   M::Value *genval(Se::Symbol const *sym) {
-    return builder.create<fir::LoadOp>(getLoc(), gen(sym));
+    // Do not load the same symbols several time in one expression.
+    // Fortran guarantees variable value must be the same wherever it
+    // appears in one expression.
+    if (mlir::Value * loaded{loadedSymbols.lookupSymbol(sym)}) {
+      return loaded;
+    } else {
+      mlir::Value *load{builder.create<fir::LoadOp>(getLoc(), gen(sym))};
+      loadedSymbols.addSymbol(sym, load);
+      return load;
+    }
   }
 
   M::Value *genval(Ev::BOZLiteralConstant const &) { TODO(); }
@@ -239,23 +252,23 @@ class ExprLowering {
   template<int KIND> M::Value *genval(Ev::TypeParamInquiry<KIND> const &) {
     TODO();
   }
+
   template<int KIND> M::Value *genval(Ev::ComplexComponent<KIND> const &part) {
-    auto *ctxt = builder.getContext();
-    auto realTy{getFIRType(ctxt, defaults, RealCat, KIND)};
-    auto index = genIntegerConstant<4>(ctxt, part.isImaginaryPart ? 1 : 0);
-    return builder.create<fir::ExtractValueOp>(
-        getLoc(), realTy, genval(part.left()), index);
+    return ComplexHandler{builder, getLoc()}.createComplexPart(
+        genval(part.left()), part.isImaginaryPart);
   }
+
   template<Co::TypeCategory TC, int KIND>
   M::Value *genval(Ev::Negate<Ev::Type<TC, KIND>> const &) {
     TODO();
   }
+
   template<Co::TypeCategory TC, int KIND>
   M::Value *genval(Ev::Add<Ev::Type<TC, KIND>> const &op) {
     if constexpr (TC == IntegerCat) {
       return createBinaryOp<M::AddIOp>(op);
     } else if constexpr (TC == RealCat) {
-      return createBinaryOp<M::AddFOp>(op);
+      return createBinaryOp<fir::AddfOp>(op);
     } else {
       static_assert(TC == ComplexCat, "Expected numeric type");
       return createBinaryOp<fir::AddcOp>(op);
@@ -266,7 +279,7 @@ class ExprLowering {
     if constexpr (TC == IntegerCat) {
       return createBinaryOp<M::SubIOp>(op);
     } else if constexpr (TC == RealCat) {
-      return createBinaryOp<M::SubFOp>(op);
+      return createBinaryOp<fir::SubfOp>(op);
     } else {
       static_assert(TC == ComplexCat, "Expected numeric type");
       return createBinaryOp<fir::SubcOp>(op);
@@ -277,7 +290,7 @@ class ExprLowering {
     if constexpr (TC == IntegerCat) {
       return createBinaryOp<M::MulIOp>(op);
     } else if constexpr (TC == RealCat) {
-      return createBinaryOp<M::MulFOp>(op);
+      return createBinaryOp<fir::MulfOp>(op);
     } else {
       static_assert(TC == ComplexCat, "Expected numeric type");
       return createBinaryOp<fir::MulcOp>(op);
@@ -288,7 +301,7 @@ class ExprLowering {
     if constexpr (TC == IntegerCat) {
       return createBinaryOp<M::DivISOp>(op);
     } else if constexpr (TC == RealCat) {
-      return createBinaryOp<M::DivFOp>(op);
+      return createBinaryOp<fir::DivfOp>(op);
     } else {
       static_assert(TC == ComplexCat, "Expected numeric type");
       return createBinaryOp<fir::DivcOp>(op);
@@ -310,18 +323,10 @@ class ExprLowering {
     M::Type ty{getFIRType(builder.getContext(), defaults, TC, KIND)};
     return intrinsics.genval(getLoc(), builder, "pow", ty, operands);
   }
+
   template<int KIND> M::Value *genval(Ev::ComplexConstructor<KIND> const &op) {
-    auto *ctxt = builder.getContext();
-    auto complexTy{fir::CplxType::get(ctxt, KIND)};
-    auto loc{getLoc()};
-    auto und = builder.create<fir::UndefOp>(loc, complexTy);
-    auto *lf = genval(op.left());
-    auto *realIdx = genIntegerConstant<4>(ctxt, 0);
-    auto rp =
-        builder.create<fir::InsertValueOp>(loc, complexTy, und, lf, realIdx);
-    auto *rt = genval(op.right());
-    auto *imagIdx = genIntegerConstant<4>(ctxt, 1);
-    return builder.create<fir::InsertValueOp>(loc, complexTy, rp, rt, imagIdx);
+    return ComplexHandler{builder, getLoc()}.createComplex(
+        KIND, genval(op.left()), genval(op.right()));
   }
   template<int KIND> M::Value *genval(Ev::Concat<KIND> const &op) {
     // TODO this is a bogus call
@@ -347,10 +352,20 @@ class ExprLowering {
       return createCompareOp<M::CmpIOp>(op, translateRelational(op.opr));
     } else if constexpr (TC == RealCat) {
       return createFltCmpOp<M::CmpFOp>(op, translateFloatRelational(op.opr));
+    } else if constexpr (TC == ComplexCat) {
+      bool eq{op.opr == Co::RelationalOperator::EQ};
+      assert(eq ||
+          op.opr == Co::RelationalOperator::NE &&
+              "relation undefined for complex");
+      return ComplexHandler{builder, getLoc()}.createComplexCompare(
+          genval(op.left()), genval(op.right()), eq);
     } else {
+      static_assert(TC == CharacterCat);
       TODO();
     }
   }
+
+  // TODO JP: the thing below should not be required.
   M::Value *genval(Ev::Relational<Ev::SomeType> const &op) {
     return std::visit([&](const auto &x) { return genval(x); }, op.u);
   }
@@ -615,7 +630,31 @@ class ExprLowering {
       L::StringRef name{intrinsic->name};
       return intrinsics.genval(getLoc(), builder, name, ty, operands);
     } else {
-      TODO();  // User defined function.
+      // implicit interface implementation only
+      // TODO: explicit interface
+      L::SmallVector<M::Type, 2> argTypes;
+      L::SmallVector<M::Value *, 2> operands;
+      for (const auto &arg : funRef.arguments()) {
+        assert(
+            arg.has_value() && "optional argument requires explicit interface");
+        const auto *expr{arg->UnwrapExpr()};
+        assert(expr && "assumed type argument requires explicit interface");
+        if (const Se::Symbol * sym{Ev::UnwrapWholeSymbolDataRef(*expr)}) {
+          M::Value *argRef{symMap.lookupSymbol(sym)};
+          assert(argRef && "could not get symbol reference");
+          argTypes.push_back(argRef->getType());
+          operands.push_back(argRef);
+        } else {
+          // TODO create temps for expressions
+          TODO();
+        }
+      }
+      M::Type resultType{getFIRType(builder.getContext(), defaults, TC, KIND)};
+      M::FunctionType funTy{
+          M::FunctionType::get(argTypes, resultType, builder.getContext())};
+      M::FuncOp func{getFunction(funRef.proc().GetName(), funTy)};
+      M::CallOp call{builder.create<M::CallOp>(getLoc(), func, operands)};
+      return call.getResult(0);
     }
   }
 
