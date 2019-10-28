@@ -35,8 +35,8 @@ namespace Fortran::burnside {
 /// Define a simple static runtime description that different runtime can
 /// derived from (e.g io, maths ...).
 /// This base class only define enough to generate the functuion declarations,
-// it is up to the actual runtime descriptions to define a way to organize these
-// descriptions in a meaningful way.
+/// it is up to the actual runtime descriptions to define a way to organize
+/// these descriptions in a meaningful way.
 /// It is constexpr constructible so that static tables of such descriptions can
 /// be safely stored as global variables without requiring global constructors.
 class RuntimeStaticDescription {
@@ -58,7 +58,8 @@ public:
       const TypeCode *start{&Storage<v...>::values[0]};
       return TypeCodeVector{start, start + sizeof...(v)};
     }
-    template<> constexpr TypeCodeVector create<>() { return TypeCodeVector{}; }
+    // g++ 8.3 says: "error: explicit specialization in non-namespace scope ‘struct Fortran::burnside::RuntimeStaticDescription::TypeCodeVector’"
+    //template<> constexpr TypeCodeVector create<>() { return TypeCodeVector{}; }
     const TypeCode *start{nullptr};
     const TypeCode *end{nullptr};
   };
@@ -114,7 +115,7 @@ public:
     // TODO: sorted
     // non empty increasing pointer direction
     return !range.empty();
-  };
+  }
   constexpr const_iterator begin() const { return range.begin(); }
   constexpr const_iterator end() const { return range.end(); }
 
