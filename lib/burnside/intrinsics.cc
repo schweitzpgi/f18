@@ -14,9 +14,11 @@
 
 #include "intrinsics.h"
 #include "builder.h"
+#include "complex.h"
 #include "fe-helper.h"
 #include "fir/FIROps.h"
 #include "fir/Type.h"
+#include "runtime.h"
 #include "llvm/ADT/Optional.h"
 #include <string>
 #include <unordered_map>
@@ -111,7 +113,7 @@ private:
 
   /// Define the different FIR generators that can be mapped to intrinsic to
   /// generate the related code.
-  using Generator = mlir::Value *(Implementation::*)(Context &) const;
+  using Generator = mlir::Value *(Implementation::*)(Context &)const;
   /// Search a runtime function that is associated to the generic intrinsic name
   /// and whose signature matches the intrinsic arguments and result types.
   /// If no such runtime function is found but a runtime function associated
@@ -132,7 +134,7 @@ private:
   mlir::Value *defaultGenerator(Context &c) const {
     return generateWrapperCall<&I::generateRuntimeCall>(c);
   }
-  mlir::Value *conjgGenerator(Context &) const;
+  mlir::Value *generateConjg(Context &) const;
 
   struct IntrinsicHanlder {
     const char *name;
@@ -144,7 +146,7 @@ private:
   /// defined here for a generic intrinsic, the defaultGenerator will
   /// be attempted.
   static constexpr IntrinsicHanlder handlers[]{
-      {"conjg", &I::conjgGenerator},
+      {"conjg", &I::generateConjg},
   };
 
   // helpers
@@ -158,48 +160,22 @@ private:
 
 /// Define a simple static runtime description that will be transformed into
 /// RuntimeFunction when building the IntrinsicLibrary.
-/// It is constexpr constructible so that static tables of such descriptions can
-/// be safely stored as global variables without requiring global constructors.
-class RuntimeStaticDescription {
+class MathsRuntimeStaticDescription : public RuntimeStaticDescription {
 public:
-  /// Define possible runtime function argument/return type used in signature
-  /// descriptions. They follow mlir standard types naming. MLIR types cannot
-  /// directly be used because they can only be dynamically built.
-  enum class TypeCode { i32, i64, f32, f64, c32, c64 };
-  /// C++ does not provide variable size constexpr container yet. TypeVector
-  /// implements one for Type elements. It works because Type is an enumeration.
-  struct TypeCodeVector {
-    template<TypeCode... v> struct Storage {
-      static constexpr TypeCode values[]{v...};
-    };
-    template<TypeCode... v> static constexpr TypeCodeVector create() {
-      const TypeCode *start{&Storage<v...>::values[0]};
-      return TypeCodeVector{start, start + sizeof...(v)};
-    }
-    const TypeCode *start{nullptr};
-    const TypeCode *end{nullptr};
-  };
-  constexpr RuntimeStaticDescription(
-      const char *n, const char *s, TypeCode r, TypeCodeVector a)
-    : name{n}, symbol{s}, resultTypeCode{r}, argumentTypeCodes{a} {}
-  llvm::StringRef getSymbol() const { return symbol; }
+  constexpr MathsRuntimeStaticDescription(
+      const char *n, const char *s, MaybeTypeCode r, TypeCodeVector a)
+    : RuntimeStaticDescription{s, r, a}, name{n} {}
   llvm::StringRef getName() const { return name; }
-  /// Conversion between types of the static representation and MLIR types.
-  mlir::FunctionType getMLIRFunctionType(mlir::MLIRContext &) const;
 
 private:
-  static mlir::Type getMLIRType(TypeCode, mlir::MLIRContext &);
-
+  // Generic math function name
   const char *name{nullptr};
-  const char *symbol{nullptr};
-  TypeCode resultTypeCode;
-  TypeCodeVector argumentTypeCodes;
 };
 
 /// Description of the runtime functions available on the target.
 using RType = typename RuntimeStaticDescription::TypeCode;
 using Args = typename RuntimeStaticDescription::TypeCodeVector;
-static constexpr RuntimeStaticDescription llvmRuntime[] = {
+static constexpr MathsRuntimeStaticDescription llvmRuntime[] = {
     {"abs", "llvm.fabs.f32", RType::f32, Args::create<RType::f32>()},
     {"abs", "llvm.fabs.f64", RType::f64, Args::create<RType::f64>()},
     {"acos", "acosf", RType::f32, Args::create<RType::f32>()},
@@ -214,7 +190,7 @@ static constexpr RuntimeStaticDescription llvmRuntime[] = {
     {"sin", "llvm.sin.f64", RType::f64, Args::create<RType::f64>()},
 };
 
-static constexpr RuntimeStaticDescription pgmathPreciseRuntime[] = {
+static constexpr MathsRuntimeStaticDescription pgmathPreciseRuntime[] = {
     {"acos", "__pc_acos_1", RType::c32, Args::create<RType::c32>()},
     {"acos", "__pz_acos_1", RType::c64, Args::create<RType::c64>()},
     {"pow", "__pc_pow_1", RType::c32, Args::create<RType::c32, RType::c32>()},
@@ -265,13 +241,15 @@ mlir::Value *IntrinsicLibrary::genval(mlir::Location loc,
 // Create the runtime description for the targeted library version.
 // So far ignore the version an only load the dummy llvm lib and pgmath precise
 MathRuntimeLibrary::MathRuntimeLibrary(
-    IntrinsicLibrary::Version, mlir::MLIRContext &context) {
-  for (const RuntimeStaticDescription &func : llvmRuntime) {
-    RuntimeFunction impl{func.getSymbol(), func.getMLIRFunctionType(context)};
+    IntrinsicLibrary::Version, mlir::MLIRContext &mlirContext) {
+  for (const MathsRuntimeStaticDescription &func : llvmRuntime) {
+    RuntimeFunction impl{
+        func.getSymbol(), func.getMLIRFunctionType(&mlirContext)};
     library.insert({Key{func.getName()}, impl});
   }
-  for (const RuntimeStaticDescription &func : pgmathPreciseRuntime) {
-    RuntimeFunction impl{func.getSymbol(), func.getMLIRFunctionType(context)};
+  for (const MathsRuntimeStaticDescription &func : pgmathPreciseRuntime) {
+    RuntimeFunction impl{
+        func.getSymbol(), func.getMLIRFunctionType(&mlirContext)};
     library.insert({Key{func.getName()}, impl});
   }
 }
@@ -358,6 +336,8 @@ std::string IntrinsicLibrary::Implementation::getWrapperName(Context &c) {
   } else if (auto cplx{resultType.dyn_cast<fir::CplxType>()}) {
     // TODO using kind here is weird, but I do not want to hard coded mapping
     return prefix.str() + c.name.str() + ".c" + std::to_string(cplx.getFKind());
+  } else if (auto firf{resultType.dyn_cast<fir::RealType>()}) {
+    return prefix.str() + c.name.str() + ".f" + std::to_string(firf.getFKind());
   } else {
     assert(false);
     return "fir." + c.name.str() + ".unknown";
@@ -447,59 +427,23 @@ mlir::Value *IntrinsicLibrary::Implementation::generateRuntimeCall(
 }
 
 // CONJG
-mlir::Value *IntrinsicLibrary::Implementation::conjgGenerator(
+mlir::Value *IntrinsicLibrary::Implementation::generateConjg(
     Context &genCtxt) const {
   assert(genCtxt.arguments.size() == 1);
   mlir::Type resType{genCtxt.getResultType()};
   assert(resType == genCtxt.arguments[0]->getType());
+  mlir::OpBuilder &builder{*genCtxt.builder};
+  ComplexHandler cplxHandler{builder, genCtxt.loc};
 
-  // FIXME make fir.complex<f32>.. instead of fir.complex<4> to avoid
-  // constantly having to translate to fe types ? Or get actual mapping
-  auto complexType{resType.cast<fir::CplxType>()};
-  mlir::Type realType{
-      burnside::convertReal(genCtxt.getMLIRContext(), complexType.getFKind())};
-  auto ity{mlir::IndexType::get(genCtxt.getMLIRContext())};
-  auto oneAttr{genCtxt.builder->getIntegerAttr(ity, 1)};
-  auto *imagIdx{
-      genCtxt.builder->create<mlir::ConstantOp>(genCtxt.loc, ity, oneAttr)
-          .getResult()};
-  auto parts{genCtxt.builder->create<fir::ExtractValueOp>(
-      genCtxt.loc, realType, genCtxt.arguments[0], imagIdx)};
   // TODO a negation unary would be better than a sub to zero ?
-  auto zeroAttr{genCtxt.builder->getFloatAttr(realType, llvm::APFloat{0.})};
-  auto zero{genCtxt.builder->create<mlir::ConstantOp>(
-      genCtxt.loc, realType, zeroAttr)};
-  auto negImag{genCtxt.builder->create<mlir::SubFOp>(genCtxt.loc, zero, parts)};
-  return genCtxt.builder->create<fir::InsertValueOp>(
-      genCtxt.loc, resType, genCtxt.arguments[0], negImag, imagIdx);
-}
-
-// RuntimeStaticDescription implementation
-
-mlir::Type RuntimeStaticDescription::getMLIRType(
-    TypeCode t, mlir::MLIRContext &context) {
-  switch (t) {
-  case TypeCode::i32: return mlir::IntegerType::get(32, &context);
-  case TypeCode::i64: return mlir::IntegerType::get(64, &context);
-  case TypeCode::f32: return mlir::FloatType::getF32(&context);
-  case TypeCode::f64: return mlir::FloatType::getF64(&context);
-  // TODO need to access mapping between fe/target
-  case TypeCode::c32: return fir::CplxType::get(&context, 4);
-  case TypeCode::c64: return fir::CplxType::get(&context, 8);
-  }
-  assert(false && "bug");
-  return {};
-}
-
-mlir::FunctionType RuntimeStaticDescription::getMLIRFunctionType(
-    mlir::MLIRContext &context) const {
-  llvm::SmallVector<mlir::Type, 2> argMLIRTypes;
-  for (const TypeCode *t{argumentTypeCodes.start};
-       t != nullptr && t != argumentTypeCodes.end; ++t) {
-    argMLIRTypes.push_back(getMLIRType(*t, context));
-  }
-  mlir::Type resMLIRType{getMLIRType(resultTypeCode, context)};
-  return mlir::FunctionType::get(argMLIRTypes, resMLIRType, &context);
+  mlir::Value *cplx{genCtxt.arguments[0]};
+  mlir::Type realType{cplxHandler.getComplexPartType(cplx)};
+  mlir::Value *zero{builder.create<mlir::ConstantOp>(
+      genCtxt.loc, realType, builder.getZeroAttr(realType))};
+  mlir::Value *imag{cplxHandler.createComplexImagPart(cplx)};
+  mlir::Value *negImag{
+      genCtxt.builder->create<mlir::SubFOp>(genCtxt.loc, zero, imag)};
+  return cplxHandler.setImagPart(cplx, negImag);
 }
 
 }
