@@ -74,7 +74,7 @@ public:
   // types. Indexing into other aggregate types is more flexible. TODO: See if
   // we can't use i64 anyway; the restiction may not longer hold.
   M::LLVM::LLVMType indexType() {
-    return M::LLVM::LLVMType::getInt32Ty(llvmDialect);
+    return M::LLVM::LLVMType::getInt64Ty(llvmDialect);
   }
 
   // This corresponds to the descriptor as defined ISO_Fortran_binding.h and the
@@ -292,6 +292,11 @@ pruneNamedAttrDict(L::ArrayRef<M::NamedAttribute> attrs,
   return result;
 }
 
+/// Pass-through function for documentation
+inline M::LLVM::LLVMType getVoidPtrType(M::LLVM::LLVMDialect *dialect) {
+  return M::LLVM::LLVMType::getInt8PtrTy(dialect);
+}
+
 /// FIR conversion pattern template
 template <typename FromOp>
 class FIROpConversion : public M::ConversionPattern {
@@ -323,7 +328,7 @@ struct AddrOfOpConversion : public FIROpConversion<fir::AddrOfOp> {
   }
 };
 
-// convert to LLVM IR dialect `alloca`
+/// convert to LLVM IR dialect `alloca`
 struct AllocaOpConversion : public FIROpConversion<fir::AllocaOp> {
   using FIROpConversion::FIROpConversion;
 
@@ -334,9 +339,12 @@ struct AllocaOpConversion : public FIROpConversion<fir::AllocaOp> {
     auto loc = alloc.getLoc();
     auto ty = lowering.convertType(alloc.getType());
     auto ity = lowering.indexType();
-    auto c1attr = rewriter.getI32IntegerAttr(1);
+    auto c1attr = rewriter.getI64IntegerAttr(1);
     auto c1 = rewriter.create<M::LLVM::ConstantOp>(loc, ity, c1attr);
-    rewriter.replaceOpWithNewOp<M::LLVM::AllocaOp>(alloc, ty, c1.getResult(),
+    auto *size = c1.getResult();
+    for (auto *opnd : operands)
+      size = rewriter.create<M::LLVM::MulOp>(loc, ity, size, opnd);
+    rewriter.replaceOpWithNewOp<M::LLVM::AllocaOp>(alloc, ty, size,
                                                    alloc.getAttrs());
     return matchSuccess();
   }
@@ -346,21 +354,17 @@ M::LLVM::LLVMFuncOp getMalloc(AllocMemOp op,
                               M::ConversionPatternRewriter &rewriter,
                               M::LLVM::LLVMDialect *dialect) {
   auto module = op.getParentOfType<M::ModuleOp>();
-  auto mallocFunc = module.lookupSymbol<M::LLVM::LLVMFuncOp>("malloc");
-  if (!mallocFunc) {
-    M::OpBuilder moduleBuilder(
-        op.getParentOfType<M::ModuleOp>().getBodyRegion());
-    auto voidPtrType = M::LLVM::LLVMType::getInt8PtrTy(dialect);
-    auto indexType = M::LLVM::LLVMType::getInt64Ty(dialect);
-    mallocFunc = moduleBuilder.create<M::LLVM::LLVMFuncOp>(
-        rewriter.getUnknownLoc(), "malloc",
-        M::LLVM::LLVMType::getFunctionTy(voidPtrType, indexType,
-                                         /*isVarArg=*/false));
-  }
-  return mallocFunc;
+  if (auto mallocFunc = module.lookupSymbol<M::LLVM::LLVMFuncOp>("malloc"))
+    return mallocFunc;
+  M::OpBuilder moduleBuilder(op.getParentOfType<M::ModuleOp>().getBodyRegion());
+  auto indexType = M::LLVM::LLVMType::getInt64Ty(dialect);
+  return moduleBuilder.create<M::LLVM::LLVMFuncOp>(
+      rewriter.getUnknownLoc(), "malloc",
+      M::LLVM::LLVMType::getFunctionTy(getVoidPtrType(dialect), indexType,
+                                       /*isVarArg=*/false));
 }
 
-// convert to `call` to the runtime to `malloc` memory
+/// convert to `call` to the runtime to `malloc` memory
 struct AllocMemOpConversion : public FIROpConversion<AllocMemOp> {
   using FIROpConversion::FIROpConversion;
 
@@ -369,17 +373,24 @@ struct AllocMemOpConversion : public FIROpConversion<AllocMemOp> {
                   M::ConversionPatternRewriter &rewriter) const override {
     auto heap = M::cast<AllocMemOp>(op);
     auto ty = lowering.convertType(heap.getType());
-    // FIXME: should be a call to malloc
+    auto dialect = getDialect();
+    auto mallocFunc = getMalloc(heap, rewriter, dialect);
     auto loc = heap.getLoc();
-    auto ity = lowering.indexType();
-    auto c1attr = rewriter.getI32IntegerAttr(1);
+    auto ity = M::LLVM::LLVMType::getInt64Ty(dialect);
+    auto c1attr = rewriter.getI64IntegerAttr(1);
     auto c1 = rewriter.create<M::LLVM::ConstantOp>(loc, ity, c1attr);
-    rewriter.replaceOpWithNewOp<M::LLVM::AllocaOp>(heap, ty, c1.getResult(),
-                                                   heap.getAttrs());
+    auto *size = c1.getResult();
+    for (auto *opnd : operands)
+      size = rewriter.create<M::LLVM::MulOp>(loc, ity, size, opnd);
+    heap.setAttr("callee", rewriter.getSymbolRefAttr(mallocFunc));
+    L::SmallVector<M::Value *, 1> args({size});
+    rewriter.replaceOpWithNewOp<M::LLVM::CallOp>(heap, ty, args,
+                                                 heap.getAttrs());
     return matchSuccess();
   }
 };
 
+/// convert to returning the first element of the box (any flavor)
 struct BoxAddrOpConversion : public FIROpConversion<BoxAddrOp> {
   using FIROpConversion::FIROpConversion;
 
@@ -610,7 +621,7 @@ struct BoxTypeDescOpConversion : public FIROpConversion<BoxTypeDescOp> {
   }
 };
 
-// direct call LLVM function
+/// direct call LLVM function
 struct CallOpConversion : public FIROpConversion<fir::CallOp> {
   using FIROpConversion::FIROpConversion;
 
@@ -627,7 +638,7 @@ struct CallOpConversion : public FIROpConversion<fir::CallOp> {
   }
 };
 
-// convert value of from-type to value of to-type
+/// convert value of from-type to value of to-type
 struct ConvertOpConversion : public FIROpConversion<ConvertOp> {
   using FIROpConversion::FIROpConversion;
 
@@ -690,7 +701,7 @@ struct ConvertOpConversion : public FIROpConversion<ConvertOp> {
   }
 };
 
-// convert to reference to a reference to a subobject
+/// convert to reference to a reference to a subobject
 struct CoordinateOpConversion : public FIROpConversion<CoordinateOp> {
   using FIROpConversion::FIROpConversion;
 
@@ -712,7 +723,7 @@ struct CoordinateOpConversion : public FIROpConversion<CoordinateOp> {
   }
 };
 
-// virtual call to a method in a dispatch table
+/// virtual call to a method in a dispatch table
 struct DispatchOpConversion : public FIROpConversion<DispatchOp> {
   using FIROpConversion::FIROpConversion;
 
@@ -728,7 +739,7 @@ struct DispatchOpConversion : public FIROpConversion<DispatchOp> {
   }
 };
 
-// dispatch table for a Fortran derived type
+/// dispatch table for a Fortran derived type
 struct DispatchTableOpConversion : public FIROpConversion<DispatchTableOp> {
   using FIROpConversion::FIROpConversion;
 
@@ -741,7 +752,7 @@ struct DispatchTableOpConversion : public FIROpConversion<DispatchTableOp> {
   }
 };
 
-// entry in a dispatch table; binds a method-name to a function
+/// entry in a dispatch table; binds a method-name to a function
 struct DTEntryOpConversion : public FIROpConversion<DTEntryOp> {
   using FIROpConversion::FIROpConversion;
 
@@ -754,7 +765,7 @@ struct DTEntryOpConversion : public FIROpConversion<DTEntryOp> {
   }
 };
 
-// create a CHARACTER box
+/// create a CHARACTER box
 struct EmboxCharOpConversion : public FIROpConversion<EmboxCharOp> {
   using FIROpConversion::FIROpConversion;
 
@@ -777,7 +788,7 @@ struct EmboxCharOpConversion : public FIROpConversion<EmboxCharOp> {
   }
 };
 
-// create a generic box on a memory reference
+/// create a generic box on a memory reference
 struct EmboxOpConversion : public FIROpConversion<EmboxOp> {
   using FIROpConversion::FIROpConversion;
 
@@ -790,7 +801,7 @@ struct EmboxOpConversion : public FIROpConversion<EmboxOp> {
   }
 };
 
-// create a procedure pointer box
+/// create a procedure pointer box
 struct EmboxProcOpConversion : public FIROpConversion<EmboxProcOp> {
   using FIROpConversion::FIROpConversion;
 
@@ -813,7 +824,32 @@ struct EmboxProcOpConversion : public FIROpConversion<EmboxProcOp> {
   }
 };
 
-// extract a subobject value from an ssa-value of aggregate type
+bool allConstants(OperandTy operands, int drop) {
+  for (auto *opnd : operands) {
+    if (drop) {
+      --drop;
+      continue;
+    }
+    if (opnd->getDefiningOp())
+      if (dyn_cast<M::LLVM::ConstantOp>(opnd->getDefiningOp()) ||
+          dyn_cast<M::ConstantOp>(opnd->getDefiningOp()))
+        continue;
+    return false;
+  }
+  return true;
+}
+
+M::Attribute getValue(M::Value *value) {
+  assert(value->getDefiningOp());
+  if (auto v = dyn_cast<M::LLVM::ConstantOp>(value->getDefiningOp()))
+    return v.value();
+  if (auto v = dyn_cast<M::ConstantOp>(value->getDefiningOp()))
+    return v.value();
+  assert(false && "must be a constant op");
+  return 0;
+}
+
+/// extract a subobject value from an ssa-value of aggregate type
 struct ExtractValueOpConversion : public FIROpConversion<fir::ExtractValueOp> {
   using FIROpConversion::FIROpConversion;
 
@@ -821,15 +857,26 @@ struct ExtractValueOpConversion : public FIROpConversion<fir::ExtractValueOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto extractVal = M::cast<ExtractValueOp>(op);
-    TODO(extractVal);
+    auto ty = lowering.convertType(extractVal.getType());
+    // can we use LLVM's extractvalue instruction?
+    if (allConstants(operands, 1)) {
+      L::SmallVector<M::Attribute, 8> attrs;
+      for (int i = 1, end = operands.size(); i < end; ++i)
+        attrs.push_back(getValue(operands[i]));
+      auto position = M::ArrayAttr::get(attrs, extractVal.getContext());
+      rewriter.replaceOpWithNewOp<M::LLVM::ExtractValueOp>(
+          extractVal, ty, operands[0], position);
+    } else {
+      TODO(extractVal);
+    }
     return matchSuccess();
   }
 };
 
-// Compute the offset of a field in a variable of derived type. A value of type
-// field can only be used as an argument to a coordinate_of, extract_value, or
-// insert_value operation. It derives it's meaning from the context of where it
-// is used.
+/// Compute the offset of a field in a variable of derived type. A value of type
+/// field can only be used as an argument to a coordinate_of, extract_value, or
+/// insert_value operation. It derives it's meaning from the context of where it
+/// is used.
 struct FieldIndexOpConversion : public FIROpConversion<fir::FieldIndexOp> {
   using FIROpConversion::FIROpConversion;
 
@@ -854,36 +901,37 @@ struct FirEndOpConversion : public FIROpConversion<FirEndOp> {
   }
 };
 
+M::LLVM::LLVMFuncOp getFree(FreeMemOp op,
+                            M::ConversionPatternRewriter &rewriter,
+                            M::LLVM::LLVMDialect *dialect) {
+  auto module = op.getParentOfType<M::ModuleOp>();
+  if (auto freeFunc = module.lookupSymbol<M::LLVM::LLVMFuncOp>("free"))
+    return freeFunc;
+  M::OpBuilder moduleBuilder(op.getParentOfType<M::ModuleOp>().getBodyRegion());
+  auto voidType = M::LLVM::LLVMType::getVoidTy(dialect);
+  return moduleBuilder.create<M::LLVM::LLVMFuncOp>(
+      rewriter.getUnknownLoc(), "free",
+      M::LLVM::LLVMType::getFunctionTy(voidType, getVoidPtrType(dialect),
+                                       /*isVarArg=*/false));
+}
+
 // call free function
 struct FreeMemOpConversion : public FIROpConversion<fir::FreeMemOp> {
   using FIROpConversion::FIROpConversion;
-
-  M::LLVM::LLVMType getVoidPtrType() const {
-    return M::LLVM::LLVMType::getInt8PtrTy(getDialect());
-  }
-
-  M::FuncOp genFreeFunc(M::Operation *op,
-                        M::ConversionPatternRewriter &rewriter) const {
-    M::FuncOp freeFunc =
-        op->getParentOfType<M::ModuleOp>().lookupSymbol<M::FuncOp>("free");
-    if (!freeFunc) {
-      auto freeType = rewriter.getFunctionType(getVoidPtrType(), {});
-      freeFunc = M::FuncOp::create(rewriter.getUnknownLoc(), "free", freeType);
-      op->getParentOfType<M::ModuleOp>().push_back(freeFunc);
-    }
-    return freeFunc;
-  }
 
   M::PatternMatchResult
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto freemem = M::cast<fir::FreeMemOp>(op);
-    auto freeFunc = genFreeFunc(freemem, rewriter);
-    M::Value *casted = rewriter.create<M::LLVM::BitcastOp>(
-        freemem.getLoc(), getVoidPtrType(), operands[0]);
-    auto sym = rewriter.getSymbolRefAttr(freeFunc);
+    auto dialect = getDialect();
+    auto freeFunc = getFree(freemem, rewriter, dialect);
+    auto bitcast = rewriter.create<M::LLVM::BitcastOp>(
+        freemem.getLoc(), getVoidPtrType(dialect), operands[0]);
+    freemem.setAttr("callee", rewriter.getSymbolRefAttr(freeFunc));
+    L::SmallVector<M::Value *, 1> args({bitcast});
     rewriter.replaceOpWithNewOp<M::LLVM::CallOp>(
-        freemem, llvm::ArrayRef<M::Type>(), sym, casted);
+        freemem, M::LLVM::LLVMType::getVoidTy(dialect), args,
+        freemem.getAttrs());
     return matchSuccess();
   }
 };
@@ -949,8 +997,8 @@ struct GlobalOpConversion : public FIROpConversion<fir::GlobalOp> {
   }
 };
 
-// InsertValue is the generalized instruction for the composition of new
-// aggregate type values.
+/// InsertValue is the generalized instruction for the composition of new
+/// aggregate type values.
 struct InsertValueOpConversion : public FIROpConversion<InsertValueOp> {
   using FIROpConversion::FIROpConversion;
 
@@ -958,8 +1006,18 @@ struct InsertValueOpConversion : public FIROpConversion<InsertValueOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto insertVal = cast<InsertValueOp>(op);
-    TODO(insertVal);
-    // rewriter.replaceOpWithNewOp<M::LLVM::InsertValueOp>(insertVal, ...);
+    auto ty = lowering.convertType(insertVal.getType());
+    // can we use LLVM's extractvalue instruction?
+    if (allConstants(operands, 2)) {
+      L::SmallVector<M::Attribute, 8> attrs;
+      for (int i = 2, end = operands.size(); i < end; ++i)
+        attrs.push_back(getValue(operands[i]));
+      auto position = M::ArrayAttr::get(attrs, insertVal.getContext());
+      rewriter.replaceOpWithNewOp<M::LLVM::InsertValueOp>(
+          insertVal, ty, operands[0], operands[1], position);
+    } else {
+      TODO(insertVal);
+    }
     return matchSuccess();
   }
 };
@@ -1181,29 +1239,11 @@ struct WhereOpConversion : public FIROpConversion<fir::WhereOp> {
   }
 };
 
-// Generate code for complex addition/subtraction
-template <typename LLVMOP, typename OPTY>
-M::LLVM::InsertValueOp complexSum(OPTY sumop, OperandTy opnds,
-                                  M::ConversionPatternRewriter &rewriter,
-                                  FIRToLLVMTypeConverter &lowering) {
-  auto a = opnds[0];
-  auto b = opnds[1];
-  auto loc = sumop.getLoc();
-  auto ctx = sumop.getContext();
-  auto c0 = M::ArrayAttr::get(rewriter.getI32IntegerAttr(0), ctx);
-  auto c1 = M::ArrayAttr::get(rewriter.getI32IntegerAttr(1), ctx);
-  auto ty = lowering.convertType(sumop.getType());
-  auto x = rewriter.create<M::LLVM::ExtractValueOp>(loc, ty, a, c0);
-  auto x_ = rewriter.create<M::LLVM::ExtractValueOp>(loc, ty, b, c0);
-  auto rx = rewriter.create<LLVMOP>(loc, ty, x, x_);
-  auto y = rewriter.create<M::LLVM::ExtractValueOp>(loc, ty, a, c1);
-  auto y_ = rewriter.create<M::LLVM::ExtractValueOp>(loc, ty, b, c1);
-  auto ry = rewriter.create<LLVMOP>(loc, ty, y, y_);
-  auto r = rewriter.create<M::LLVM::UndefOp>(loc, ty);
-  auto r_ = rewriter.create<M::LLVM::InsertValueOp>(loc, ty, r, rx, c0);
-  return rewriter.create<M::LLVM::InsertValueOp>(loc, ty, r_, ry, c1);
-}
+//
+// Primitive operations on Real (floating-point) types
+//
 
+/// Convert a floating-point primitive
 template <typename BINOP, typename LLVMOP>
 void lowerRealBinaryOp(M::Operation *op, OperandTy operands,
                        M::ConversionPatternRewriter &rewriter,
@@ -1269,6 +1309,33 @@ struct ModfOpConversion : public FIROpConversion<fir::ModfOp> {
   }
 };
 
+//
+// Primitive operations on Complex types
+//
+
+/// Generate code for complex addition/subtraction
+template <typename LLVMOP, typename OPTY>
+M::LLVM::InsertValueOp complexSum(OPTY sumop, OperandTy opnds,
+                                  M::ConversionPatternRewriter &rewriter,
+                                  FIRToLLVMTypeConverter &lowering) {
+  auto a = opnds[0];
+  auto b = opnds[1];
+  auto loc = sumop.getLoc();
+  auto ctx = sumop.getContext();
+  auto c0 = M::ArrayAttr::get(rewriter.getI32IntegerAttr(0), ctx);
+  auto c1 = M::ArrayAttr::get(rewriter.getI32IntegerAttr(1), ctx);
+  auto ty = lowering.convertType(sumop.getType());
+  auto x = rewriter.create<M::LLVM::ExtractValueOp>(loc, ty, a, c0);
+  auto x_ = rewriter.create<M::LLVM::ExtractValueOp>(loc, ty, b, c0);
+  auto rx = rewriter.create<LLVMOP>(loc, ty, x, x_);
+  auto y = rewriter.create<M::LLVM::ExtractValueOp>(loc, ty, a, c1);
+  auto y_ = rewriter.create<M::LLVM::ExtractValueOp>(loc, ty, b, c1);
+  auto ry = rewriter.create<LLVMOP>(loc, ty, y, y_);
+  auto r = rewriter.create<M::LLVM::UndefOp>(loc, ty);
+  auto r_ = rewriter.create<M::LLVM::InsertValueOp>(loc, ty, r, rx, c0);
+  return rewriter.create<M::LLVM::InsertValueOp>(loc, ty, r_, ry, c1);
+}
+
 struct AddcOpConversion : public FIROpConversion<fir::AddcOp> {
   using FIROpConversion::FIROpConversion;
 
@@ -1299,6 +1366,7 @@ struct SubcOpConversion : public FIROpConversion<fir::SubcOp> {
   }
 };
 
+/// Inlined complex multiply
 struct MulcOpConversion : public FIROpConversion<fir::MulcOp> {
   using FIROpConversion::FIROpConversion;
 
@@ -1334,6 +1402,7 @@ struct MulcOpConversion : public FIROpConversion<fir::MulcOp> {
   }
 };
 
+/// Inlined complex division
 struct DivcOpConversion : public FIROpConversion<fir::DivcOp> {
   using FIROpConversion::FIROpConversion;
 
