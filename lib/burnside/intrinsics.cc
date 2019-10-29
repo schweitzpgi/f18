@@ -440,10 +440,10 @@ mlir::Value *IntrinsicLibrary::Implementation::generateConjg(
   mlir::Type realType{cplxHandler.getComplexPartType(cplx)};
   mlir::Value *zero{builder.create<mlir::ConstantOp>(
       genCtxt.loc, realType, builder.getZeroAttr(realType))};
-  mlir::Value *imag{cplxHandler.createComplexImagPart(cplx)};
+  mlir::Value *imag{cplxHandler.extract<ComplexHandler::Part::Imag>(cplx)};
   mlir::Value *negImag{
       genCtxt.builder->create<mlir::SubFOp>(genCtxt.loc, zero, imag)};
-  return cplxHandler.setImagPart(cplx, negImag);
+  return cplxHandler.insert<ComplexHandler::Part::Imag>(cplx, negImag);
 }
 
 }
