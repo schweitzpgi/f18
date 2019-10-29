@@ -213,7 +213,8 @@ void BasicCSE::simplifyBlock(ScopedMapTy &knownValues, DominanceInfo &domInfo,
     if (fir::nonVolatileLoad(&inst))
       inst.setAttr("effects_token",
                    IntegerAttr::get(IndexType::get(inst.getContext()), token));
-    if (dyn_cast<fir::StoreOp>(&inst) || fir::impureCall(&inst))
+    if (dyn_cast<fir::StoreOp>(&inst) || dyn_cast<fir::NoReassocOp>(&inst) ||
+        fir::impureCall(&inst))
       token = reinterpret_cast<std::intptr_t>(&inst);
   }
   for (auto &inst : *bb) {

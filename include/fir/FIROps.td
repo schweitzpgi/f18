@@ -96,9 +96,6 @@ def AnyCoordinateType : Type<AnyCoordinateLike.predicate, "coordinate type">;
 class fir_Op<string mnemonic, list<OpTrait> traits>
   : Op<fir_Dialect, mnemonic, traits>;
 
-def SimplePrettyParserPrinter {
-}
-
 class fir_SimpleOp<string mnemonic, list<OpTrait> traits>
   : fir_Op<mnemonic, traits> {
   let parser = [{
@@ -1550,18 +1547,31 @@ def fir_DispatchOp : fir_Op<"dispatch", []>,
 
 class fir_ArithmeticOp<string mnemonic, list<OpTrait> traits = []> :
     fir_Op<mnemonic,
-       !listconcat(traits, [NoSideEffect, SameOperandsAndResultType])> {
-
-  let results = (outs AnyType);
-
+       !listconcat(traits, [NoSideEffect, SameOperandsAndResultType])>,
+    Results<(outs AnyType)> {
   let parser = [{
     return impl::parseOneResultSameOperandTypeOp(parser, result);
   }];
 
-  let printer = [{
-    return fir::printComplexBinaryOp(this->getOperation(), p);
-  }];
+  let printer = [{ return fir::printBinaryOp(this->getOperation(), p); }];
 }
+
+class fir_UnaryArithmeticOp<string mnemonic, list<OpTrait> traits = []> :
+      fir_Op<mnemonic,
+         !listconcat(traits, [NoSideEffect, SameOperandsAndResultType])>,
+      Results<(outs AnyType)> {
+  let parser = [{
+    return impl::parseOneResultSameOperandTypeOp(parser, result);
+  }];
+
+  let printer = [{ return fir::printUnaryOp(this->getOperation(), p); }];
+}
+
+class RealUnaryArithmeticOp<string mnemonic, list<OpTrait> traits = []> :
+      fir_UnaryArithmeticOp<mnemonic, traits>,
+      Arguments<(ins AnyRealLike:$operand)>;
+
+def fir_NegfOp : RealUnaryArithmeticOp<"negf">;
 
 class RealArithmeticOp<string mnemonic, list<OpTrait> traits = []> :
       fir_ArithmeticOp<mnemonic, traits>,
@@ -1572,6 +1582,46 @@ def fir_SubfOp : RealArithmeticOp<"subf">;
 def fir_MulfOp : RealArithmeticOp<"mulf", [Commutative]>;
 def fir_DivfOp : RealArithmeticOp<"divf">;
 def fir_ModfOp : RealArithmeticOp<"modf">;
+// Pow is a builtin call and not a primitive
+
+def fir_CmpfOp : fir_Op<"cmpf",
+    [NoSideEffect, SameTypeOperands, SameOperandsAndResultShape]>,
+    Results<(outs AnyLogicalLike)>,
+    Arguments<(ins AnyRealLike:$lhs, AnyRealLike:$rhs)> {
+  let summary = "floating-point comparison operator";
+
+  let description = [{
+    Extends the standard floating-point comparison to handle the extended
+    floating-point types found in FIR.
+  }];
+
+  let builders = [OpBuilder<
+    "Builder *builder, OperationState &result, CmpFPredicate predicate,"
+    "Value *lhs, Value *rhs", [{
+      fir::buildCmpFOp(builder, result, predicate, lhs, rhs);
+  }]>];
+
+  let parser = [{ return fir::parseCmpfOp(parser, result); }];
+  let printer = [{ fir::printCmpfOp(p, *this); }];
+
+  let extraClassDeclaration = [{
+    constexpr static llvm::StringRef getPredicateAttrName() {
+      return "predicate";
+    }
+    static CmpFPredicate getPredicateByName(llvm::StringRef name);
+
+    CmpFPredicate getPredicate() {
+      return (CmpFPredicate)getAttrOfType<mlir::IntegerAttr>(
+          getPredicateAttrName()).getInt();
+    }
+  }];
+}
+
+class ComplexUnaryArithmeticOp<string mnemonic, list<OpTrait> traits = []> :
+      fir_UnaryArithmeticOp<mnemonic, traits>,
+      Arguments<(ins fir_ComplexType:$operand)>;
+
+def fir_NegcOp : ComplexUnaryArithmeticOp<"negc">;
 
 class ComplexArithmeticOp<string mnemonic, list<OpTrait> traits = []> :
       fir_ArithmeticOp<mnemonic, traits>,
@@ -1581,6 +1631,38 @@ def fir_AddcOp : ComplexArithmeticOp<"addc", [Commutative]>;
 def fir_SubcOp : ComplexArithmeticOp<"subc">;
 def fir_MulcOp : ComplexArithmeticOp<"mulc", [Commutative]>;
 def fir_DivcOp : ComplexArithmeticOp<"divc">;
+// Pow is a builtin call and not a primitive
+
+def fir_CmpcOp : fir_Op<"cmpc",
+    [NoSideEffect, SameTypeOperands, SameOperandsAndResultShape]>,
+    Results<(outs AnyLogicalLike)>,
+    Arguments<(ins fir_ComplexType:$lhs, fir_ComplexType:$rhs)> {
+  let summary = "complex floating-point comparison operator";
+
+  let description = [{
+    A complex comparison to handle complex types found in FIR.
+  }];
+
+  let builders = [OpBuilder<
+    "Builder *builder, OperationState &result, CmpFPredicate predicate,"
+    "Value *lhs, Value *rhs", [{
+      fir::buildCmpCOp(builder, result, predicate, lhs, rhs);
+  }]>];
+
+  let parser = [{ return fir::parseCmpcOp(parser, result); }];
+  let printer = [{ fir::printCmpcOp(p, *this); }];
+
+  let extraClassDeclaration = [{
+    constexpr static llvm::StringRef getPredicateAttrName() {
+      return "predicate";
+    }
+
+    CmpFPredicate getPredicate() {
+      return (CmpFPredicate)getAttrOfType<mlir::IntegerAttr>(
+          getPredicateAttrName()).getInt();
+    }
+  }];
+}
 
 // Other misc. operations
 

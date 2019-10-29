@@ -18,6 +18,7 @@
 #include "mlir/Dialect/StandardOps/Ops.h"
 #include "mlir/IR/StandardTypes.h"
 #include "mlir/IR/SymbolTable.h"
+#include "llvm/ADT/StringSwitch.h"
 
 namespace L = llvm;
 namespace M = mlir;
@@ -102,6 +103,137 @@ M::ParseResult parseCallOp(M::OpAsmParser &parser, M::OperationState &result) {
   result.addTypes(funcType.getResults());
   result.attributes = attrs;
   return M::success();
+}
+
+// CmpfOp
+
+fir::CmpFPredicate CmpfOp::getPredicateByName(llvm::StringRef name) {
+  return llvm::StringSwitch<fir::CmpFPredicate>(name)
+      .Case("false", CmpFPredicate::AlwaysFalse)
+      .Case("oeq", CmpFPredicate::OEQ)
+      .Case("ogt", CmpFPredicate::OGT)
+      .Case("oge", CmpFPredicate::OGE)
+      .Case("olt", CmpFPredicate::OLT)
+      .Case("ole", CmpFPredicate::OLE)
+      .Case("one", CmpFPredicate::ONE)
+      .Case("ord", CmpFPredicate::ORD)
+      .Case("ueq", CmpFPredicate::UEQ)
+      .Case("ugt", CmpFPredicate::UGT)
+      .Case("uge", CmpFPredicate::UGE)
+      .Case("ult", CmpFPredicate::ULT)
+      .Case("ule", CmpFPredicate::ULE)
+      .Case("une", CmpFPredicate::UNE)
+      .Case("uno", CmpFPredicate::UNO)
+      .Case("true", CmpFPredicate::AlwaysTrue)
+      .Default(CmpFPredicate::NumPredicates);
+}
+
+void buildCmpFOp(Builder *builder, OperationState &result,
+                 CmpFPredicate predicate, Value *lhs, Value *rhs) {
+  result.addOperands({lhs, rhs});
+  result.types.push_back(builder->getI1Type());
+  result.addAttribute(
+      CmpfOp::getPredicateAttrName(),
+      builder->getI64IntegerAttr(static_cast<int64_t>(predicate)));
+}
+
+template <typename OPTY>
+void printCmpOp(OpAsmPrinter &p, OPTY op) {
+  static const char *predicateNames[] = {
+      /*AlwaysFalse*/ "false",
+      /*OEQ*/ "oeq",
+      /*OGT*/ "ogt",
+      /*OGE*/ "oge",
+      /*OLT*/ "olt",
+      /*OLE*/ "ole",
+      /*ONE*/ "one",
+      /*ORD*/ "ord",
+      /*UEQ*/ "ueq",
+      /*UGT*/ "ugt",
+      /*UGE*/ "uge",
+      /*ULT*/ "ult",
+      /*ULE*/ "ule",
+      /*UNE*/ "une",
+      /*UNO*/ "uno",
+      /*AlwaysTrue*/ "true",
+  };
+  static_assert(std::extent<decltype(predicateNames)>::value ==
+                    (size_t)fir::CmpFPredicate::NumPredicates,
+                "wrong number of predicate names");
+  p << op.getOperationName() << ' ';
+  auto predicateValue =
+      op.template getAttrOfType<M::IntegerAttr>(OPTY::getPredicateAttrName())
+          .getInt();
+  assert(predicateValue >= static_cast<int>(CmpFPredicate::FirstValidValue) &&
+         predicateValue < static_cast<int>(CmpFPredicate::NumPredicates) &&
+         "unknown predicate index");
+  Builder b(op.getContext());
+  auto predicateStringAttr = b.getStringAttr(predicateNames[predicateValue]);
+  p.printAttribute(predicateStringAttr);
+  p << ", ";
+  p.printOperand(op.lhs());
+  p << ", ";
+  p.printOperand(op.rhs());
+  p.printOptionalAttrDict(op.getAttrs(),
+                          /*elidedAttrs=*/{OPTY::getPredicateAttrName()});
+  p << " : " << op.lhs()->getType();
+}
+
+void printCmpfOp(OpAsmPrinter &p, CmpfOp op) { printCmpOp(p, op); }
+
+template <typename OPTY>
+M::ParseResult parseCmpOp(M::OpAsmParser &parser, M::OperationState &result) {
+  L::SmallVector<M::OpAsmParser::OperandType, 2> ops;
+  L::SmallVector<M::NamedAttribute, 4> attrs;
+  M::Attribute predicateNameAttr;
+  M::Type type;
+  if (parser.parseAttribute(predicateNameAttr, OPTY::getPredicateAttrName(),
+                            attrs) ||
+      parser.parseComma() || parser.parseOperandList(ops, 2) ||
+      parser.parseOptionalAttributeDict(attrs) || parser.parseColonType(type) ||
+      parser.resolveOperands(ops, type, result.operands))
+    return failure();
+
+  if (!predicateNameAttr.isa<M::StringAttr>())
+    return parser.emitError(parser.getNameLoc(),
+                            "expected string comparison predicate attribute");
+
+  // Rewrite string attribute to an enum value.
+  L::StringRef predicateName =
+      predicateNameAttr.cast<M::StringAttr>().getValue();
+  auto predicate = CmpfOp::getPredicateByName(predicateName);
+  if (predicate == CmpFPredicate::NumPredicates)
+    return parser.emitError(parser.getNameLoc(),
+                            "unknown comparison predicate \"" + predicateName +
+                                "\"");
+
+  auto builder = parser.getBuilder();
+  M::Type i1Type = builder.getI1Type();
+  attrs[0].second = builder.getI64IntegerAttr(static_cast<int64_t>(predicate));
+  result.attributes = attrs;
+  result.addTypes({i1Type});
+  return success();
+}
+
+M::ParseResult parseCmpfOp(M::OpAsmParser &parser, M::OperationState &result) {
+  return parseCmpOp<fir::CmpfOp>(parser, result);
+}
+
+// CmpcOp
+
+void buildCmpCOp(Builder *builder, OperationState &result,
+                 CmpFPredicate predicate, Value *lhs, Value *rhs) {
+  result.addOperands({lhs, rhs});
+  result.types.push_back(builder->getI1Type());
+  result.addAttribute(
+      CmpcOp::getPredicateAttrName(),
+      builder->getI64IntegerAttr(static_cast<int64_t>(predicate)));
+}
+
+void printCmpcOp(OpAsmPrinter &p, CmpcOp op) { printCmpOp(p, op); }
+
+M::ParseResult parseCmpcOp(M::OpAsmParser &parser, M::OperationState &result) {
+  return parseCmpOp<fir::CmpcOp>(parser, result);
 }
 
 // DispatchOp
@@ -413,11 +545,22 @@ M::ParseResult parseSelector(M::OpAsmParser &parser, M::OperationState &result,
   return M::success();
 }
 
-void printComplexBinaryOp(Operation *op, OpAsmPrinter &p) {
-  assert(op->getNumOperands() == 2 && "binary op should have two operands");
-  assert(op->getNumResults() == 1 && "binary op should have one result");
+/// Generic pretty-printer of a binary operation
+void printBinaryOp(Operation *op, OpAsmPrinter &p) {
+  assert(op->getNumOperands() == 2 && "binary op must have two operands");
+  assert(op->getNumResults() == 1 && "binary op must have one result");
 
   p << op->getName() << ' ' << *op->getOperand(0) << ", " << *op->getOperand(1);
+  p.printOptionalAttrDict(op->getAttrs());
+  p << " : " << op->getResult(0)->getType();
+}
+
+/// Generic pretty-printer of an unary operation
+void printUnaryOp(Operation *op, OpAsmPrinter &p) {
+  assert(op->getNumOperands() == 1 && "unary op must have one operand");
+  assert(op->getNumResults() == 1 && "unary op must have one result");
+
+  p << op->getName() << ' ' << *op->getOperand(0);
   p.printOptionalAttrDict(op->getAttrs());
   p << " : " << op->getResult(0)->getType();
 }
