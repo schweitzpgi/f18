@@ -638,6 +638,49 @@ struct CallOpConversion : public FIROpConversion<fir::CallOp> {
   }
 };
 
+struct CmpcOpConversion : public FIROpConversion<fir::CmpcOp> {
+  using FIROpConversion::FIROpConversion;
+
+  M::PatternMatchResult
+  matchAndRewrite(M::Operation *op, OperandTy operands,
+                  M::ConversionPatternRewriter &rewriter) const override {
+    auto cmp = M::cast<fir::CmpcOp>(op);
+    auto ctxt = cmp.getContext();
+    auto kind = cmp.lhs()->getType().cast<fir::CplxType>().getFKind();
+    auto ty = lowering.convertType(fir::RealType::get(ctxt, kind));
+    auto loc = cmp.getLoc();
+    auto pos0 = M::ArrayAttr::get({rewriter.getI32IntegerAttr(0)}, ctxt);
+    L::SmallVector<M::Value *, 2> rp(
+        {rewriter.create<M::LLVM::ExtractValueOp>(loc, ty, operands[0], pos0),
+         rewriter.create<M::LLVM::ExtractValueOp>(loc, ty, operands[1], pos0)});
+    auto rcp = rewriter.create<M::LLVM::FCmpOp>(loc, ty, rp, cmp.getAttrs());
+    auto pos1 = M::ArrayAttr::get({rewriter.getI32IntegerAttr(1)}, ctxt);
+    L::SmallVector<M::Value *, 2> ip(
+        {rewriter.create<M::LLVM::ExtractValueOp>(loc, ty, operands[0], pos1),
+         rewriter.create<M::LLVM::ExtractValueOp>(loc, ty, operands[1], pos1)});
+    auto icp = rewriter.create<M::LLVM::FCmpOp>(loc, ty, ip, cmp.getAttrs());
+    L::SmallVector<M::Value *, 2> cp({rcp, icp});
+    // FIXME: this is not correct! It is a stub!
+    // Should this call a runtime function?
+    rewriter.replaceOpWithNewOp<M::LLVM::AndOp>(cmp, ty, cp);
+    return matchSuccess();
+  }
+};
+
+struct CmpfOpConversion : public FIROpConversion<fir::CmpfOp> {
+  using FIROpConversion::FIROpConversion;
+
+  M::PatternMatchResult
+  matchAndRewrite(M::Operation *op, OperandTy operands,
+                  M::ConversionPatternRewriter &rewriter) const override {
+    auto cmp = M::cast<fir::CmpfOp>(op);
+    auto type = lowering.convertType(cmp.getType());
+    rewriter.replaceOpWithNewOp<M::LLVM::FCmpOp>(cmp, type, operands,
+                                                 cmp.getAttrs());
+    return matchSuccess();
+  }
+};
+
 /// convert value of from-type to value of to-type
 struct ConvertOpConversion : public FIROpConversion<ConvertOp> {
   using FIROpConversion::FIROpConversion;
@@ -1309,6 +1352,19 @@ struct ModfOpConversion : public FIROpConversion<fir::ModfOp> {
   }
 };
 
+struct NegfOpConversion : public FIROpConversion<fir::NegfOp> {
+  using FIROpConversion::FIROpConversion;
+
+  M::PatternMatchResult
+  matchAndRewrite(M::Operation *op, OperandTy operands,
+                  M::ConversionPatternRewriter &rewriter) const override {
+    auto neg = M::cast<fir::NegfOp>(op);
+    auto ty = lowering.convertType(neg.getType());
+    rewriter.replaceOpWithNewOp<M::LLVM::FNegOp>(neg, ty, operands);
+    return matchSuccess();
+  }
+};
+
 //
 // Primitive operations on Complex types
 //
@@ -1443,6 +1499,29 @@ struct DivcOpConversion : public FIROpConversion<fir::DivcOp> {
   }
 };
 
+struct NegcOpConversion : public FIROpConversion<fir::NegcOp> {
+  using FIROpConversion::FIROpConversion;
+
+  M::PatternMatchResult
+  matchAndRewrite(M::Operation *op, OperandTy operands,
+                  M::ConversionPatternRewriter &rewriter) const override {
+    auto neg = M::cast<fir::NegcOp>(op);
+    auto ctxt = neg.getContext();
+    auto ty = lowering.convertType(neg.getType());
+    auto loc = neg.getLoc();
+    auto c0 = M::ArrayAttr::get({rewriter.getI32IntegerAttr(0)}, ctxt);
+    auto &o0 = operands[0];
+    auto rp = rewriter.create<M::LLVM::ExtractValueOp>(loc, ty, o0, c0);
+    auto nrp = rewriter.create<M::LLVM::FNegOp>(loc, ty, rp);
+    auto c1 = M::ArrayAttr::get({rewriter.getI32IntegerAttr(1)}, ctxt);
+    auto ip = rewriter.create<M::LLVM::ExtractValueOp>(loc, ty, o0, c1);
+    auto nip = rewriter.create<M::LLVM::FNegOp>(loc, ty, ip);
+    auto r = rewriter.create<M::LLVM::InsertValueOp>(loc, ty, o0, nrp, c0);
+    rewriter.replaceOpWithNewOp<M::LLVM::InsertValueOp>(neg, ty, r, nip, c1);
+    return matchSuccess();
+  }
+};
+
 // Lower a SELECT operation into a cascade of conditional branches. The last
 // case must be the `true` condition.
 inline void rewriteSelectConstruct(M::Operation *op, OperandTy operands,
@@ -1487,20 +1566,21 @@ struct FIRToLLVMLoweringPass : public M::ModulePass<FIRToLLVMLoweringPass> {
         BoxCharLenOpConversion, BoxDimsOpConversion, BoxEleSizeOpConversion,
         BoxIsAllocOpConversion, BoxIsArrayOpConversion, BoxIsPtrOpConversion,
         BoxProcHostOpConversion, BoxRankOpConversion, BoxTypeDescOpConversion,
-        CallOpConversion, ConvertOpConversion, CoordinateOpConversion,
-        DispatchOpConversion, DispatchTableOpConversion, DivcOpConversion,
-        DivfOpConversion, DTEntryOpConversion, EmboxCharOpConversion,
-        EmboxOpConversion, EmboxProcOpConversion, FirEndOpConversion,
-        ExtractValueOpConversion, FieldIndexOpConversion, FreeMemOpConversion,
-        GenDimsOpConversion, GenTypeDescOpConversion, GlobalEntryOpConversion,
-        GlobalOpConversion, InsertValueOpConversion, LenParamIndexOpConversion,
-        LoadOpConversion, LoopOpConversion, ModfOpConversion, MulcOpConversion,
-        MulfOpConversion, NoReassocOpConversion, SelectCaseOpConversion,
-        SelectOpConversion, SelectRankOpConversion, SelectTypeOpConversion,
-        StoreOpConversion, SubcOpConversion, SubfOpConversion,
-        UnboxCharOpConversion, UnboxOpConversion, UnboxProcOpConversion,
-        UndefOpConversion, UnreachableOpConversion, WhereOpConversion>(
-        &context, typeConverter);
+        CallOpConversion, CmpcOpConversion, CmpfOpConversion,
+        ConvertOpConversion, CoordinateOpConversion, DispatchOpConversion,
+        DispatchTableOpConversion, DivcOpConversion, DivfOpConversion,
+        DTEntryOpConversion, EmboxCharOpConversion, EmboxOpConversion,
+        EmboxProcOpConversion, FirEndOpConversion, ExtractValueOpConversion,
+        FieldIndexOpConversion, FreeMemOpConversion, GenDimsOpConversion,
+        GenTypeDescOpConversion, GlobalEntryOpConversion, GlobalOpConversion,
+        InsertValueOpConversion, LenParamIndexOpConversion, LoadOpConversion,
+        LoopOpConversion, ModfOpConversion, MulcOpConversion, MulfOpConversion,
+        NegcOpConversion, NegfOpConversion, NoReassocOpConversion,
+        SelectCaseOpConversion, SelectOpConversion, SelectRankOpConversion,
+        SelectTypeOpConversion, StoreOpConversion, SubcOpConversion,
+        SubfOpConversion, UnboxCharOpConversion, UnboxOpConversion,
+        UnboxProcOpConversion, UndefOpConversion, UnreachableOpConversion,
+        WhereOpConversion>(&context, typeConverter);
     M::populateStdToLLVMConversionPatterns(typeConverter, patterns);
     M::ConversionTarget target{context};
     target.addLegalDialect<M::LLVM::LLVMDialect>();
