@@ -20,6 +20,7 @@
 #include "fir/Type.h"
 #include "runtime.h"
 #include "llvm/ADT/Optional.h"
+#include "llvm/ADT/Twine.h"
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -76,7 +77,7 @@ private:
 /// and they all take the same context argument that contains the name and
 /// arguments of the Fortran intrinsics call to lower among other things.
 /// A same FIR generator function may be able to generate the FIR for several
-/// intrinsics. For instance generateRuntimeCall tries to find a runtime
+/// intrinsics. For instance genRuntimeCall tries to find a runtime
 /// functions that matches the Fortran intrinsic call and generate the
 /// operations to call this functions if it was found.
 /// IntrinsicLibrary holds a constant MathRuntimeLibrary that it uses to
@@ -121,20 +122,20 @@ private:
   /// conversions will be inserted before and/or after the call. This is to
   /// mainly to allow 16 bits float support even-though little or no math
   /// runtime is currently available for it.
-  mlir::Value *generateRuntimeCall(Context &) const;
-  /// All generators can be combined with generateWrapperCall that will build a
+  mlir::Value *genRuntimeCall(Context &) const;
+  /// All generators can be combined with genWrapperCall that will build a
   /// function named "fir."+ <generic name> + "." + <result type code> and
   /// generate the intrinsic implementation inside instead of at the intrinsic
   /// call sites. This can be used to keep the FIR more readable.
-  template<Generator g> mlir::Value *generateWrapperCall(Context &c) const {
+  template<Generator g> mlir::Value *genWrapperCall(Context &c) const {
     return outlineInWrapper(g, c);
   }
   /// The defaultGenerator is always attempted if no mapping was found for the
   /// generic name provided.
   mlir::Value *defaultGenerator(Context &c) const {
-    return generateWrapperCall<&I::generateRuntimeCall>(c);
+    return genWrapperCall<&I::genRuntimeCall>(c);
   }
-  mlir::Value *generateConjg(Context &) const;
+  mlir::Value *genConjg(Context &) const;
 
   struct IntrinsicHanlder {
     const char *name;
@@ -146,7 +147,7 @@ private:
   /// defined here for a generic intrinsic, the defaultGenerator will
   /// be attempted.
   static constexpr IntrinsicHanlder handlers[]{
-      {"conjg", &I::generateConjg},
+      {"conjg", &I::genConjg},
   };
 
   // helpers
@@ -326,21 +327,22 @@ mlir::FunctionType IntrinsicLibrary::Implementation::getFunctionType(
 
 std::string IntrinsicLibrary::Implementation::getWrapperName(Context &c) {
   // TODO find nicer type to string infra
-  llvm::StringRef prefix{"fir."};
+  auto addSuffix{[&](const llvm::Twine &suffix) -> std::string {
+    return ("fir." + c.name + suffix).str();
+  }};
   assert(c.funcType.getNumResults() == 1);
   mlir::Type resultType{c.funcType.getResult(0)};
   if (auto f{resultType.dyn_cast<mlir::FloatType>()}) {
-    return prefix.str() + c.name.str() + ".f" + std::to_string(f.getWidth());
+    return addSuffix(".f" + llvm::Twine(f.getWidth()));
   } else if (auto i{resultType.dyn_cast<mlir::IntegerType>()}) {
-    return prefix.str() + c.name.str() + ".i" + std::to_string(i.getWidth());
+    return addSuffix(".i" + llvm::Twine(i.getWidth()));
   } else if (auto cplx{resultType.dyn_cast<fir::CplxType>()}) {
-    // TODO using kind here is weird, but I do not want to hard coded mapping
-    return prefix.str() + c.name.str() + ".c" + std::to_string(cplx.getFKind());
-  } else if (auto firf{resultType.dyn_cast<fir::RealType>()}) {
-    return prefix.str() + c.name.str() + ".f" + std::to_string(firf.getFKind());
+    return addSuffix(".c" + llvm::Twine(cplx.getFKind()));
+  } else if (auto real{resultType.dyn_cast<fir::RealType>()}) {
+    return addSuffix(".r" + llvm::Twine(real.getFKind()));
   } else {
     assert(false);
-    return "fir." + c.name.str() + ".unknown";
+    return addSuffix(".unknown");
   }
 }
 
@@ -381,7 +383,7 @@ mlir::Value *IntrinsicLibrary::Implementation::outlineInWrapper(
   return call.getResult(0);
 }
 
-mlir::Value *IntrinsicLibrary::Implementation::generateRuntimeCall(
+mlir::Value *IntrinsicLibrary::Implementation::genRuntimeCall(
     Context &context) const {
   // Look up runtime
   mlir::FunctionType soughtFuncType{context.funcType};
@@ -427,7 +429,7 @@ mlir::Value *IntrinsicLibrary::Implementation::generateRuntimeCall(
 }
 
 // CONJG
-mlir::Value *IntrinsicLibrary::Implementation::generateConjg(
+mlir::Value *IntrinsicLibrary::Implementation::genConjg(
     Context &genCtxt) const {
   assert(genCtxt.arguments.size() == 1);
   mlir::Type resType{genCtxt.getResultType()};

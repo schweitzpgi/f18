@@ -58,8 +58,10 @@ public:
       const TypeCode *start{&Storage<v...>::values[0]};
       return TypeCodeVector{start, start + sizeof...(v)};
     }
-    // g++ 8.3 says: "error: explicit specialization in non-namespace scope ‘struct Fortran::burnside::RuntimeStaticDescription::TypeCodeVector’"
-    //template<> constexpr TypeCodeVector create<>() { return TypeCodeVector{}; }
+    // g++ 8.3 says: "error: explicit specialization in non-namespace scope
+    // ‘struct Fortran::burnside::RuntimeStaticDescription::TypeCodeVector’"
+    // template<> constexpr TypeCodeVector create<>() { return TypeCodeVector{};
+    // }
     const TypeCode *start{nullptr};
     const TypeCode *end{nullptr};
   };
@@ -89,7 +91,7 @@ private:
 // TODO: Find a better place for this if this is retained.
 // This is currently here because this was designed to provide
 // maps over runtime description without the burden of having to
-// instantiate these maps dynamically and to keep they somewhere.
+// instantiate these maps dynamically and to keep them somewhere.
 template<typename Value> class StaticMultimapView {
 public:
   using Key = typename Value::Key;
