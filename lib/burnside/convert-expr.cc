@@ -254,7 +254,7 @@ class ExprLowering {
   }
 
   template<int KIND> M::Value *genval(Ev::ComplexComponent<KIND> const &part) {
-    return ComplexHandler{builder, getLoc()}.createComplexPart(
+    return ComplexHandler{builder, getLoc()}.extractComplexPart(
         genval(part.left()), part.isImaginaryPart);
   }
 
