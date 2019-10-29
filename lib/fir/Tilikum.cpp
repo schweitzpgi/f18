@@ -71,7 +71,7 @@ public:
   }
 
   // i32 is used here because LLVM wants i32 constants when indexing into struct
-  // types. Indexing into other aggregate types is more flexible. TODO: See if
+  // types. Indexing into other aggregate types is more flexible. FIXME: See if
   // we can't use i64 anyway; the restiction may not longer hold.
   M::LLVM::LLVMType indexType() {
     return M::LLVM::LLVMType::getInt64Ty(llvmDialect);
@@ -383,7 +383,7 @@ struct AllocMemOpConversion : public FIROpConversion<AllocMemOp> {
     for (auto *opnd : operands)
       size = rewriter.create<M::LLVM::MulOp>(loc, ity, size, opnd);
     heap.setAttr("callee", rewriter.getSymbolRefAttr(mallocFunc));
-    L::SmallVector<M::Value *, 1> args({size});
+    L::SmallVector<M::Value *, 1> args{size};
     rewriter.replaceOpWithNewOp<M::LLVM::CallOp>(heap, ty, args,
                                                  heap.getAttrs());
     return matchSuccess();
@@ -405,7 +405,7 @@ struct BoxAddrOpConversion : public FIROpConversion<BoxAddrOp> {
     if (auto argty = boxaddr.val()->getType().dyn_cast<BoxType>()) {
       auto ity = lowering.indexType();
       auto c0 = rewriter.create<M::LLVM::ConstantOp>(loc, ity, c0attr);
-      L::SmallVector<M::Value *, 4> args({a, c0, c0});
+      L::SmallVector<M::Value *, 4> args{a, c0, c0};
       auto pty = lowering.unwrap(ty).getPointerTo();
       auto p = rewriter.create<M::LLVM::GEPOp>(loc, pty, args);
       rewriter.replaceOpWithNewOp<M::LLVM::LoadOp>(boxaddr, ty, p);
@@ -449,7 +449,7 @@ struct BoxDimsOpConversion : public FIROpConversion<BoxDimsOp> {
     auto c7attr = rewriter.getI32IntegerAttr(7);
     auto c7 = rewriter.create<M::LLVM::ConstantOp>(loc, ity, c7attr);
     auto ty = lowering.convertType(boxdims.getResult(0)->getType());
-    L::SmallVector<M::Value *, 4> args({a, c0, c7, dim});
+    L::SmallVector<M::Value *, 4> args{a, c0, c7, dim};
     auto p = rewriter.create<M::LLVM::GEPOp>(loc, ty, args);
     rewriter.replaceOpWithNewOp<M::LLVM::LoadOp>(boxdims, ty, p);
     return matchSuccess();
@@ -471,7 +471,7 @@ struct BoxEleSizeOpConversion : public FIROpConversion<BoxEleSizeOp> {
     auto c0 = rewriter.create<M::LLVM::ConstantOp>(loc, ity, c0attr);
     auto c1attr = rewriter.getI32IntegerAttr(1);
     auto c1 = rewriter.create<M::LLVM::ConstantOp>(loc, ity, c1attr);
-    L::SmallVector<M::Value *, 4> args({a, c0, c1});
+    L::SmallVector<M::Value *, 4> args{a, c0, c1};
     auto p = rewriter.create<M::LLVM::GEPOp>(loc, ty, args);
     rewriter.replaceOpWithNewOp<M::LLVM::LoadOp>(boxelesz, ty, p);
     return matchSuccess();
@@ -493,7 +493,7 @@ struct BoxIsAllocOpConversion : public FIROpConversion<BoxIsAllocOp> {
     auto c0 = rewriter.create<M::LLVM::ConstantOp>(loc, ity, c0attr);
     auto c5attr = rewriter.getI32IntegerAttr(5);
     auto c5 = rewriter.create<M::LLVM::ConstantOp>(loc, ity, c5attr);
-    L::SmallVector<M::Value *, 4> args({a, c0, c5});
+    L::SmallVector<M::Value *, 4> args{a, c0, c5};
     auto p = rewriter.create<M::LLVM::GEPOp>(loc, ty, args);
     auto ld = rewriter.create<M::LLVM::LoadOp>(loc, ty, p);
     auto c2attr = rewriter.getI32IntegerAttr(2);
@@ -520,7 +520,7 @@ struct BoxIsArrayOpConversion : public FIROpConversion<BoxIsArrayOp> {
     auto c0 = rewriter.create<M::LLVM::ConstantOp>(loc, ity, c0attr);
     auto c3attr = rewriter.getI32IntegerAttr(3);
     auto c3 = rewriter.create<M::LLVM::ConstantOp>(loc, ity, c3attr);
-    L::SmallVector<M::Value *, 4> args({a, c0, c3});
+    L::SmallVector<M::Value *, 4> args{a, c0, c3};
     auto p = rewriter.create<M::LLVM::GEPOp>(loc, ty, args);
     auto ld = rewriter.create<M::LLVM::LoadOp>(loc, ty, p);
     rewriter.replaceOpWithNewOp<M::LLVM::ICmpOp>(
@@ -544,7 +544,7 @@ struct BoxIsPtrOpConversion : public FIROpConversion<BoxIsPtrOp> {
     auto c0 = rewriter.create<M::LLVM::ConstantOp>(loc, ity, c0attr);
     auto c5attr = rewriter.getI32IntegerAttr(5);
     auto c5 = rewriter.create<M::LLVM::ConstantOp>(loc, ity, c5attr);
-    L::SmallVector<M::Value *, 4> args({a, c0, c5});
+    L::SmallVector<M::Value *, 4> args{a, c0, c5};
     auto p = rewriter.create<M::LLVM::GEPOp>(loc, ty, args);
     auto ld = rewriter.create<M::LLVM::LoadOp>(loc, ty, p);
     auto c1attr = rewriter.getI32IntegerAttr(1);
@@ -588,7 +588,7 @@ struct BoxRankOpConversion : public FIROpConversion<BoxRankOp> {
     auto c0 = rewriter.create<M::LLVM::ConstantOp>(loc, ity, c0attr);
     auto c3attr = rewriter.getI32IntegerAttr(3);
     auto c3 = rewriter.create<M::LLVM::ConstantOp>(loc, ity, c3attr);
-    L::SmallVector<M::Value *, 4> args({a, c0, c3});
+    L::SmallVector<M::Value *, 4> args{a, c0, c3};
     auto pty = lowering.unwrap(ty).getPointerTo();
     auto p = rewriter.create<M::LLVM::GEPOp>(loc, pty, args);
     rewriter.replaceOpWithNewOp<M::LLVM::LoadOp>(boxrank, ty, p);
@@ -611,7 +611,7 @@ struct BoxTypeDescOpConversion : public FIROpConversion<BoxTypeDescOp> {
     auto c0 = rewriter.create<M::LLVM::ConstantOp>(loc, ity, c0attr);
     auto c4attr = rewriter.getI32IntegerAttr(4);
     auto c4 = rewriter.create<M::LLVM::ConstantOp>(loc, ity, c4attr);
-    L::SmallVector<M::Value *, 4> args({a, c0, c4});
+    L::SmallVector<M::Value *, 4> args{a, c0, c4};
     auto pty = lowering.unwrap(ty).getPointerTo();
     auto p = rewriter.create<M::LLVM::GEPOp>(loc, pty, args);
     auto ld = rewriter.create<M::LLVM::LoadOp>(loc, ty, p);
@@ -649,17 +649,17 @@ struct CmpcOpConversion : public FIROpConversion<fir::CmpcOp> {
     auto kind = cmp.lhs()->getType().cast<fir::CplxType>().getFKind();
     auto ty = lowering.convertType(fir::RealType::get(ctxt, kind));
     auto loc = cmp.getLoc();
-    auto pos0 = M::ArrayAttr::get({rewriter.getI32IntegerAttr(0)}, ctxt);
+    auto pos0 = M::ArrayAttr::get(rewriter.getI32IntegerAttr(0), ctxt);
     L::SmallVector<M::Value *, 2> rp(
         {rewriter.create<M::LLVM::ExtractValueOp>(loc, ty, operands[0], pos0),
          rewriter.create<M::LLVM::ExtractValueOp>(loc, ty, operands[1], pos0)});
     auto rcp = rewriter.create<M::LLVM::FCmpOp>(loc, ty, rp, cmp.getAttrs());
-    auto pos1 = M::ArrayAttr::get({rewriter.getI32IntegerAttr(1)}, ctxt);
+    auto pos1 = M::ArrayAttr::get(rewriter.getI32IntegerAttr(1), ctxt);
     L::SmallVector<M::Value *, 2> ip(
         {rewriter.create<M::LLVM::ExtractValueOp>(loc, ty, operands[0], pos1),
          rewriter.create<M::LLVM::ExtractValueOp>(loc, ty, operands[1], pos1)});
     auto icp = rewriter.create<M::LLVM::FCmpOp>(loc, ty, ip, cmp.getAttrs());
-    L::SmallVector<M::Value *, 2> cp({rcp, icp});
+    L::SmallVector<M::Value *, 2> cp{rcp, icp};
     // FIXME: this is not correct! It is a stub!
     // Should this call a runtime function?
     rewriter.replaceOpWithNewOp<M::LLVM::AndOp>(cmp, ty, cp);
@@ -706,7 +706,7 @@ struct ConvertOpConversion : public FIROpConversion<ConvertOp> {
       if (toLLVMTy->isFloatingPointTy()) {
         unsigned fromBits = fromLLVMTy->getPrimitiveSizeInBits();
         unsigned toBits = toLLVMTy->getPrimitiveSizeInBits();
-        // TODO: what if different reps (F16, BF16) are the same size?
+        // FIXME: what if different reps (F16, BF16) are the same size?
         assert(fromBits != toBits);
         if (fromBits > toBits)
           v = rewriter.create<M::LLVM::FPTruncOp>(loc, toTy, op0);
@@ -752,16 +752,13 @@ struct CoordinateOpConversion : public FIROpConversion<CoordinateOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto coor = M::cast<CoordinateOp>(op);
-    auto baseOp = coor.ref()->getDefiningOp();
-    auto loc = coor.getLoc();
-    if (auto box = M::dyn_cast<EmboxOp>(baseOp)) {
-      // FIXME: for now assume this is always an array
-      M::Value *v = rewriter.create<M::LLVM::GEPOp>(
-          loc, lowering.convertType(coor.getType()), box.memref(), operands);
-      rewriter.replaceOp(op, v);
-      return matchSuccess();
+
+    // The base can be a boxed reference or a raw reference
+    if (coor.ref()->getType().dyn_cast<BoxType>()) {
+    } else {
     }
-    TODO(coor);
+
+    // walk the operands...
     return matchSuccess();
   }
 };
@@ -889,7 +886,7 @@ M::Attribute getValue(M::Value *value) {
   if (auto v = dyn_cast<M::ConstantOp>(value->getDefiningOp()))
     return v.value();
   assert(false && "must be a constant op");
-  return 0;
+  return {};
 }
 
 /// extract a subobject value from an ssa-value of aggregate type
@@ -971,10 +968,9 @@ struct FreeMemOpConversion : public FIROpConversion<fir::FreeMemOp> {
     auto bitcast = rewriter.create<M::LLVM::BitcastOp>(
         freemem.getLoc(), getVoidPtrType(dialect), operands[0]);
     freemem.setAttr("callee", rewriter.getSymbolRefAttr(freeFunc));
-    L::SmallVector<M::Value *, 1> args({bitcast});
     rewriter.replaceOpWithNewOp<M::LLVM::CallOp>(
-        freemem, M::LLVM::LLVMType::getVoidTy(dialect), args,
-        freemem.getAttrs());
+        freemem, M::LLVM::LLVMType::getVoidTy(dialect),
+        L::SmallVector<M::Value *, 1>{bitcast}, freemem.getAttrs());
     return matchSuccess();
   }
 };
@@ -1059,6 +1055,7 @@ struct InsertValueOpConversion : public FIROpConversion<InsertValueOp> {
       rewriter.replaceOpWithNewOp<M::LLVM::InsertValueOp>(
           insertVal, ty, operands[0], operands[1], position);
     } else {
+      // offsets must be computed at runtime
       TODO(insertVal);
     }
     return matchSuccess();
@@ -1111,7 +1108,7 @@ struct LoopOpConversion : public FIROpConversion<fir::LoopOp> {
   }
 };
 
-// TODO: how do we want to enforce this in LLVM-IR?
+// FIXME: how do we want to enforce this in LLVM-IR?
 struct NoReassocOpConversion : public FIROpConversion<NoReassocOp> {
   using FIROpConversion::FIROpConversion;
 
@@ -1139,7 +1136,51 @@ struct SelectCaseOpConversion : public FIROpConversion<SelectCaseOp> {
   }
 };
 
-// conversion of fir::SelectOp
+template <typename OP>
+void selectMatchAndRewrite(FIRToLLVMTypeConverter &lowering, M::Operation *op,
+                           OperandTy operands,
+                           L::ArrayRef<M::Block *> destinations,
+                           L::ArrayRef<OperandTy> destOperands,
+                           M::ConversionPatternRewriter &rewriter) {
+  auto select = M::cast<OP>(op);
+
+  // We could target the LLVM switch instruction, but it isn't part of the
+  // LLVM IR dialect.  Create an if-then-else ladder instead.
+  auto conds = select.getNumConditions();
+  auto attrName = OP::AttrName;
+  auto caseAttr = select.template getAttrOfType<M::ArrayAttr>(attrName);
+  auto cases = caseAttr.getValue();
+  auto ty = select.getSelector()->getType();
+  auto ity = lowering.convertType(ty);
+  auto &selector = operands[0];
+  auto loc = select.getLoc();
+  assert(conds > 0 && "select must have cases");
+  for (unsigned t = 0; t != conds; ++t) {
+    auto &attr = cases[t];
+    if (auto intAttr = attr.template dyn_cast_or_null<M::IntegerAttr>()) {
+      auto ci = rewriter.create<M::LLVM::ConstantOp>(
+          loc, ity, rewriter.getIntegerAttr(ty, intAttr.getInt()));
+      auto cmp = rewriter.create<M::LLVM::ICmpOp>(
+          loc, M::LLVM::ICmpPredicate::eq, selector, ci);
+      auto *thisBlock = rewriter.getInsertionBlock();
+      auto *newBlock = rewriter.createBlock(destinations[t]);
+      rewriter.setInsertionPointToEnd(thisBlock);
+      L::SmallVector<M::Block *, 2> dests{destinations[t], newBlock};
+      L::SmallVector<L::ArrayRef<M::Value *>, 2> destOps{destOperands[t], {}};
+      rewriter.create<M::LLVM::CondBrOp>(loc, L::ArrayRef<M::Value *>{cmp},
+                                         dests, destOps);
+      rewriter.setInsertionPointToEnd(newBlock);
+      continue;
+    }
+    assert(attr.template dyn_cast_or_null<M::UnitAttr>());
+    assert((t + 1 == conds) && "unit must be last");
+    L::SmallVector<M::Value *, 1> empty;
+    rewriter.replaceOpWithNewOp<M::LLVM::BrOp>(select, empty, destinations[t],
+                                               destOperands[t]);
+  }
+}
+
+/// conversion of fir::SelectOp to an if-then-else ladder
 struct SelectOpConversion : public FIROpConversion<fir::SelectOp> {
   using FIROpConversion::FIROpConversion;
 
@@ -1148,12 +1189,13 @@ struct SelectOpConversion : public FIROpConversion<fir::SelectOp> {
                   L::ArrayRef<M::Block *> destinations,
                   L::ArrayRef<OperandTy> destOperands,
                   M::ConversionPatternRewriter &rewriter) const override {
-    auto select = M::cast<fir::SelectOp>(op);
-    TODO(select);
+    selectMatchAndRewrite<fir::SelectOp>(lowering, op, operands, destinations,
+                                         destOperands, rewriter);
     return matchSuccess();
   }
 };
 
+/// conversion of fir::SelectRankOp to an if-then-else ladder
 struct SelectRankOpConversion : public FIROpConversion<SelectRankOp> {
   using FIROpConversion::FIROpConversion;
 
@@ -1162,8 +1204,8 @@ struct SelectRankOpConversion : public FIROpConversion<SelectRankOp> {
                   L::ArrayRef<M::Block *> destinations,
                   L::ArrayRef<OperandTy> destOperands,
                   M::ConversionPatternRewriter &rewriter) const override {
-    auto selectrank = M::cast<SelectRankOp>(op);
-    TODO(selectrank);
+    selectMatchAndRewrite<fir::SelectRankOp>(
+        lowering, op, operands, destinations, destOperands, rewriter);
     return matchSuccess();
   }
 };
@@ -1430,7 +1472,7 @@ struct MulcOpConversion : public FIROpConversion<fir::MulcOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto mulc = M::cast<fir::MulcOp>(op);
-    // TODO: should this just call __muldc3 ?
+    // FIXME: should this just call __muldc3 ?
     // result: (xx'-yy')+i(xy'+yx')
     auto a = operands[0];
     auto b = operands[1];
@@ -1466,7 +1508,7 @@ struct DivcOpConversion : public FIROpConversion<fir::DivcOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto divc = M::cast<fir::DivcOp>(op);
-    // TODO: should this just call __divdc3 ?
+    // FIXME: should this just call __divdc3 ?
     // result: ((xx'+yy')/d) + i((yx'-xy')/d) where d = x'x' + y'y'
     auto a = operands[0];
     auto b = operands[1];
@@ -1509,11 +1551,11 @@ struct NegcOpConversion : public FIROpConversion<fir::NegcOp> {
     auto ctxt = neg.getContext();
     auto ty = lowering.convertType(neg.getType());
     auto loc = neg.getLoc();
-    auto c0 = M::ArrayAttr::get({rewriter.getI32IntegerAttr(0)}, ctxt);
+    auto c0 = M::ArrayAttr::get(rewriter.getI32IntegerAttr(0), ctxt);
     auto &o0 = operands[0];
     auto rp = rewriter.create<M::LLVM::ExtractValueOp>(loc, ty, o0, c0);
     auto nrp = rewriter.create<M::LLVM::FNegOp>(loc, ty, rp);
-    auto c1 = M::ArrayAttr::get({rewriter.getI32IntegerAttr(1)}, ctxt);
+    auto c1 = M::ArrayAttr::get(rewriter.getI32IntegerAttr(1), ctxt);
     auto ip = rewriter.create<M::LLVM::ExtractValueOp>(loc, ty, o0, c1);
     auto nip = rewriter.create<M::LLVM::FNegOp>(loc, ty, ip);
     auto r = rewriter.create<M::LLVM::InsertValueOp>(loc, ty, o0, nrp, c0);
