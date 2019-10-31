@@ -223,13 +223,13 @@ class ExprLowering {
         ex, pred, genval(ex.left()), genval(ex.right()));
   }
 
-  M::Value *gen(Se::Symbol const *sym) {
+  M::Value *gen(Se::SymbolRef sym) {
     // FIXME: not all symbols are local
     return createTemporary(getLoc(), builder, symMap,
-        translateSymbolToFIRType(builder.getContext(), defaults, sym), sym);
+        translateSymbolToFIRType(builder.getContext(), defaults, sym), &*sym);
   }
-  M::Value *gendef(Se::Symbol const *sym) { return gen(sym); }
-  M::Value *genval(Se::Symbol const *sym) {
+  M::Value *gendef(Se::SymbolRef sym) { return gen(sym); }
+  M::Value *genval(Se::SymbolRef sym) {
     // Do not load the same symbols several time in one expression.
     // Fortran guarantees variable value must be the same wherever it
     // appears in one expression.
@@ -521,7 +521,7 @@ class ExprLowering {
       coorArgs.push_back(builder.create<fir::FieldIndexOp>(getLoc(), name));
     }
     assert(sym && "no component(s)?");
-    M::Type ty{translateSymbolToFIRType(builder.getContext(), defaults, sym)};
+    M::Type ty{translateSymbolToFIRType(builder.getContext(), defaults, *sym)};
     ty = fir::ReferenceType::get(ty);
     return builder.create<fir::CoordinateOp>(getLoc(), ty, obj, coorArgs);
   }
@@ -565,7 +565,7 @@ class ExprLowering {
   M::Value *gen(Ev::ArrayRef const &aref) {
     M::Value *base;
     if (aref.base().IsSymbol())
-      base = gen(const_cast<Se::Symbol *>(&aref.base().GetFirstSymbol()));
+      base = gen(aref.base().GetFirstSymbol());
     else
       base = gen(aref.base().GetComponent());
     llvm::SmallVector<M::Value *, 8> args;
@@ -640,7 +640,7 @@ class ExprLowering {
         const auto *expr{arg->UnwrapExpr()};
         assert(expr && "assumed type argument requires explicit interface");
         if (const Se::Symbol * sym{Ev::UnwrapWholeSymbolDataRef(*expr)}) {
-          M::Value *argRef{symMap.lookupSymbol(sym)};
+          M::Value *argRef{symMap.lookupSymbol(*sym)};
           assert(argRef && "could not get symbol reference");
           argTypes.push_back(argRef->getType());
           operands.push_back(argRef);
@@ -709,7 +709,7 @@ M::Value *Br::createSomeAddress(M::Location loc, M::OpBuilder &builder,
 M::Value *Br::createTemporary(M::Location loc, M::OpBuilder &builder,
     SymMap &symMap, M::Type type, Se::Symbol const *symbol) {
   if (symbol)
-    if (auto *val{symMap.lookupSymbol(symbol)}) {
+    if (auto *val{symMap.lookupSymbol(*symbol)}) {
       if (auto *op{val->getDefiningOp()}) {
         return op->getResult(0);
       }
@@ -721,7 +721,7 @@ M::Value *Br::createTemporary(M::Location loc, M::OpBuilder &builder,
   assert(!type.dyn_cast<fir::ReferenceType>() && "cannot be a reference");
   if (symbol) {
     ae = builder.create<fir::AllocaOp>(loc, type, symbol->name().ToString());
-    symMap.addSymbol(symbol, ae);
+    symMap.addSymbol(*symbol, ae);
   } else {
     ae = builder.create<fir::AllocaOp>(loc, type);
   }
