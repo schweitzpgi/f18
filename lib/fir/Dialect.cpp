@@ -43,13 +43,16 @@ void selectBuild(M::OpBuilder *builder, M::OperationState *result,
     result->addSuccessor(block, blkArgs);
   }
 }
+
+M::DialectRegistration<fir::FIROpsDialect> FIROps;
+
 } // namespace
 
 fir::FIROpsDialect::FIROpsDialect(M::MLIRContext *ctx)
     : M::Dialect("fir", ctx) {
   addTypes<BoxType, BoxCharType, BoxProcType, CharacterType, CplxType, DimsType,
-           FieldType, HeapType, IntType, LogicalType, PointerType, RealType,
-           RecordType, ReferenceType, SequenceType, TypeDescType>();
+           FieldType, HeapType, IntType, LenType, LogicalType, PointerType,
+           RealType, RecordType, ReferenceType, SequenceType, TypeDescType>();
   addAttributes<ClosedIntervalAttr, ExactTypeAttr, LowerBoundAttr,
                 PointIntervalAttr, SubclassAttr, UpperBoundAttr>();
   addOperations<GlobalOp, DispatchTableOp,

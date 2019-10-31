@@ -678,6 +678,9 @@ Extract a value from an entity with a type composed of arrays and/or
 derived types. Returns the value from _entity_ with the type of the
 specified component.
 
+Note that the <em>entity</em> ssa-value must be of compile-time known size
+in order to use this operation.
+
 Example:
 
 ```mlir
@@ -724,6 +727,9 @@ Syntax:	<code><b>fir.insert_value</b> <em>entity</em> <b>,</b> <em>value</em> <b
 Insert a value into an entity with a type composed arrays and/or derived
 types. Returns a new value of the same type as _entity_.
 
+Note that the <em>entity</em> ssa-value must be of compile-time known size
+in order to use this operation.
+
 Example:
 
 ```mlir
@@ -733,7 +739,7 @@ Example:
     %67 = fir.insert_value(%66, %65, %64) : (!fir.type<X{field:i32}>, i32, !fir.field) -> !fir.type<X{field:i32}>
 ```
 
-The above is a possible translation of the following Fortran code sequence.
+The above is one possible translation of the following Fortran code sequence.
 
 ```Fortran
     temp1 = foo2()

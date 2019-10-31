@@ -71,6 +71,9 @@ private:
   Map library;
 };
 
+/// enum used to templatized code gen for intrinsics that are alike.
+enum class Extremum { Min, Max };
+
 /// The implementation of IntrinsicLibrary is based on a map that associates
 /// Fortran intrinsics generic names to the related FIR generator functions.
 /// All generator functions are member functions of the Implementation class
@@ -103,6 +106,7 @@ private:
     llvm::StringRef name;
     llvm::ArrayRef<mlir::Value *> arguments;
     mlir::FunctionType funcType;
+    mlir::ModuleOp getModuleOp() { return getModule(builder); }
     mlir::MLIRContext *getMLIRContext() {
       return getModule(builder).getContext();
     }
@@ -136,6 +140,7 @@ private:
     return genWrapperCall<&I::genRuntimeCall>(c);
   }
   mlir::Value *genConjg(Context &) const;
+  template<Extremum extremum> mlir::Value *genExtremum(Context &) const;
 
   struct IntrinsicHanlder {
     const char *name;
@@ -148,16 +153,21 @@ private:
   /// be attempted.
   static constexpr IntrinsicHanlder handlers[]{
       {"conjg", &I::genConjg},
+      {"max", &I::genExtremum<Extremum::Max>},
+      {"min", &I::genExtremum<Extremum::Min>},
   };
 
   // helpers
-  static std::string getWrapperName(Context &);
   mlir::Value *outlineInWrapper(Generator, Context &) const;
-  static mlir::FunctionType getFunctionType(mlir::Type resultType,
-      llvm::ArrayRef<mlir::Value *> arguments, mlir::OpBuilder &);
 
   MathRuntimeLibrary runtime;
 };
+
+// helpers
+static std::string getIntrinsicWrapperName(
+    const llvm::StringRef &intrinsic, mlir::FunctionType funTy);
+static mlir::FunctionType getFunctionType(mlir::Type resultType,
+    llvm::ArrayRef<mlir::Value *> arguments, mlir::OpBuilder &);
 
 /// Define a simple static runtime description that will be transformed into
 /// RuntimeFunction when building the IntrinsicLibrary.
@@ -313,9 +323,8 @@ mlir::Value *IntrinsicLibrary::Implementation::genval(mlir::Location loc,
   return this->defaultGenerator(context);
 }
 
-mlir::FunctionType IntrinsicLibrary::Implementation::getFunctionType(
-    mlir::Type resultType, llvm::ArrayRef<mlir::Value *> arguments,
-    mlir::OpBuilder &builder) {
+static mlir::FunctionType getFunctionType(mlir::Type resultType,
+    llvm::ArrayRef<mlir::Value *> arguments, mlir::OpBuilder &builder) {
   llvm::SmallVector<mlir::Type, 2> argumentTypes;
   for (const auto &arg : arguments) {
     assert(arg != nullptr);  // TODO think about optionals
@@ -325,13 +334,14 @@ mlir::FunctionType IntrinsicLibrary::Implementation::getFunctionType(
       argumentTypes, resultType, getModule(&builder).getContext());
 }
 
-std::string IntrinsicLibrary::Implementation::getWrapperName(Context &c) {
-  // TODO find nicer type to string infra
+static std::string getIntrinsicWrapperName(
+    const llvm::StringRef &intrinsic, mlir::FunctionType funTy) {
+  // TODO find nicer type to string infra or move this in a mangling utility
   auto addSuffix{[&](const llvm::Twine &suffix) -> std::string {
-    return ("fir." + c.name + suffix).str();
+    return ("fir." + intrinsic + suffix).str();
   }};
-  assert(c.funcType.getNumResults() == 1);
-  mlir::Type resultType{c.funcType.getResult(0)};
+  assert(funTy.getNumResults() == 1 && "only function mangling supported");
+  mlir::Type resultType{funTy.getResult(0)};
   if (auto f{resultType.dyn_cast<mlir::FloatType>()}) {
     return addSuffix(".f" + llvm::Twine(f.getWidth()));
   } else if (auto i{resultType.dyn_cast<mlir::IntegerType>()}) {
@@ -350,7 +360,8 @@ mlir::Value *IntrinsicLibrary::Implementation::outlineInWrapper(
     Generator generator, Context &context) const {
   mlir::ModuleOp module{getModule(context.builder)};
   mlir::MLIRContext *mlirContext{module.getContext()};
-  std::string wrapperName{getWrapperName(context)};
+  std::string wrapperName{
+      getIntrinsicWrapperName(context.name, context.funcType)};
   mlir::FuncOp function{getNamedFunction(module, wrapperName)};
   if (!function) {
     // First time this wrapper is needed, build it.
@@ -423,8 +434,9 @@ mlir::Value *IntrinsicLibrary::Implementation::genRuntimeCall(
     }
   } else {
     // could not find runtime function
-    assert(false);  // TODO: better error handling.
-    return nullptr;
+    assert(false && "no runtime found for this intrinsics");
+    // TODO: better error handling ?
+    //  - Try to have compile time check of runtime compltness ?
   }
 }
 
@@ -448,4 +460,61 @@ mlir::Value *IntrinsicLibrary::Implementation::genConjg(
   return cplxHandler.insert<ComplexHandler::Part::Imag>(cplx, negImag);
 }
 
+static mlir::FuncOp getMergeFunc(mlir::Type type, mlir::ModuleOp module) {
+  llvm::SmallVector<mlir::Type, 3> argTypes{
+      type, type, fir::LogicalType::get(module.getContext(), 4)};
+  auto mergeType{
+      mlir::FunctionType::get(argTypes, {type}, module.getContext())};
+  auto mergeName{getIntrinsicWrapperName("merge", mergeType)};
+  return createFunction(module, mergeName, mergeType);
+}
+
+template<Extremum extremum>
+static mlir::Value *createCompare(mlir::Location loc, mlir::OpBuilder &builder,
+    mlir::Value *left, mlir::Value *right) {
+  static constexpr auto integerPredicate{extremum == Extremum::Max
+          ? mlir::CmpIPredicate::SGT
+          : mlir::CmpIPredicate::SLT};
+  static constexpr auto realPredicate{extremum == Extremum::Max
+          ? fir::CmpFPredicate::UGT
+          : fir::CmpFPredicate::ULT};
+  auto type{left->getType()};
+  mlir::Value *result{nullptr};
+  if (type.isa<mlir::FloatType>() || type.isa<fir::RealType>()) {
+    // TODO: The type we get from CmpfOp is a bit weird (it is the operands
+    // types, and not a boolean).
+    result = builder.create<fir::CmpfOp>(loc, realPredicate, left, right);
+  } else if (type.isa<mlir::IntegerType>()) {
+    result = builder.create<mlir::CmpIOp>(loc, integerPredicate, left, right);
+  } else if (type.isa<fir::CharacterType>()) {
+    // TODO: ! character min and max is tricky because the result
+    // length is the length of the longest argument!
+    // So we may need a temp.
+  }
+  assert(result);
+  // TODO which logical type should comparisons return ?
+  // This is also currently not observed in convert-expr
+  auto resTy{fir::LogicalType::get(getModule(&builder).getContext(), 4)};
+  return builder.create<fir::ConvertOp>(loc, resTy, result);
+}
+
+// MIN and MAX
+// Extremum intrinsic are lowered using the MERGE intrinsic
+// to avoid introducing branches.
+template<Extremum extremum>
+mlir::Value *IntrinsicLibrary::Implementation::genExtremum(
+    Context &genCtxt) const {
+  auto &builder{*genCtxt.builder};
+  auto loc{genCtxt.loc};
+  assert(genCtxt.arguments.size() >= 2);
+  auto *result{genCtxt.arguments[0]};
+  auto mergeFunc{getMergeFunc(result->getType(), genCtxt.getModuleOp())};
+  for (auto *arg : genCtxt.arguments.drop_front()) {
+    auto mask{createCompare<extremum>(loc, builder, result, arg)};
+    llvm::SmallVector<mlir::Value *, 3> mergeArgs{result, arg, mask};
+    result =
+        builder.create<mlir::CallOp>(loc, mergeFunc, mergeArgs).getResult(0);
+  }
+  return result;
+}
 }
