@@ -288,10 +288,13 @@ std::string CompileFortran(std::string path, Fortran::parser::Options options,
   if (driver.lowerToLLVMIR) {
     pm.addPass(fir::createLLVMDialectToLLVMPass());
   }
-  auto result{pm.run(mlirModule)};
-  if (driver.dumpFIR) {
-    llvm::errs() << ";== 2 ==\n";
-    mlirModule.dump();
+  if (mlir::succeeded(pm.run(mlirModule))) {
+    if (driver.dumpFIR) {
+      llvm::errs() << ";== 2 ==\n";
+      mlirModule.dump();
+    }
+  } else {
+    llvm::errs() << "oops, pass manager reported failure\n";
   }
   return {};
 }

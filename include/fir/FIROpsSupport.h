@@ -29,6 +29,7 @@ inline bool nonVolatileLoad(mlir::Operation *op) {
 
 /// return true iff the Operation is a fir::CallOp, fir::DispatchOp,
 /// mlir::CallOp, or mlir::CallIndirectOp and not pure
+/// NB: this is not the same as `!pureCall(op)`
 inline bool impureCall(mlir::Operation *op) {
   // Should we also auto-detect that the called function is pure if its
   // arguments are not references?  For now, rely on a "pure" attribute.
@@ -40,6 +41,23 @@ inline bool impureCall(mlir::Operation *op) {
     return !call.getAttr("pure");
   if (auto icall = dyn_cast<mlir::CallIndirectOp>(op))
     return !icall.getAttr("pure");
+  return false;
+}
+
+/// return true iff the Operation is a fir::CallOp, fir::DispatchOp,
+/// mlir::CallOp, or mlir::CallIndirectOp and is also pure.
+/// NB: this is not the same as `!impureCall(op)`
+inline bool pureCall(mlir::Operation *op) {
+  // Should we also auto-detect that the called function is pure if its
+  // arguments are not references?  For now, rely on a "pure" attribute.
+  if (auto call = dyn_cast<fir::CallOp>(op))
+    return bool(call.getAttr("pure"));
+  if (auto dispatch = dyn_cast<fir::DispatchOp>(op))
+    return bool(dispatch.getAttr("pure"));
+  if (auto call = dyn_cast<mlir::CallOp>(op))
+    return bool(call.getAttr("pure"));
+  if (auto icall = dyn_cast<mlir::CallIndirectOp>(op))
+    return bool(icall.getAttr("pure"));
   return false;
 }
 
