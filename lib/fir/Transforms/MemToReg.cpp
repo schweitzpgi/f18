@@ -24,6 +24,11 @@ using namespace fir;
 
 using DominatorTree = M::DominanceInfo;
 
+static llvm::cl::opt<bool>
+    ClDisableMemToReg("disable-mem2reg",
+                      llvm::cl::desc("disable memory to register pass"),
+                      llvm::cl::init(false), llvm::cl::Hidden);
+
 /// A generalized version of a mem-to-reg pass suitable for use with an MLIR
 /// dialect. This code was ported from the LLVM project. MLIR differs with its
 /// use of block arguments rather than PHI nodes, etc.
@@ -707,6 +712,9 @@ struct MemToReg : public M::FunctionPass<MemToReg<LOAD, STORE, ALLOCA, UNDEF>> {
 
   /// run the MemToReg pass on the FIR dialect
   void runOnFunction() override {
+    if (ClDisableMemToReg)
+      return;
+
     auto f = this->getFunction();
     auto &entry = f.front();
     auto bldr = M::OpBuilder(f.getBody());
