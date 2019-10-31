@@ -223,21 +223,21 @@ class ExprLowering {
         ex, pred, genval(ex.left()), genval(ex.right()));
   }
 
-  M::Value *gen(Se::Symbol const *sym) {
+  M::Value *gen(Se::SymbolRef sym) {
     // FIXME: not all symbols are local
     return createTemporary(getLoc(), builder, symMap,
-        translateSymbolToFIRType(builder.getContext(), defaults, sym), sym);
+        translateSymbolToFIRType(builder.getContext(), defaults, &*sym), &*sym);
   }
-  M::Value *gendef(Se::Symbol const *sym) { return gen(sym); }
-  M::Value *genval(Se::Symbol const *sym) {
+  M::Value *gendef(Se::SymbolRef sym) { return gen(sym); }
+  M::Value *genval(Se::SymbolRef sym) {
     // Do not load the same symbols several time in one expression.
     // Fortran guarantees variable value must be the same wherever it
     // appears in one expression.
-    if (mlir::Value * loaded{loadedSymbols.lookupSymbol(sym)}) {
+    if (mlir::Value * loaded{loadedSymbols.lookupSymbol(&*sym)}) {
       return loaded;
     } else {
       mlir::Value *load{builder.create<fir::LoadOp>(getLoc(), gen(sym))};
-      loadedSymbols.addSymbol(sym, load);
+      loadedSymbols.addSymbol(&*sym, load);
       return load;
     }
   }
@@ -565,7 +565,8 @@ class ExprLowering {
   M::Value *gen(Ev::ArrayRef const &aref) {
     M::Value *base;
     if (aref.base().IsSymbol())
-      base = gen(const_cast<Se::Symbol *>(&aref.base().GetFirstSymbol()));
+      // base = gen(const_cast<Se::Symbol *>(&aref.base().GetFirstSymbol()));
+      base = gen(aref.base().GetFirstSymbol());
     else
       base = gen(aref.base().GetComponent());
     llvm::SmallVector<M::Value *, 8> args;

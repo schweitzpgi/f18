@@ -46,7 +46,9 @@ template<typename A> int64_t toConstant(const Ev::Expr<A> &e) {
 }
 
 #undef TODO
-#define TODO() assert(false); return {}
+#define TODO() \
+  assert(false); \
+  return {}
 
 // one argument template, must be specialized
 template<Co::TypeCategory TC>
@@ -248,17 +250,21 @@ public:
 
   /// Type consing from a symbol. A symbol's type must be created from the type
   /// discovered by the front-end at runtime.
-  M::Type gen(const Se::Symbol *symbol) {
+  M::Type gen(Se::SymbolRef symref) {
+    const Se::Symbol *symbol{&*symref};  // TODO JP: clean this
     if (auto *proc = symbol->detailsIf<Se::SubprogramDetails>()) {
       M::Type returnTy{mkVoid()};
       if (proc->isFunction()) {
-        returnTy = gen(&proc->result());
+        returnTy = gen(proc->result());
       }
       // FIXME: handle alt-return
       llvm::SmallVector<M::Type, 4> inputTys;
       for (auto *arg : proc->dummyArgs()) {
         // FIXME: not all args are pass by ref
-        inputTys.emplace_back(fir::ReferenceType::get(gen(arg)));
+        // Nullptr args are alternate returns indicators
+        if (arg) {
+          inputTys.emplace_back(fir::ReferenceType::get(gen(*arg)));
+        }
       }
       return M::FunctionType::get(inputTys, returnTy, context);
     }
@@ -376,7 +382,8 @@ M::Type Br::translateSomeExprToFIRType(M::MLIRContext *context,
 // of Expr<T> that will then be immediately peeled back off and discarded.
 M::Type Br::translateSymbolToFIRType(M::MLIRContext *context,
     Co::IntrinsicTypeDefaultKinds const &defaults, const Se::Symbol *symbol) {
-  return TypeBuilder{context, defaults}.gen(symbol);
+  assert(symbol);  // TODO JP: move to SymbolRef ?
+  return TypeBuilder{context, defaults}.gen(*symbol);
 }
 
 M::Type Br::convertReal(M::MLIRContext *context, int kind) {
