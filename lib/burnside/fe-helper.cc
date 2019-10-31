@@ -220,7 +220,7 @@ public:
 
   M::Type mkVoid() { return M::TupleType::get(context); }
 
-  fir::SequenceType::Shape genSeqShape(const Se::Symbol *symbol) {
+  fir::SequenceType::Shape genSeqShape(Se::SymbolRef symbol) {
     assert(symbol->IsObjectArray());
     fir::SequenceType::Bounds bounds;
     auto &details = symbol->get<Se::ObjectEntityDetails>();
@@ -250,8 +250,7 @@ public:
 
   /// Type consing from a symbol. A symbol's type must be created from the type
   /// discovered by the front-end at runtime.
-  M::Type gen(Se::SymbolRef symref) {
-    const Se::Symbol *symbol{&*symref};  // TODO JP: clean this
+  M::Type gen(Se::SymbolRef symbol) {
     if (auto *proc = symbol->detailsIf<Se::SubprogramDetails>()) {
       M::Type returnTy{mkVoid()};
       if (proc->isFunction()) {
@@ -381,9 +380,8 @@ M::Type Br::translateSomeExprToFIRType(M::MLIRContext *context,
 // This entry point avoids gratuitously wrapping the Symbol instance in layers
 // of Expr<T> that will then be immediately peeled back off and discarded.
 M::Type Br::translateSymbolToFIRType(M::MLIRContext *context,
-    Co::IntrinsicTypeDefaultKinds const &defaults, const Se::Symbol *symbol) {
-  assert(symbol);  // TODO JP: move to SymbolRef ?
-  return TypeBuilder{context, defaults}.gen(*symbol);
+    Co::IntrinsicTypeDefaultKinds const &defaults, Se::SymbolRef symbol) {
+  return TypeBuilder{context, defaults}.gen(symbol);
 }
 
 M::Type Br::convertReal(M::MLIRContext *context, int kind) {
