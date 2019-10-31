@@ -364,6 +364,7 @@ class FIRConverter {
     auto &fas{stmt.statement};
     auto &ctrl{std::get<Co::Indirection<Pa::ConcurrentHeader>>(fas.t).value()};
     auto &bld{build()};
+    (void)ctrl; (void)bld; // FIXME
     // bld.create<fir::LoopOp>();
     for (auto &s : std::get<std::list<Pa::ForallBodyConstruct>>(forall.t)) {
       genFIROnVariant(s);
