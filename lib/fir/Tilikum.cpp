@@ -881,7 +881,7 @@ M::LLVM::GEPOp genGEPToField(M::Location loc, M::LLVM::LLVMType ty,
                              M::Value *base, M::Value *baseOff,
                              M::LLVM::LLVMType ity, int field) {
   auto c = genConstantOffset(loc, ity, rewriter, field);
-  return genGEP(loc, ty, rewriter, base, baseOff, c);
+  return genGEP(loc, ty, rewriter, base, c);
 }
 
 /// create a generic box on a memory reference
@@ -899,20 +899,24 @@ struct EmboxOpConversion : public FIROpConversion<EmboxOp> {
     unsigned align = 8;
     auto alloca = genAllocaWithType(loc, ty, dialect, ity, 24, align, rewriter);
     auto c0 = genConstantOffset(loc, ity, rewriter, 0);
-    auto f0p = genGEP(loc, ty, rewriter, alloca, c0, c0);
-    rewriter.create<M::LLVM::StoreOp>(loc, f0p, operands[0]);
-    auto f1p = genGEPToField(loc, ty, rewriter, alloca, c0, ity, 1);
-    rewriter.create<M::LLVM::StoreOp>(loc, f1p, c0);
-    auto f2p = genGEPToField(loc, ty, rewriter, alloca, c0, ity, 2);
-    rewriter.create<M::LLVM::StoreOp>(loc, f2p, c0);
-    auto f3p = genGEPToField(loc, ty, rewriter, alloca, c0, ity, 3);
-    rewriter.create<M::LLVM::StoreOp>(loc, f3p, c0);
-    auto f4p = genGEPToField(loc, ty, rewriter, alloca, c0, ity, 4);
-    rewriter.create<M::LLVM::StoreOp>(loc, f4p, c0);
-    auto f5p = genGEPToField(loc, ty, rewriter, alloca, c0, ity, 5);
-    rewriter.create<M::LLVM::StoreOp>(loc, f5p, c0);
-    auto f6p = genGEPToField(loc, ty, rewriter, alloca, c0, ity, 6);
-    rewriter.create<M::LLVM::StoreOp>(loc, f6p, c0);
+    auto f0p = genGEP(loc, lowering.unwrap(operands[0]->getType()), rewriter,
+                      alloca, c0);
+    rewriter.create<M::LLVM::StoreOp>(loc, operands[0], f0p);
+    auto f1p = genGEPToField(loc, M::LLVM::LLVMType::getInt64Ty(dialect),
+                             rewriter, alloca, c0, ity, 1);
+    rewriter.create<M::LLVM::StoreOp>(loc, c0, f1p);
+    auto f2p = genGEPToField(loc, M::LLVM::LLVMType::getInt32Ty(dialect),
+                             rewriter, alloca, c0, ity, 2);
+    rewriter.create<M::LLVM::StoreOp>(loc, c0, f2p);
+    auto i8Ty = M::LLVM::LLVMType::getInt8Ty(dialect);
+    auto f3p = genGEPToField(loc, i8Ty, rewriter, alloca, c0, ity, 3);
+    rewriter.create<M::LLVM::StoreOp>(loc, c0, f3p);
+    auto f4p = genGEPToField(loc, i8Ty, rewriter, alloca, c0, ity, 4);
+    rewriter.create<M::LLVM::StoreOp>(loc, c0, f4p);
+    auto f5p = genGEPToField(loc, i8Ty, rewriter, alloca, c0, ity, 5);
+    rewriter.create<M::LLVM::StoreOp>(loc, c0, f5p);
+    auto f6p = genGEPToField(loc, i8Ty, rewriter, alloca, c0, ity, 6);
+    rewriter.create<M::LLVM::StoreOp>(loc, c0, f6p);
     // FIXME: copy the dims info, etc.
 
     rewriter.replaceOp(embox, alloca.getResult());
