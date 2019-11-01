@@ -844,17 +844,20 @@ struct EmboxCharOpConversion : public FIROpConversion<EmboxCharOp> {
 
 /// Generate an alloca of size `size` and cast it to type `toTy`
 M::LLVM::BitcastOp genAllocaWithType(M::Location loc, M::LLVM::LLVMType toTy,
-                                     M::Value *size,
                                      M::LLVM::LLVMDialect *dialect,
+                                     M::LLVM::LLVMType ity, unsigned size,
                                      unsigned alignment,
                                      M::ConversionPatternRewriter &rewriter) {
   auto ptrTy = toTy.getPointerTo();
-  auto i8Ty = M::LLVM::LLVMType::getInt8Ty(dialect);
+  auto i8Ty = M::LLVM::LLVMType::getInt8PtrTy(dialect);
+  auto thisPt = rewriter.saveInsertionPoint();
   auto *thisBlock = rewriter.getInsertionBlock();
   auto func = M::cast<M::LLVM::LLVMFuncOp>(thisBlock->getParentOp());
   rewriter.setInsertionPointToStart(&func.front());
-  auto al = rewriter.create<M::LLVM::AllocaOp>(loc, i8Ty, size, alignment);
-  rewriter.setInsertionPointToEnd(thisBlock);
+  auto cattr = rewriter.getI64IntegerAttr(size);
+  auto size_ = rewriter.create<M::LLVM::ConstantOp>(loc, ity, cattr);
+  auto al = rewriter.create<M::LLVM::AllocaOp>(loc, i8Ty, size_, alignment);
+  rewriter.restoreInsertionPoint(thisPt);
   return rewriter.create<M::LLVM::BitcastOp>(loc, ptrTy, al);
 }
 
@@ -891,27 +894,25 @@ struct EmboxOpConversion : public FIROpConversion<EmboxOp> {
     auto embox = M::cast<EmboxOp>(op);
     auto loc = embox.getLoc();
     auto dialect = getDialect();
-    auto ty = lowering.unwrap(operands[0]->getType());
+    auto ty = lowering.unwrap(lowering.convertType(embox.getType()));
     auto ity = lowering.indexType();
-    auto c24attr = rewriter.getI64IntegerAttr(24);
-    auto size = rewriter.create<M::LLVM::ConstantOp>(loc, ity, c24attr);
     unsigned align = 8;
-    auto alloca = genAllocaWithType(loc, ty, size, dialect, align, rewriter);
+    auto alloca = genAllocaWithType(loc, ty, dialect, ity, 24, align, rewriter);
     auto c0 = genConstantOffset(loc, ity, rewriter, 0);
     auto f0p = genGEP(loc, ty, rewriter, alloca, c0, c0);
-    rewriter.create<M::LLVM::StoreOp>(loc, operands[0], f0p);
+    rewriter.create<M::LLVM::StoreOp>(loc, f0p, operands[0]);
     auto f1p = genGEPToField(loc, ty, rewriter, alloca, c0, ity, 1);
-    rewriter.create<M::LLVM::StoreOp>(loc, c0, f1p);
+    rewriter.create<M::LLVM::StoreOp>(loc, f1p, c0);
     auto f2p = genGEPToField(loc, ty, rewriter, alloca, c0, ity, 2);
-    rewriter.create<M::LLVM::StoreOp>(loc, c0, f2p);
+    rewriter.create<M::LLVM::StoreOp>(loc, f2p, c0);
     auto f3p = genGEPToField(loc, ty, rewriter, alloca, c0, ity, 3);
-    rewriter.create<M::LLVM::StoreOp>(loc, c0, f3p);
+    rewriter.create<M::LLVM::StoreOp>(loc, f3p, c0);
     auto f4p = genGEPToField(loc, ty, rewriter, alloca, c0, ity, 4);
-    rewriter.create<M::LLVM::StoreOp>(loc, c0, f4p);
+    rewriter.create<M::LLVM::StoreOp>(loc, f4p, c0);
     auto f5p = genGEPToField(loc, ty, rewriter, alloca, c0, ity, 5);
-    rewriter.create<M::LLVM::StoreOp>(loc, c0, f5p);
+    rewriter.create<M::LLVM::StoreOp>(loc, f5p, c0);
     auto f6p = genGEPToField(loc, ty, rewriter, alloca, c0, ity, 6);
-    rewriter.create<M::LLVM::StoreOp>(loc, c0, f6p);
+    rewriter.create<M::LLVM::StoreOp>(loc, f6p, c0);
     // FIXME: copy the dims info, etc.
 
     rewriter.replaceOp(embox, alloca.getResult());
