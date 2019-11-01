@@ -93,14 +93,15 @@ class ExprLowering {
 
   /// Convert parser's REAL relational operators to MLIR.  TODO: using
   /// unordered, but we may want to cons ordered in certain situation.
-  static M::CmpFPredicate translateFloatRelational(Co::RelationalOperator rop) {
+  static fir::CmpFPredicate translateFloatRelational(
+      Co::RelationalOperator rop) {
     switch (rop) {
-    case Co::RelationalOperator::LT: return M::CmpFPredicate::ULT;
-    case Co::RelationalOperator::LE: return M::CmpFPredicate::ULE;
-    case Co::RelationalOperator::EQ: return M::CmpFPredicate::UEQ;
-    case Co::RelationalOperator::NE: return M::CmpFPredicate::UNE;
-    case Co::RelationalOperator::GT: return M::CmpFPredicate::UGT;
-    case Co::RelationalOperator::GE: return M::CmpFPredicate::UGE;
+    case Co::RelationalOperator::LT: return fir::CmpFPredicate::ULT;
+    case Co::RelationalOperator::LE: return fir::CmpFPredicate::ULE;
+    case Co::RelationalOperator::EQ: return fir::CmpFPredicate::UEQ;
+    case Co::RelationalOperator::NE: return fir::CmpFPredicate::UNE;
+    case Co::RelationalOperator::GT: return fir::CmpFPredicate::UGT;
+    case Co::RelationalOperator::GE: return fir::CmpFPredicate::UGE;
     }
     assert(false && "unhandled REAL relational operator");
     return {};
@@ -148,6 +149,19 @@ class ExprLowering {
   }
   template<typename OpTy, typename A> M::Value *createBinaryOp(A const &ex) {
     return createBinaryOp<OpTy>(ex, genval(ex.left()), genval(ex.right()));
+  }
+  template<typename OpTy, typename A> M::Value *createLogicalOp(A const &ex) {
+    auto mlirTy{M::IntegerType::get(1, builder.getContext())};
+    auto *lhs{genval(ex.left())};
+    auto *rhs{genval(ex.right())};
+    // mlir logical ops do not work with fir.logical<k>, so the operation
+    // is wrapped in conversions
+    auto lhsConv{builder.create<fir::ConvertOp>(getLoc(), mlirTy, lhs)};
+    auto rhsConv{builder.create<fir::ConvertOp>(getLoc(), mlirTy, rhs)};
+    auto op{createBinaryOp<OpTy>(ex, lhsConv, rhsConv)};
+    assert(lhs);
+    auto resType{lhs->getType()};
+    return builder.create<fir::ConvertOp>(getLoc(), resType, op);
   }
 
   M::FuncOp getFunction(L::StringRef name, M::FunctionType funTy) {
@@ -212,13 +226,13 @@ class ExprLowering {
   }
   template<typename OpTy, typename A>
   M::Value *createFltCmpOp(
-      A const &ex, M::CmpFPredicate pred, M::Value *lhs, M::Value *rhs) {
+      A const &ex, fir::CmpFPredicate pred, M::Value *lhs, M::Value *rhs) {
     assert(lhs && rhs && "argument did not lower");
     auto x = builder.create<OpTy>(getLoc(), pred, lhs, rhs);
     return x.getResult();
   }
   template<typename OpTy, typename A>
-  M::Value *createFltCmpOp(A const &ex, M::CmpFPredicate pred) {
+  M::Value *createFltCmpOp(A const &ex, fir::CmpFPredicate pred) {
     return createFltCmpOp<OpTy>(
         ex, pred, genval(ex.left()), genval(ex.right()));
   }
@@ -348,21 +362,25 @@ class ExprLowering {
 
   template<Co::TypeCategory TC, int KIND>
   M::Value *genval(Ev::Relational<Ev::Type<TC, KIND>> const &op) {
+    mlir::Value *result{nullptr};
     if constexpr (TC == IntegerCat) {
-      return createCompareOp<M::CmpIOp>(op, translateRelational(op.opr));
+      result = createCompareOp<M::CmpIOp>(op, translateRelational(op.opr));
     } else if constexpr (TC == RealCat) {
-      return createFltCmpOp<M::CmpFOp>(op, translateFloatRelational(op.opr));
+      result =
+          createFltCmpOp<fir::CmpfOp>(op, translateFloatRelational(op.opr));
     } else if constexpr (TC == ComplexCat) {
       bool eq{op.opr == Co::RelationalOperator::EQ};
       assert(eq ||
           op.opr == Co::RelationalOperator::NE &&
               "relation undefined for complex");
-      return ComplexHandler{builder, getLoc()}.createComplexCompare(
+      result = ComplexHandler{builder, getLoc()}.createComplexCompare(
           genval(op.left()), genval(op.right()), eq);
     } else {
       static_assert(TC == CharacterCat);
       TODO();
     }
+    auto logicalTy{getFIRType(builder.getContext(), defaults, LogicalCat)};
+    return builder.create<fir::ConvertOp>(getLoc(), logicalTy, result);
   }
 
   // TODO JP: the thing below should not be required.
@@ -382,16 +400,24 @@ class ExprLowering {
   }
 
   template<int KIND> M::Value *genval(Ev::LogicalOperation<KIND> const &op) {
+    mlir::Value *result{nullptr};
     switch (op.logicalOperator) {
-    case Ev::LogicalOperator::And: return createBinaryOp<M::AndOp>(op);
-    case Ev::LogicalOperator::Or: return createBinaryOp<M::OrOp>(op);
+    case Ev::LogicalOperator::And:
+      result = createLogicalOp<M::AndOp>(op);
+      break;
+    case Ev::LogicalOperator::Or: result = createLogicalOp<M::OrOp>(op); break;
     case Ev::LogicalOperator::Eqv:
-      return createCompareOp<M::CmpIOp>(op, M::CmpIPredicate::EQ);
+      result = createCompareOp<M::CmpIOp>(op, M::CmpIPredicate::EQ);
+      break;
     case Ev::LogicalOperator::Neqv:
-      return createCompareOp<M::CmpIOp>(op, M::CmpIPredicate::NE);
+      result = createCompareOp<M::CmpIOp>(op, M::CmpIPredicate::NE);
+      break;
     }
-    assert(false && "unhandled logical operation");
-    return {};
+    if (!result) {
+      assert(false && "unhandled logical operation");
+    }
+    auto logicalTy{getFIRType(builder.getContext(), defaults, LogicalCat)};
+    return builder.create<fir::ConvertOp>(getLoc(), logicalTy, result);
   }
 
   template<Co::TypeCategory TC, int KIND>
