@@ -47,7 +47,7 @@ template<typename A> int64_t toConstant(const Ev::Expr<A> &e) {
 
 #undef TODO
 #define TODO() \
-  assert(false); \
+  assert(false && "not yet implemented"); \
   return {}
 
 // one argument template, must be specialized
@@ -288,6 +288,7 @@ public:
         case DerivedCat: TODO(); break;
         }
       } else if (auto *tySpec{type->AsDerived()}) {
+        (void)tySpec; // FIXME
         TODO();
       } else {
         assert(false && "type spec not found");

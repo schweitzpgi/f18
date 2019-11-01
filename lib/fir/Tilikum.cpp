@@ -843,27 +843,47 @@ struct EmboxCharOpConversion : public FIROpConversion<EmboxCharOp> {
 };
 
 /// Generate an alloca of size `size` and cast it to type `toTy`
-M::Value *genAllocaWithType(M::Location loc, M::LLVM::LLVMType toTy,
-                            M::Value *size, M::LLVM::LLVMDialect *dialect,
-                            unsigned alignment,
-                            M::ConversionPatternRewriter &rewriter) {
+M::LLVM::BitcastOp genAllocaWithType(M::Location loc, M::LLVM::LLVMType toTy,
+                                     M::LLVM::LLVMDialect *dialect,
+                                     M::LLVM::LLVMType ity, unsigned size,
+                                     unsigned alignment,
+                                     M::ConversionPatternRewriter &rewriter) {
   auto ptrTy = toTy.getPointerTo();
-  auto i8Ty = M::LLVM::LLVMType::getInt8Ty(dialect);
+  auto i8Ty = M::LLVM::LLVMType::getInt8PtrTy(dialect);
+  auto thisPt = rewriter.saveInsertionPoint();
   auto *thisBlock = rewriter.getInsertionBlock();
-  auto func = M::cast<M::FuncOp>(thisBlock->getParentOp());
+  auto func = M::cast<M::LLVM::LLVMFuncOp>(thisBlock->getParentOp());
   rewriter.setInsertionPointToStart(&func.front());
-  auto al = rewriter.create<M::LLVM::AllocaOp>(loc, i8Ty, size, alignment);
-  rewriter.setInsertionPointToEnd(thisBlock);
+  auto cattr = rewriter.getI64IntegerAttr(size);
+  auto size_ = rewriter.create<M::LLVM::ConstantOp>(loc, ity, cattr);
+  auto al = rewriter.create<M::LLVM::AllocaOp>(loc, i8Ty, size_, alignment);
+  rewriter.restoreInsertionPoint(thisPt);
   return rewriter.create<M::LLVM::BitcastOp>(loc, ptrTy, al);
 }
 
-M::Value *genConstantOffset(M::Location loc, M::LLVM::LLVMType ity,
-			    M::ConversionPatternRewriter &rewriter,
-			    unsigned offset) {
+M::LLVM::ConstantOp genConstantOffset(M::Location loc, M::LLVM::LLVMType ity,
+                                      M::ConversionPatternRewriter &rewriter,
+                                      int offset) {
   auto c0attr = rewriter.getI64IntegerAttr(offset);
   return rewriter.create<M::LLVM::ConstantOp>(loc, ity, c0attr);
 }
-  
+
+template <typename... ARGS>
+M::LLVM::GEPOp genGEP(M::Location loc, M::LLVM::LLVMType ty,
+                      M::ConversionPatternRewriter &rewriter, M::Value *base,
+                      ARGS... args) {
+  L::SmallVector<M::Value *, 16> cv{args...};
+  return rewriter.create<M::LLVM::GEPOp>(loc, ty, base, cv);
+}
+
+M::LLVM::GEPOp genGEPToField(M::Location loc, M::LLVM::LLVMType ty,
+                             M::ConversionPatternRewriter &rewriter,
+                             M::Value *base, M::Value *baseOff,
+                             M::LLVM::LLVMType ity, int field) {
+  auto c = genConstantOffset(loc, ity, rewriter, field);
+  return genGEP(loc, ty, rewriter, base, c);
+}
+
 /// create a generic box on a memory reference
 struct EmboxOpConversion : public FIROpConversion<EmboxOp> {
   using FIROpConversion::FIROpConversion;
@@ -874,42 +894,32 @@ struct EmboxOpConversion : public FIROpConversion<EmboxOp> {
     auto embox = M::cast<EmboxOp>(op);
     auto loc = embox.getLoc();
     auto dialect = getDialect();
-    auto ty = lowering.unwrap(operands[0]->getType());
+    auto ty = lowering.unwrap(lowering.convertType(embox.getType()));
     auto ity = lowering.indexType();
-    auto c24attr = rewriter.getI64IntegerAttr(24);
-    M::Value *size = rewriter.create<M::LLVM::ConstantOp>(loc, ity, c24attr);
     unsigned align = 8;
-    auto alloca = genAllocaWithType(loc, ty, size, dialect, align, rewriter);
+    auto alloca = genAllocaWithType(loc, ty, dialect, ity, 24, align, rewriter);
     auto c0 = genConstantOffset(loc, ity, rewriter, 0);
-    L::SmallVector<M::Value*,2> c0v{c0,c0};
-    auto f0p = rewriter.create<M::LLVM::GEPOp>(loc, ty, alloca, c0v);
+    auto f0p = genGEP(loc, lowering.unwrap(operands[0]->getType()), rewriter,
+                      alloca, c0);
     rewriter.create<M::LLVM::StoreOp>(loc, operands[0], f0p);
-    auto c1 = genConstantOffset(loc, ity, rewriter, 1);
-    L::SmallVector<M::Value*,2> c1v{c0,c1};
-    auto f1p = rewriter.create<M::LLVM::GEPOp>(loc, ty, alloca, c1v);
+    auto f1p = genGEPToField(loc, M::LLVM::LLVMType::getInt64Ty(dialect),
+                             rewriter, alloca, c0, ity, 1);
     rewriter.create<M::LLVM::StoreOp>(loc, c0, f1p);
-    auto c2 = genConstantOffset(loc, ity, rewriter, 2);
-    L::SmallVector<M::Value*,2> c2v{c0,c2};
-    auto f2p = rewriter.create<M::LLVM::GEPOp>(loc, ty, alloca, c2v);
+    auto f2p = genGEPToField(loc, M::LLVM::LLVMType::getInt32Ty(dialect),
+                             rewriter, alloca, c0, ity, 2);
     rewriter.create<M::LLVM::StoreOp>(loc, c0, f2p);
-    auto c3 = genConstantOffset(loc, ity, rewriter, 3);
-    L::SmallVector<M::Value*,2> c3v{c0,c3};
-    auto f3p = rewriter.create<M::LLVM::GEPOp>(loc, ty, alloca, c3v);
+    auto i8Ty = M::LLVM::LLVMType::getInt8Ty(dialect);
+    auto f3p = genGEPToField(loc, i8Ty, rewriter, alloca, c0, ity, 3);
     rewriter.create<M::LLVM::StoreOp>(loc, c0, f3p);
-    auto c4 = genConstantOffset(loc, ity, rewriter, 4);
-    L::SmallVector<M::Value*,2> c4v{c0,c4};
-    auto f4p = rewriter.create<M::LLVM::GEPOp>(loc, ty, alloca, c4v);
+    auto f4p = genGEPToField(loc, i8Ty, rewriter, alloca, c0, ity, 4);
     rewriter.create<M::LLVM::StoreOp>(loc, c0, f4p);
-    auto c5 = genConstantOffset(loc, ity, rewriter, 5);
-    L::SmallVector<M::Value*,2> c5v{c0,c5};
-    auto f5p = rewriter.create<M::LLVM::GEPOp>(loc, ty, alloca, c5v);
+    auto f5p = genGEPToField(loc, i8Ty, rewriter, alloca, c0, ity, 5);
     rewriter.create<M::LLVM::StoreOp>(loc, c0, f5p);
-    auto c6 = genConstantOffset(loc, ity, rewriter, 6);
-    L::SmallVector<M::Value*,2> c6v{c0,c6};
-    auto f6p = rewriter.create<M::LLVM::GEPOp>(loc, ty, alloca, c6v);
+    auto f6p = genGEPToField(loc, i8Ty, rewriter, alloca, c0, ity, 6);
     rewriter.create<M::LLVM::StoreOp>(loc, c0, f6p);
-
     // FIXME: copy the dims info, etc.
+
+    rewriter.replaceOp(embox, alloca.getResult());
     return matchSuccess();
   }
 };
