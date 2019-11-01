@@ -32,11 +32,16 @@
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Type.h"
+#include "llvm/Support/CommandLine.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/raw_ostream.h"
 
-/// The bridge that performs the conversion of FIR and standard dialect
-/// operations to the LLVM-IR dialect.
+/// The Tilikum bridge performs the conversion of operations from both the FIR
+/// and standard dialects to the LLVM-IR dialect.
+///
+/// Some FIR operations may be lowered to other dialects, such as standard, but
+/// some FIR operations will pass through to the Tilikum bridge.  This may be
+/// necessary to preserve the semantics of the Fortran program.
 
 #undef TODO
 #define TODO(X)                                                                \
@@ -45,6 +50,15 @@
 
 namespace L = llvm;
 namespace M = mlir;
+
+static L::cl::opt<bool>
+    ClDisableFirToLLVMIR("disable-fir2llvmir",
+                         L::cl::desc("disable FIR to LLVM-IR dialect pass"),
+                         L::cl::init(false), L::cl::Hidden);
+
+static L::cl::opt<bool> ClDisableLLVM("disable-llvm",
+                                      L::cl::desc("disable LLVM pass"),
+                                      L::cl::init(false), L::cl::Hidden);
 
 using namespace fir;
 
@@ -72,8 +86,12 @@ public:
   }
 
   // i32 is used here because LLVM wants i32 constants when indexing into struct
-  // types. Indexing into other aggregate types is more flexible. FIXME: See if
-  // we can't use i64 anyway; the restiction may not longer hold.
+  // types. Indexing into other aggregate types is more flexible.
+  M::LLVM::LLVMType offsetType() {
+    return M::LLVM::LLVMType::getInt32Ty(llvmDialect);
+  }
+  
+  // i64 can be used to index into aggregates like arrays
   M::LLVM::LLVMType indexType() {
     return M::LLVM::LLVMType::getInt64Ty(llvmDialect);
   }
@@ -391,6 +409,13 @@ struct AllocMemOpConversion : public FIROpConversion<AllocMemOp> {
   }
 };
 
+M::LLVM::ConstantOp genConstantOffset(M::Location loc, M::LLVM::LLVMType ity,
+                                      M::ConversionPatternRewriter &rewriter,
+                                      int offset) {
+  auto cattr = rewriter.getI32IntegerAttr(offset);
+  return rewriter.create<M::LLVM::ConstantOp>(loc, ity, cattr);
+}
+
 /// convert to returning the first element of the box (any flavor)
 struct BoxAddrOpConversion : public FIROpConversion<BoxAddrOp> {
   using FIROpConversion::FIROpConversion;
@@ -402,15 +427,15 @@ struct BoxAddrOpConversion : public FIROpConversion<BoxAddrOp> {
     auto a = operands[0];
     auto loc = boxaddr.getLoc();
     auto ty = lowering.convertType(boxaddr.getType());
-    auto c0attr = rewriter.getI32IntegerAttr(0);
     if (auto argty = boxaddr.val()->getType().dyn_cast<BoxType>()) {
-      auto ity = lowering.indexType();
-      auto c0 = rewriter.create<M::LLVM::ConstantOp>(loc, ity, c0attr);
+      auto ity = lowering.offsetType();
+      auto c0 = genConstantOffset(loc, ity, rewriter, 0);
       L::SmallVector<M::Value *, 4> args{a, c0, c0};
       auto pty = lowering.unwrap(ty).getPointerTo();
       auto p = rewriter.create<M::LLVM::GEPOp>(loc, pty, args);
       rewriter.replaceOpWithNewOp<M::LLVM::LoadOp>(boxaddr, ty, p);
     } else {
+      auto c0attr = rewriter.getI32IntegerAttr(0);
       auto c0 = M::ArrayAttr::get(c0attr, boxaddr.getContext());
       rewriter.replaceOpWithNewOp<M::LLVM::ExtractValueOp>(boxaddr, ty, a, c0);
     }
@@ -444,11 +469,9 @@ struct BoxDimsOpConversion : public FIROpConversion<BoxDimsOp> {
     auto a = operands[0];
     auto dim = operands[1];
     auto loc = boxdims.getLoc();
-    auto ity = lowering.indexType();
-    auto c0attr = rewriter.getI32IntegerAttr(0);
-    auto c0 = rewriter.create<M::LLVM::ConstantOp>(loc, ity, c0attr);
-    auto c7attr = rewriter.getI32IntegerAttr(7);
-    auto c7 = rewriter.create<M::LLVM::ConstantOp>(loc, ity, c7attr);
+    auto ity = lowering.offsetType();
+    auto c0 = genConstantOffset(loc, ity, rewriter, 0);
+    auto c7 = genConstantOffset(loc, ity, rewriter, 7);
     auto ty = lowering.convertType(boxdims.getResult(0)->getType());
     L::SmallVector<M::Value *, 4> args{a, c0, c7, dim};
     auto p = rewriter.create<M::LLVM::GEPOp>(loc, ty, args);
@@ -467,11 +490,9 @@ struct BoxEleSizeOpConversion : public FIROpConversion<BoxEleSizeOp> {
     auto a = operands[0];
     auto loc = boxelesz.getLoc();
     auto ty = lowering.convertType(boxelesz.getType());
-    auto ity = lowering.indexType();
-    auto c0attr = rewriter.getI32IntegerAttr(0);
-    auto c0 = rewriter.create<M::LLVM::ConstantOp>(loc, ity, c0attr);
-    auto c1attr = rewriter.getI32IntegerAttr(1);
-    auto c1 = rewriter.create<M::LLVM::ConstantOp>(loc, ity, c1attr);
+    auto ity = lowering.offsetType();
+    auto c0 = genConstantOffset(loc, ity, rewriter, 0);
+    auto c1 = genConstantOffset(loc, ity, rewriter, 1);
     L::SmallVector<M::Value *, 4> args{a, c0, c1};
     auto p = rewriter.create<M::LLVM::GEPOp>(loc, ty, args);
     rewriter.replaceOpWithNewOp<M::LLVM::LoadOp>(boxelesz, ty, p);
@@ -489,16 +510,13 @@ struct BoxIsAllocOpConversion : public FIROpConversion<BoxIsAllocOp> {
     auto a = operands[0];
     auto loc = boxisalloc.getLoc();
     auto ty = lowering.convertType(boxisalloc.getType());
-    auto ity = lowering.indexType();
-    auto c0attr = rewriter.getI32IntegerAttr(0);
-    auto c0 = rewriter.create<M::LLVM::ConstantOp>(loc, ity, c0attr);
-    auto c5attr = rewriter.getI32IntegerAttr(5);
-    auto c5 = rewriter.create<M::LLVM::ConstantOp>(loc, ity, c5attr);
+    auto ity = lowering.offsetType();
+    auto c0 = genConstantOffset(loc, ity, rewriter, 0);
+    auto c5 = genConstantOffset(loc, ity, rewriter, 5);
     L::SmallVector<M::Value *, 4> args{a, c0, c5};
     auto p = rewriter.create<M::LLVM::GEPOp>(loc, ty, args);
     auto ld = rewriter.create<M::LLVM::LoadOp>(loc, ty, p);
-    auto c2attr = rewriter.getI32IntegerAttr(2);
-    auto ab = rewriter.create<M::LLVM::ConstantOp>(loc, ity, c2attr);
+    auto ab = genConstantOffset(loc, ity, rewriter, 2);
     auto bit = rewriter.create<M::LLVM::AndOp>(loc, ity, ld, ab);
     rewriter.replaceOpWithNewOp<M::LLVM::ICmpOp>(
         boxisalloc, M::LLVM::ICmpPredicate::ne, bit, c0);
@@ -516,11 +534,9 @@ struct BoxIsArrayOpConversion : public FIROpConversion<BoxIsArrayOp> {
     auto a = operands[0];
     auto loc = boxisarray.getLoc();
     auto ty = lowering.convertType(boxisarray.getType());
-    auto ity = lowering.indexType();
-    auto c0attr = rewriter.getI32IntegerAttr(0);
-    auto c0 = rewriter.create<M::LLVM::ConstantOp>(loc, ity, c0attr);
-    auto c3attr = rewriter.getI32IntegerAttr(3);
-    auto c3 = rewriter.create<M::LLVM::ConstantOp>(loc, ity, c3attr);
+    auto ity = lowering.offsetType();
+    auto c0 = genConstantOffset(loc, ity, rewriter, 0);
+    auto c3 = genConstantOffset(loc, ity, rewriter, 3);
     L::SmallVector<M::Value *, 4> args{a, c0, c3};
     auto p = rewriter.create<M::LLVM::GEPOp>(loc, ty, args);
     auto ld = rewriter.create<M::LLVM::LoadOp>(loc, ty, p);
@@ -540,16 +556,13 @@ struct BoxIsPtrOpConversion : public FIROpConversion<BoxIsPtrOp> {
     auto a = operands[0];
     auto loc = boxisptr.getLoc();
     auto ty = lowering.convertType(boxisptr.getType());
-    auto ity = lowering.indexType();
-    auto c0attr = rewriter.getI32IntegerAttr(0);
-    auto c0 = rewriter.create<M::LLVM::ConstantOp>(loc, ity, c0attr);
-    auto c5attr = rewriter.getI32IntegerAttr(5);
-    auto c5 = rewriter.create<M::LLVM::ConstantOp>(loc, ity, c5attr);
+    auto ity = lowering.offsetType();
+    auto c0 = genConstantOffset(loc, ity, rewriter, 0);
+    auto c5 = genConstantOffset(loc, ity, rewriter, 5);
     L::SmallVector<M::Value *, 4> args{a, c0, c5};
     auto p = rewriter.create<M::LLVM::GEPOp>(loc, ty, args);
     auto ld = rewriter.create<M::LLVM::LoadOp>(loc, ty, p);
-    auto c1attr = rewriter.getI32IntegerAttr(1);
-    auto ab = rewriter.create<M::LLVM::ConstantOp>(loc, ity, c1attr);
+    auto ab = genConstantOffset(loc, ity, rewriter, 1);
     auto bit = rewriter.create<M::LLVM::AndOp>(loc, ity, ld, ab);
     rewriter.replaceOpWithNewOp<M::LLVM::ICmpOp>(
         boxisptr, M::LLVM::ICmpPredicate::ne, bit, c0);
@@ -584,11 +597,9 @@ struct BoxRankOpConversion : public FIROpConversion<BoxRankOp> {
     auto a = operands[0];
     auto loc = boxrank.getLoc();
     auto ty = lowering.convertType(boxrank.getType());
-    auto ity = lowering.indexType();
-    auto c0attr = rewriter.getI32IntegerAttr(0);
-    auto c0 = rewriter.create<M::LLVM::ConstantOp>(loc, ity, c0attr);
-    auto c3attr = rewriter.getI32IntegerAttr(3);
-    auto c3 = rewriter.create<M::LLVM::ConstantOp>(loc, ity, c3attr);
+    auto ity = lowering.offsetType();
+    auto c0 = genConstantOffset(loc, ity, rewriter, 0);
+    auto c3 = genConstantOffset(loc, ity, rewriter, 3);
     L::SmallVector<M::Value *, 4> args{a, c0, c3};
     auto pty = lowering.unwrap(ty).getPointerTo();
     auto p = rewriter.create<M::LLVM::GEPOp>(loc, pty, args);
@@ -607,11 +618,9 @@ struct BoxTypeDescOpConversion : public FIROpConversion<BoxTypeDescOp> {
     auto a = operands[0];
     auto loc = boxtypedesc.getLoc();
     auto ty = lowering.convertType(boxtypedesc.getType());
-    auto ity = lowering.indexType();
-    auto c0attr = rewriter.getI32IntegerAttr(0);
-    auto c0 = rewriter.create<M::LLVM::ConstantOp>(loc, ity, c0attr);
-    auto c4attr = rewriter.getI32IntegerAttr(4);
-    auto c4 = rewriter.create<M::LLVM::ConstantOp>(loc, ity, c4attr);
+    auto ity = lowering.offsetType();
+    auto c0 = genConstantOffset(loc, ity, rewriter, 0);
+    auto c4 = genConstantOffset(loc, ity, rewriter, 4);
     L::SmallVector<M::Value *, 4> args{a, c0, c4};
     auto pty = lowering.unwrap(ty).getPointerTo();
     auto p = rewriter.create<M::LLVM::GEPOp>(loc, pty, args);
@@ -848,40 +857,32 @@ M::LLVM::BitcastOp genAllocaWithType(M::Location loc, M::LLVM::LLVMType toTy,
                                      M::LLVM::LLVMType ity, unsigned size,
                                      unsigned alignment,
                                      M::ConversionPatternRewriter &rewriter) {
-  auto ptrTy = toTy.getPointerTo();
   auto i8Ty = M::LLVM::LLVMType::getInt8PtrTy(dialect);
   auto thisPt = rewriter.saveInsertionPoint();
   auto *thisBlock = rewriter.getInsertionBlock();
   auto func = M::cast<M::LLVM::LLVMFuncOp>(thisBlock->getParentOp());
   rewriter.setInsertionPointToStart(&func.front());
-  auto cattr = rewriter.getI64IntegerAttr(size);
-  auto size_ = rewriter.create<M::LLVM::ConstantOp>(loc, ity, cattr);
+  auto size_ = genConstantOffset(loc, ity, rewriter, size);
   auto al = rewriter.create<M::LLVM::AllocaOp>(loc, i8Ty, size_, alignment);
   rewriter.restoreInsertionPoint(thisPt);
-  return rewriter.create<M::LLVM::BitcastOp>(loc, ptrTy, al);
-}
-
-M::LLVM::ConstantOp genConstantOffset(M::Location loc, M::LLVM::LLVMType ity,
-                                      M::ConversionPatternRewriter &rewriter,
-                                      int offset) {
-  auto c0attr = rewriter.getI64IntegerAttr(offset);
-  return rewriter.create<M::LLVM::ConstantOp>(loc, ity, c0attr);
+  return rewriter.create<M::LLVM::BitcastOp>(loc, toTy, al);
 }
 
 template <typename... ARGS>
 M::LLVM::GEPOp genGEP(M::Location loc, M::LLVM::LLVMType ty,
                       M::ConversionPatternRewriter &rewriter, M::Value *base,
                       ARGS... args) {
-  L::SmallVector<M::Value *, 16> cv{args...};
+  L::SmallVector<M::Value *, 8> cv{args...};
   return rewriter.create<M::LLVM::GEPOp>(loc, ty, base, cv);
 }
 
-M::LLVM::GEPOp genGEPToField(M::Location loc, M::LLVM::LLVMType ty,
-                             M::ConversionPatternRewriter &rewriter,
-                             M::Value *base, M::Value *baseOff,
-                             M::LLVM::LLVMType ity, int field) {
-  auto c = genConstantOffset(loc, ity, rewriter, field);
-  return genGEP(loc, ty, rewriter, base, c);
+M::LLVM::BitcastOp genGEPToField(M::Location loc, M::LLVM::LLVMType ty,
+                                 M::ConversionPatternRewriter &rewriter,
+                                 M::Value *base, M::Value *zero, M::LLVM::LLVMType ity,
+                                 int field) {
+  auto coff = genConstantOffset(loc, ity, rewriter, field);
+  auto gep = genGEP(loc, ty, rewriter, base, zero, coff);
+  return rewriter.create<M::LLVM::BitcastOp>(loc, ty, gep);
 }
 
 /// create a generic box on a memory reference
@@ -895,28 +896,34 @@ struct EmboxOpConversion : public FIROpConversion<EmboxOp> {
     auto loc = embox.getLoc();
     auto dialect = getDialect();
     auto ty = lowering.unwrap(lowering.convertType(embox.getType()));
-    auto ity = lowering.indexType();
     unsigned align = 8;
+    auto ity = lowering.indexType();
     auto alloca = genAllocaWithType(loc, ty, dialect, ity, 24, align, rewriter);
-    auto c0 = genConstantOffset(loc, ity, rewriter, 0);
-    auto f0p = genGEP(loc, lowering.unwrap(operands[0]->getType()), rewriter,
-                      alloca, c0);
-    rewriter.create<M::LLVM::StoreOp>(loc, operands[0], f0p);
-    auto f1p = genGEPToField(loc, M::LLVM::LLVMType::getInt64Ty(dialect),
-                             rewriter, alloca, c0, ity, 1);
-    rewriter.create<M::LLVM::StoreOp>(loc, c0, f1p);
-    auto f2p = genGEPToField(loc, M::LLVM::LLVMType::getInt32Ty(dialect),
-                             rewriter, alloca, c0, ity, 2);
+    auto oty = lowering.offsetType();
+    auto c0 = genConstantOffset(loc, oty, rewriter, 0);
+    auto rty = lowering.unwrap(operands[0]->getType()).getPointerTo();
+    auto f0p = genGEP(loc, rty, rewriter, alloca, c0, c0);
+    auto f0p_ = rewriter.create<M::LLVM::BitcastOp>(loc, rty, f0p);
+    rewriter.create<M::LLVM::StoreOp>(loc, operands[0], f0p_);
+    auto i64Ty = M::LLVM::LLVMType::getInt64Ty(dialect);
+    auto i64PtrTy = i64Ty.getPointerTo();
+    auto f1p = genGEPToField(loc, i64PtrTy, rewriter, alloca, c0, oty, 1);
+    auto c0_ = rewriter.create<M::LLVM::SExtOp>(loc, i64Ty, c0);
+    rewriter.create<M::LLVM::StoreOp>(loc, c0_, f1p);
+    auto i32PtrTy = M::LLVM::LLVMType::getInt32Ty(dialect).getPointerTo();
+    auto f2p = genGEPToField(loc, i32PtrTy, rewriter, alloca, c0, oty, 2);
     rewriter.create<M::LLVM::StoreOp>(loc, c0, f2p);
     auto i8Ty = M::LLVM::LLVMType::getInt8Ty(dialect);
-    auto f3p = genGEPToField(loc, i8Ty, rewriter, alloca, c0, ity, 3);
-    rewriter.create<M::LLVM::StoreOp>(loc, c0, f3p);
-    auto f4p = genGEPToField(loc, i8Ty, rewriter, alloca, c0, ity, 4);
-    rewriter.create<M::LLVM::StoreOp>(loc, c0, f4p);
-    auto f5p = genGEPToField(loc, i8Ty, rewriter, alloca, c0, ity, 5);
-    rewriter.create<M::LLVM::StoreOp>(loc, c0, f5p);
-    auto f6p = genGEPToField(loc, i8Ty, rewriter, alloca, c0, ity, 6);
-    rewriter.create<M::LLVM::StoreOp>(loc, c0, f6p);
+    auto i8PtrTy = M::LLVM::LLVMType::getInt8PtrTy(dialect);
+    auto c0__ = rewriter.create<M::LLVM::TruncOp>(loc, i8Ty, c0);
+    auto f3p = genGEPToField(loc, i8PtrTy, rewriter, alloca, c0, oty, 3);
+    rewriter.create<M::LLVM::StoreOp>(loc, c0__, f3p);
+    auto f4p = genGEPToField(loc, i8PtrTy, rewriter, alloca, c0, oty, 4);
+    rewriter.create<M::LLVM::StoreOp>(loc, c0__, f4p);
+    auto f5p = genGEPToField(loc, i8PtrTy, rewriter, alloca, c0, oty, 5);
+    rewriter.create<M::LLVM::StoreOp>(loc, c0__, f5p);
+    auto f6p = genGEPToField(loc, i8PtrTy, rewriter, alloca, c0, oty, 6);
+    rewriter.create<M::LLVM::StoreOp>(loc, c0__, f6p);
     // FIXME: copy the dims info, etc.
 
     rewriter.replaceOp(embox, alloca.getResult());
@@ -1721,6 +1728,9 @@ struct NegcOpConversion : public FIROpConversion<fir::NegcOp> {
 /// MLIR pass is used to lower residual Std dialect to LLVM IR dialect.
 struct FIRToLLVMLoweringPass : public M::ModulePass<FIRToLLVMLoweringPass> {
   void runOnModule() override {
+    if (ClDisableFirToLLVMIR)
+      return;
+
     auto &context{getContext()};
     FIRToLLVMTypeConverter typeConverter{&context};
     M::OwningRewritePatternList patterns;
@@ -1768,23 +1778,32 @@ struct FIRToLLVMLoweringPass : public M::ModulePass<FIRToLLVMLoweringPass> {
 /// Lower from LLVM IR dialect to proper LLVM-IR and dump the module
 struct LLVMIRLoweringPass : public M::ModulePass<LLVMIRLoweringPass> {
   void runOnModule() override {
+    if (ClDisableLLVM)
+      return;
+
     genDispatchTableMap();
 
     if (auto llvmModule{M::translateModuleToLLVMIR(getModule())}) {
       std::error_code ec;
-      L::raw_fd_ostream stream("a.ll", ec, L::sys::fs::F_None);
+      L::raw_fd_ostream stream(outputName, ec, L::sys::fs::F_None);
       stream << *llvmModule << '\n';
-    } else {
-      auto ctxt{getModule().getContext()};
-      M::emitError(M::UnknownLoc::get(ctxt), "could not emit LLVM-IR\n");
-      signalPassFailure();
+      L::errs() << outputName << " written\n";
+      return;
     }
+
+    auto ctxt{getModule().getContext()};
+    M::emitError(M::UnknownLoc::get(ctxt), "could not emit LLVM-IR\n");
+    signalPassFailure();
   }
+
+  void setOutputName(L::StringRef output) { outputName = output; }
 
 private:
   void genDispatchTableMap() {
     // TODO
   }
+
+  L::StringRef outputName;
 };
 
 } // namespace
@@ -1793,6 +1812,8 @@ std::unique_ptr<M::Pass> fir::createFIRToLLVMPass() {
   return std::make_unique<FIRToLLVMLoweringPass>();
 }
 
-std::unique_ptr<M::Pass> fir::createLLVMDialectToLLVMPass() {
-  return std::make_unique<LLVMIRLoweringPass>();
+std::unique_ptr<M::Pass> fir::createLLVMDialectToLLVMPass(L::StringRef output) {
+  auto pass = std::make_unique<LLVMIRLoweringPass>();
+  pass->setOutputName(output);
+  return pass;
 }

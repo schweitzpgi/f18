@@ -286,7 +286,7 @@ std::string CompileFortran(std::string path, Fortran::parser::Options options,
     pm.addPass(fir::createFIRToLLVMPass());
   }
   if (driver.lowerToLLVMIR) {
-    pm.addPass(fir::createLLVMDialectToLLVMPass());
+    pm.addPass(fir::createLLVMDialectToLLVMPass("a.ll"));
   }
   if (mlir::succeeded(pm.run(mlirModule))) {
     if (driver.dumpFIR) {
@@ -341,13 +341,11 @@ std::string CompileFir(std::string path, Fortran::parser::Options options,
     pm.addPass(fir::createFIRToLLVMPass());
   }
   if (driver.lowerToLLVMIR) {
-    pm.addPass(fir::createLLVMDialectToLLVMPass());
+    pm.addPass(fir::createLLVMDialectToLLVMPass("a.ll"));
   }
-  auto result{pm.run(mlirModule)};
-  llvm::errs() << ";== 4 ==\n";
-  mlirModule.dump();
-  if (mlir::succeeded(result)) {
-    llvm::errs() << "a.ll written\n";
+  if (mlir::succeeded(pm.run(mlirModule))) {
+    llvm::errs() << ";== 4 ==\n";
+    mlirModule.dump();
   } else {
     llvm::errs() << "FAILED\n";
     std::exit(5);

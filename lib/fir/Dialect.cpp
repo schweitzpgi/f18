@@ -43,6 +43,9 @@ void selectBuild(M::OpBuilder *builder, M::OperationState *result,
     result->addSuccessor(block, blkArgs);
   }
 }
+
+M::DialectRegistration<fir::FIROpsDialect> FIROps;
+
 } // namespace
 
 fir::FIROpsDialect::FIROpsDialect(M::MLIRContext *ctx)
