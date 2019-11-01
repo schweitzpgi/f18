@@ -42,6 +42,11 @@ namespace M = mlir;
 
 using namespace fir;
 
+static L::cl::opt<bool>
+    ClDisableFirToStd("disable-fir2std",
+                      L::cl::desc("disable FIR to standard pass"),
+                      L::cl::init(false), L::cl::Hidden);
+
 namespace {
 
 using SmallVecResult = L::SmallVector<M::Value *, 4>;
@@ -144,7 +149,10 @@ class FIRToStdLoweringPass : public M::ModulePass<FIRToStdLoweringPass> {
 
 public:
   void runOnModule() override {
-    return;
+    if (ClDisableFirToStd)
+      return;
+
+    return; // FIXME
 
     for (auto fn : getModule().getOps<M::FuncOp>()) {
       M::OpBuilder rewriter{&fn.getBody()};

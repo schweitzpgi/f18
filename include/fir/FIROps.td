@@ -87,10 +87,17 @@ def fir_DimsType : Type<CPred<"$_self.isa<fir::DimsType>()">, "dim type">;
 def fir_TypeDescType : Type<CPred<"$_self.isa<fir::TypeDescType>()">,
     "type desc type">;
 def fir_FieldType : Type<CPred<"$_self.isa<fir::FieldType>()">, "field type">;
+def fir_LenType : Type<CPred<"$_self.isa<fir::LenType>()">,
+    "LEN parameter type">;
 
-def AnyCoordinateLike : TypeConstraint<Or<[AnyInteger.predicate,
+def AnyComponentLike : TypeConstraint<Or<[AnyInteger.predicate,
     Index.predicate, fir_IntegerType.predicate, fir_FieldType.predicate]>,
     "any coordinate index">;
+def AnyComponentType : Type<AnyComponentLike.predicate, "coordinate type">;
+
+def AnyCoordinateLike : TypeConstraint<Or<[AnyInteger.predicate,
+    Index.predicate, fir_IntegerType.predicate, fir_FieldType.predicate,
+    fir_LenType.predicate]>, "any coordinate index">;
 def AnyCoordinateType : Type<AnyCoordinateLike.predicate, "coordinate type">;
 
 class fir_Op<string mnemonic, list<OpTrait> traits>
@@ -176,21 +183,34 @@ class fir_AllocatableBaseOp<string mnemonic, list<OpTrait> traits = []> :
 class fir_AllocatableOp<string mnemonic, list<OpTrait> traits =[]> :
     fir_AllocatableBaseOp<mnemonic, !listconcat([NoSideEffect], traits)>,
     fir_TwoBuilders<fir_AllocateOpBuilder, fir_NamedAllocateOpBuilder>,
-    Arguments<(ins TypeAttr:$in_type, Variadic<Index>:$shape)> {
+    Arguments<(ins TypeAttr:$in_type, Variadic<AnyIntegerType>:$args)> {
+
   let parser = [{
     M::Type intype;
     if (parser.parseType(intype))
       return M::failure();
     auto &builder = parser.getBuilder();
     result.addAttribute("in_type", M::TypeAttr::get(intype));
-    if (!parser.parseOptionalComma()) {
-      llvm::SmallVector<M::Type, 4> typeVec;
-      llvm::SmallVector<M::OpAsmParser::OperandType, 4> operands;
+    L::SmallVector<M::OpAsmParser::OperandType, 8> operands;
+    L::SmallVector<M::Type, 8> typeVec;
+    bool hasOperands = false;
+    if (!parser.parseOptionalLParen()) {
       if (parser.parseOperandList(operands, M::OpAsmParser::Delimiter::None) ||
-          parser.resolveOperands(operands, builder.getIndexType(),
-              parser.getNameLoc(), result.operands))
+          parser.parseRParen())
         return M::failure();
+      auto lens = builder.getI32IntegerAttr(operands.size());
+      result.addAttribute(lenpName(), lens);
+      hasOperands = true;
     }
+    if (!parser.parseOptionalComma()) {
+      if (parser.parseOperandList(operands, M::OpAsmParser::Delimiter::None))
+        return M::failure();
+      hasOperands = true;
+    }
+    if (hasOperands &&
+        parser.resolveOperands(operands, builder.getIndexType(),
+            parser.getNameLoc(), result.operands))
+      return M::failure();
     M::Type restype;
     if (parser.parseOptionalAttributeDict(result.attributes) ||
         parser.parseColonType(restype) ||
@@ -201,12 +221,35 @@ class fir_AllocatableOp<string mnemonic, list<OpTrait> traits =[]> :
 
   let printer = [{
     p << getOperationName() << ' ' << getAttr("in_type");
+    if (hasLenParams()) {
+      p << '(';
+      p.printOperands(getLenParams());
+      p << ')';
+    }
     for (auto sh : getShapeOperands()) {
       p << ", ";
       p.printOperand(sh);
     }
-    p.printOptionalAttrDict(getAttrs(), {"in_type"});
+    p.printOptionalAttrDict(getAttrs(), {"in_type", lenpName()});
     p << " : " << getType();
+  }];
+
+  let extraClassDeclaration = [{
+    constexpr static llvm::StringRef lenpName() { return "len_param_count"; }
+    mlir::Type getAllocatedType();
+    bool hasLenParams() { return bool{getAttr(lenpName())}; }
+    unsigned numLenParams() {
+      if (auto val = getAttrOfType<mlir::IntegerAttr>(lenpName()))
+        return val.getInt();
+      return 0;
+    }
+    operand_range getLenParams() {
+      return {operand_begin(), operand_begin() + numLenParams()};
+    }
+    operand_range getShapeOperands() {
+      return {operand_begin() + numLenParams(), operand_end()};
+    }
+    static mlir::Type getRefTy(mlir::Type ty);
   }];
 }
 
@@ -233,14 +276,6 @@ def fir_AllocaOp : fir_AllocatableOp<"alloca"> {
       return emitOpError("must be a !fir.ref type");
     }
     return M::success();
-  }];
-
-  let extraClassDeclaration = [{
-    mlir::Type getAllocatedType();
-    operand_range getShapeOperands() {
-      return {operand_begin(), operand_end()};
-    }
-    static mlir::Type getRefTy(mlir::Type ty);
   }];
 }
 
@@ -376,14 +411,6 @@ def fir_AllocMemOp : fir_AllocatableOp<"allocmem"> {
       return emitOpError("must be a !fir.heap type");
     }
     return M::success();
-  }];
-
-  let extraClassDeclaration = [{
-    mlir::Type getAllocatedType();
-    operand_range getShapeOperands() {
-      return {operand_begin(), operand_end()};
-    }
-    static mlir::Type getRefTy(mlir::Type ty);
   }];
 }
 
@@ -781,7 +808,7 @@ def fir_FirEndOp : fir_Op<"end", [Terminator]> {
 // Operations on !fir.box<T> type objects
 
 def fir_EmboxOp : fir_Op<"embox", [NoSideEffect]>, Results<(outs fir_BoxType)>,
-    Arguments<(ins AnyReferenceLike:$memref, Variadic<fir_DimsType>:$dims)> {
+    Arguments<(ins AnyReferenceLike:$memref, Variadic<AnyIntegerType>:$args)> {
   let summary = "boxes a given reference and (optional) dimension information";
 
   let description = [{
@@ -792,11 +819,19 @@ def fir_EmboxOp : fir_Op<"embox", [NoSideEffect]>, Results<(outs fir_BoxType)>,
 
   let parser = [{
     M::FunctionType type;
-    llvm::SmallVector<M::OpAsmParser::OperandType, 2> operands;
+    llvm::SmallVector<M::OpAsmParser::OperandType, 8> operands;
     M::OpAsmParser::OperandType memref;
     if (parser.parseOperand(memref))
       return M::failure();
     operands.push_back(memref);
+    auto &builder = parser.getBuilder();
+    if (!parser.parseOptionalLParen()) {
+      if (parser.parseOperandList(operands, M::OpAsmParser::Delimiter::None) ||
+          parser.parseRParen())
+        return M::failure();
+      auto lens = builder.getI32IntegerAttr(operands.size());
+      result.addAttribute(lenpName(), lens);
+    }
     if (!parser.parseOptionalComma()) {
       M::OpAsmParser::OperandType dims;
       if (parser.parseOperand(dims))
@@ -819,6 +854,11 @@ def fir_EmboxOp : fir_Op<"embox", [NoSideEffect]>, Results<(outs fir_BoxType)>,
   let printer = [{
     p << getOperationName() << ' ';
     p.printOperand(memref());
+    if (hasLenParams()) {
+      p << '(';
+      p.printOperands(getLenParams());
+      p << ')';
+    }
     if (getNumOperands() == 2) {
       p << ", ";
       p.printOperands(dims());
@@ -827,6 +867,22 @@ def fir_EmboxOp : fir_Op<"embox", [NoSideEffect]>, Results<(outs fir_BoxType)>,
     }
     p << " : ";
     p.printFunctionalType(getOperation());
+  }];
+
+  let extraClassDeclaration = [{
+    constexpr static llvm::StringRef lenpName() { return "len_param_count"; }
+    bool hasLenParams() { return bool{getAttr(lenpName())}; }
+    unsigned numLenParams() {
+      if (auto x = getAttrOfType<mlir::IntegerAttr>(lenpName()))
+        return x.getInt();
+      return 0;
+    }
+    operand_range getLenParams() {
+      return {operand_begin(), operand_begin() + numLenParams()};
+    }
+    operand_range dims() {
+      return {operand_begin() + numLenParams(), operand_end()};
+    }
   }];
 }
 
@@ -920,8 +976,8 @@ def fir_EmboxProcOp : fir_Op<"emboxproc", [NoSideEffect]>,
 }
 
 def fir_UnboxOp : fir_SimpleOp<"unbox", [NoSideEffect]>,
-    Results<(outs fir_ReferenceType, AnyInteger, AnyInteger, fir_TypeDescType,
-             AnyInteger, fir_DimsType)>,
+    Results<(outs fir_ReferenceType, AnyIntegerLike, AnyIntegerLike,
+             fir_TypeDescType, AnyIntegerLike, fir_DimsType)>,
     Arguments<(ins fir_BoxType:$box)> {
   let summary = "unbox the boxed value into a tuple value";
 
@@ -932,7 +988,7 @@ def fir_UnboxOp : fir_SimpleOp<"unbox", [NoSideEffect]>,
 }
 
 def fir_UnboxCharOp : fir_SimpleOp<"unboxchar", [NoSideEffect]>,
-    Results<(outs fir_ReferenceType, AnyInteger)>,
+    Results<(outs fir_ReferenceType, AnyIntegerLike)>,
     Arguments<(ins fir_BoxCharType:$boxchar)> {
   let summary = "unbox a boxchar value into a pair value";
 
@@ -984,7 +1040,7 @@ def fir_BoxAddrOp : fir_SimpleOneResultOp<"box_addr", [NoSideEffect]>,
 }
 
 def fir_BoxCharLenOp : fir_SimpleOp<"boxchar_len", [NoSideEffect]>,
-    Results<(outs AnyInteger)>, Arguments<(ins fir_BoxCharType:$val)> {
+    Results<(outs AnyIntegerLike)>, Arguments<(ins fir_BoxCharType:$val)> {
   let summary = "return the LEN type parameter from a boxchar value";
 
   let description = [{
@@ -1138,10 +1194,23 @@ def fir_CoordinateOp : fir_Op<"coordinate_of", [NoSideEffect]>,
     p << " : ";
     p.printFunctionalType(getOperation());
   }];
+
+  let verifier = [{
+    // Recovering a LEN type parameter only makes sense from a boxed value
+    for (auto *co : coor())
+      if (auto *s = co->getDefiningOp())
+        if (dyn_cast_or_null<LenParamIndexOp>(s)) {
+          if (getNumOperands() != 2)
+            return emitOpError("len_param_index must be last argument");
+          if (!ref()->getType().dyn_cast<BoxType>())
+            return emitOpError("len_param_index must be used on box type");
+        }
+    return M::success();
+  }];
 }
 
 def fir_ExtractValueOp : fir_OneResultOp<"extract_value", [NoSideEffect]>,
-    Arguments<(ins AnyCompositeLike:$adt, Variadic<AnyCoordinateType>:$coor)> {
+    Arguments<(ins AnyCompositeLike:$adt, Variadic<AnyComponentType>:$coor)> {
   let summary = "Extract a value from an aggregate SSA-value";
 
   let description = [{
@@ -1172,7 +1241,9 @@ def fir_ExtractValueOp : fir_OneResultOp<"extract_value", [NoSideEffect]>,
   }];
 }
 
-def fir_FieldIndexOp : fir_OneResultOp<"field_index", [NoSideEffect]> {
+def fir_FieldIndexOp : fir_OneResultOp<"field_index", [NoSideEffect]>,
+    Arguments<(ins StrAttr:$field_id, TypeAttr:$on_type,
+               Variadic<AnyIntegerType>:$lenparams)> {
   let summary = "create a field index value from a field identifier";
 
   let description = [{
@@ -1184,43 +1255,71 @@ def fir_FieldIndexOp : fir_OneResultOp<"field_index", [NoSideEffect]> {
     subobjects.
   }];
 
-  let arguments = (ins StrAttr:$field_id);
-
   let builders = [OpBuilder<
-    "Builder *builder, OperationState &result, StringRef fieldName",
+    "Builder *builder, OperationState &result, StringRef fieldName,"
+    "Type recTy, ArrayRef<Value*> operands = {}",
     [{
-      result.addAttribute("field_id", builder->getStringAttr(fieldName));
+      result.addAttribute(fieldAttrName(), builder->getStringAttr(fieldName));
+      result.addAttribute(typeAttrName(), TypeAttr::get(recTy));
+      result.addOperands(operands);
     }]
   >];
 
   let parser = [{
-    if (parser.parseLParen())
-      return M::failure();
     llvm::StringRef fieldName;
-    if (parser.parseOptionalKeyword(&fieldName)) {
-      M::StringAttr attr;
-      if (parser.parseAttribute(attr, "field_id", result.attributes))
+    auto &builder = parser.getBuilder();
+    M::Type recty;
+    if (parser.parseOptionalKeyword(&fieldName) ||
+        parser.parseComma() ||
+        parser.parseType(recty))
+      return M::failure();
+    result.addAttribute(fieldAttrName(), builder.getStringAttr(fieldName));
+    if (!recty.dyn_cast<RecordType>())
+      return M::failure();
+    result.addAttribute(typeAttrName(), M::TypeAttr::get(recty));
+    if (!parser.parseLParen()) {
+      L::SmallVector<M::OpAsmParser::OperandType, 8> operands;
+      L::SmallVector<M::Type, 8> types;
+      auto loc = parser.getNameLoc();
+      if (parser.parseOperandList(operands, M::OpAsmParser::Delimiter::None) ||
+          parser.parseRParen() ||
+          parser.parseColonTypeList(types) ||
+          parser.resolveOperands(operands, types, loc, result.operands))
         return M::failure();
-    } else {
-      result.addAttribute("field_id",
-          parser.getBuilder().getStringAttr(fieldName));
     }
-    M::Type type;
-    if (parser.parseRParen() ||
-        parser.parseColonType(type) ||
-        parser.addTypeToList(type, result.types))
+    M::Type fieldType = fir::FieldType::get(builder.getContext());
+    if (parser.addTypeToList(fieldType, result.types))
       return M::failure();
     return M::success();
   }];
 
   let printer = [{
-    p << getOperationName() << " (" << getAttr("field_id") << ") : "
-      << getType();
+    p << getOperationName() << ' '
+      << getAttrOfType<M::StringAttr>(fieldAttrName()).getValue() << ", "
+      << getAttr(typeAttrName());
+    if (getNumOperands()) {
+      p << '(';
+      p.printOperands(lenparams());
+      auto sep = ") : ";
+      for (auto *op : lenparams()) {
+        p << sep;
+        if (op)
+          p.printType(op->getType());
+        else
+          p << "()";
+        sep = ", ";
+      }
+    }
+  }];
+
+  let extraClassDeclaration = [{
+    constexpr static llvm::StringRef fieldAttrName() { return "field_id"; }
+    constexpr static llvm::StringRef typeAttrName() { return "on_type"; }
   }];
 }
 
 def fir_GenDimsOp : fir_OneResultOp<"gendims", [NoSideEffect]>, 
-    Arguments<(ins Variadic<AnyInteger>:$triples)> {
+    Arguments<(ins Variadic<AnyIntegerType>:$triples)> {
   let summary = "generate a value of type `!fir.dims`";
 
   let description = [{
@@ -1256,7 +1355,7 @@ def fir_GenDimsOp : fir_OneResultOp<"gendims", [NoSideEffect]>,
 
 def fir_InsertValueOp : fir_OneResultOp<"insert_value", [NoSideEffect]>,
     Arguments<(ins AnyCompositeLike:$adt, AnyType:$val,
-    Variadic<AnyCoordinateType>:$coor)> {
+    Variadic<AnyComponentType>:$coor)> {
   let summary = "insert a new sub-value into a copy of an existing aggregate";
 
   let description = [{
@@ -1286,51 +1385,56 @@ def fir_InsertValueOp : fir_OneResultOp<"insert_value", [NoSideEffect]>,
   }];
 }
 
-def fir_LenParamIndexOp : fir_OneResultOp<"len_param_index", [NoSideEffect]> {
+def fir_LenParamIndexOp : fir_OneResultOp<"len_param_index", [NoSideEffect]>,
+    Arguments<(ins StrAttr:$field_id, TypeAttr:$on_type)> {
   let summary =
     "create a field index value from a LEN type parameter identifier";
 
   let description = [{
-    Generate a field (offset) value from an LEN parameter identifier.  Field
-    values may be lowered into exact offsets when the layout of a Fortran
-    derived type is known at compile-time. The type of a field value is
-    `!fir.field` and these values can be used with the `fir.coordinate_of`,
-    `fir.extract_value`, or `fir.insert_value` instructions to compute
-    (abstract) addresses of subobjects.
+    Generate a LEN parameter (offset) value from an LEN parameter identifier.
+    The type of a LEN parameter value is `!fir.len` and these values can be
+    used with the `fir.coordinate_of` instructions to compute (abstract)
+    addresses of LEN parameters.
   }];
 
-  let arguments = (ins StrAttr:$field_id);
-
   let builders = [OpBuilder<
-    "Builder *builder, OperationState &result, StringRef fieldName",
+    "Builder *builder, OperationState &result, StringRef fieldName, Type recTy",
     [{
-      result.addAttribute("field_id", builder->getStringAttr(fieldName));
+      result.addAttribute(fieldAttrName(), builder->getStringAttr(fieldName));
+      result.addAttribute(typeAttrName(), TypeAttr::get(recTy));
     }]
   >];
 
   let parser = [{
-    if (parser.parseLParen())
-      return M::failure();
     llvm::StringRef fieldName;
-    if (parser.parseOptionalKeyword(&fieldName)) {
-      M::StringAttr attr;
-      if (parser.parseAttribute(attr, "field_id", result.attributes))
-        return M::failure();
-    } else {
-      result.addAttribute("field_id",
-          parser.getBuilder().getStringAttr(fieldName));
-    }
-    M::Type type;
-    if (parser.parseRParen() ||
-        parser.parseColonType(type) ||
-        parser.addTypeToList(type, result.types))
+    auto &builder = parser.getBuilder();
+    M::Type recty;
+    if (parser.parseOptionalKeyword(&fieldName) ||
+        parser.parseComma() ||
+        parser.parseType(recty))
+      return M::failure();
+    result.addAttribute(fieldAttrName(), builder.getStringAttr(fieldName));
+    if (!recty.dyn_cast<RecordType>())
+      return M::failure();
+    result.addAttribute(typeAttrName(), M::TypeAttr::get(recty));
+    M::Type lenType = fir::LenType::get(builder.getContext());
+    if (parser.addTypeToList(lenType, result.types))
       return M::failure();
     return M::success();
   }];
 
   let printer = [{
-    p << getOperationName() << " (" << getAttr("field_id") << ") : "
-      << getType();
+    p << getOperationName() << ' '
+      << getAttrOfType<M::StringAttr>(fieldAttrName()).getValue() << ", "
+      << getAttr(typeAttrName());
+  }];
+
+  let extraClassDeclaration = [{
+    constexpr static llvm::StringRef fieldAttrName() { return "field_id"; }
+    constexpr static llvm::StringRef typeAttrName() { return "on_type"; }
+    mlir::Type getOnType() {
+      return getAttrOfType<TypeAttr>(typeAttrName()).getValue();
+    }
   }];
 }
 
@@ -1345,7 +1449,7 @@ def fir_LoopOp : fir_Op<"loop", [ImplicitFirTerminator]> {
   }];
   let arguments = (ins Index:$lowerBound, Index:$upperBound,
                    Variadic<Index>:$optstep, OptionalAttr<I32Attr>:$constep,
-                   OptionalAttr<BoolAttr>:$unordered);
+                   OptionalAttr<UnitAttr>:$unordered);
   let regions = (region SizedRegion<1>:$region);
   let skipDefaultBuilders = 1;
   let builders = [
@@ -1376,10 +1480,9 @@ def fir_LoopOp : fir_Op<"loop", [ImplicitFirTerminator]> {
     auto step = optstep();
     if (step.begin() != step.end()) {
       auto *s = (*step.begin())->getDefiningOp();
-      if (auto cst = dyn_cast_or_null<M::ConstantIndexOp>(s)) {
+      if (auto cst = dyn_cast_or_null<M::ConstantIndexOp>(s))
         if (cst.getValue() == 0)
           return emitOpError("constant step operand must be nonzero");
-      }
     }
 
     // Check that the body defines as single block argument for the induction
@@ -1746,10 +1849,17 @@ def fir_GenTypeDescOp : fir_OneResultOp<"gentypedesc", [NoSideEffect]> {
       return M::failure();
     return M::success();
   }];
+
   let printer = [{
     p << getOperationName() << ' ' << getAttr("in_type");
     p << " : " << getType();
     p.printOptionalAttrDict(getAttrs(), {"in_type"});
+  }];
+
+  let extraClassDeclaration = [{
+    mlir::Type getInType() {
+      return getAttrOfType<mlir::TypeAttr>("in_type").getType();
+    }
   }];
 }
 

@@ -541,13 +541,15 @@ class ExprLowering {
     L::SmallVector<M::Value *, 2> coorArgs;
     auto obj{gen(*base)};
     const Se::Symbol *sym{nullptr};
+    M::Type ty{translateSymbolToFIRType(builder.getContext(), defaults, *sym)};
     for (auto *field : list) {
       sym = &field->GetLastSymbol();
       auto name{sym->name().ToString()};
-      coorArgs.push_back(builder.create<fir::FieldIndexOp>(getLoc(), name));
+      // FIXME: as we're walking the chain of field names, we need to update the
+      // subtype as we drill down
+      coorArgs.push_back(builder.create<fir::FieldIndexOp>(getLoc(), name, ty));
     }
     assert(sym && "no component(s)?");
-    M::Type ty{translateSymbolToFIRType(builder.getContext(), defaults, *sym)};
     ty = fir::ReferenceType::get(ty);
     return builder.create<fir::CoordinateOp>(getLoc(), ty, obj, coorArgs);
   }

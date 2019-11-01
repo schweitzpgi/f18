@@ -249,9 +249,8 @@ void DispatchTableOp::build(M::Builder *builder, M::OperationState *result,
                             L::StringRef name, M::Type type,
                             L::ArrayRef<M::NamedAttribute> attrs) {
   result->addAttribute("method", builder->getStringAttr(name));
-  for (const auto &pair : attrs) {
+  for (const auto &pair : attrs)
     result->addAttribute(pair.first, pair.second);
-  }
 }
 
 M::ParseResult DispatchTableOp::parse(M::OpAsmParser &parser,
@@ -305,9 +304,8 @@ void GlobalOp::build(M::Builder *builder, M::OperationState *result,
   result->addAttribute(getTypeAttrName(), M::TypeAttr::get(type));
   result->addAttribute(M::SymbolTable::getSymbolAttrName(),
                        builder->getStringAttr(name));
-  for (const auto &pair : attrs) {
+  for (const auto &pair : attrs)
     result->addAttribute(pair.first, pair.second);
-  }
 }
 
 M::ParseResult GlobalOp::parse(M::OpAsmParser &parser,
@@ -321,17 +319,15 @@ M::ParseResult GlobalOp::parse(M::OpAsmParser &parser,
   auto &builder = parser.getBuilder();
   result.attributes.back().second = builder.getStringAttr(nameAttr.getValue());
 
-  if (parser.parseOptionalKeyword("constant")) {
-    result.addAttribute("constant", builder.getBoolAttr(false));
-  } else {
+  if (!parser.parseOptionalKeyword("constant")) {
     // if "constant" keyword then mark this as a constant, not a variable
-    result.addAttribute("constant", builder.getBoolAttr(true));
+    result.addAttribute("constant", builder.getUnitAttr());
   }
 
   M::Type globalType;
-  if (parser.parseColonType(globalType)) {
+  if (parser.parseColonType(globalType))
     return M::failure();
-  }
+
   result.addAttribute(getTypeAttrName(), M::TypeAttr::get(globalType));
 
   // Parse the optional initializer body.
@@ -349,7 +345,7 @@ void GlobalOp::print(M::OpAsmPrinter &p) {
   auto varName =
       getAttrOfType<StringAttr>(M::SymbolTable::getSymbolAttrName()).getValue();
   p << getOperationName() << " @" << varName;
-  if (getAttr("constant").cast<M::BoolAttr>().getValue())
+  if (getAttr("constant"))
     p << " constant";
   p << " : ";
   p.printType(getType());
@@ -415,6 +411,7 @@ M::ParseResult parseLoopOp(M::OpAsmParser &parser, M::OperationState &result) {
       parser.parseKeyword("to") || parser.parseOperand(ub) ||
       parser.resolveOperand(ub, indexType, result.operands))
     return M::failure();
+
   if (parser.parseOptionalKeyword(LoopOp::getStepKeyword())) {
     result.addAttribute(LoopOp::getStepKeyword(),
                         builder.getIntegerAttr(builder.getIndexType(), 1));
@@ -423,11 +420,8 @@ M::ParseResult parseLoopOp(M::OpAsmParser &parser, M::OperationState &result) {
     return M::failure();
   }
 
-  if (parser.parseOptionalKeyword("unordered")) {
-    // ok
-  } else {
-    result.addAttribute("unordered", builder.getBoolAttr(true));
-  }
+  if (!parser.parseOptionalKeyword("unordered"))
+    result.addAttribute("unordered", builder.getUnitAttr());
 
   // Parse the body region.
   M::Region *body = result.addRegion();
@@ -490,23 +484,21 @@ M::ParseResult parseWhereOp(M::OpAsmParser &parser, M::OperationState &result) {
       parser.resolveOperand(cond, i1Type, result.operands))
     return M::failure();
 
-  if (parser.parseRegion(*thenRegion, {}, {})) {
+  if (parser.parseRegion(*thenRegion, {}, {}))
     return M::failure();
-  }
+
   WhereOp::ensureTerminator(*thenRegion, parser.getBuilder(), result.location);
 
   if (!parser.parseOptionalKeyword("otherwise")) {
-    if (parser.parseRegion(*elseRegion, {}, {})) {
+    if (parser.parseRegion(*elseRegion, {}, {}))
       return M::failure();
-    }
     WhereOp::ensureTerminator(*elseRegion, parser.getBuilder(),
                               result.location);
   }
 
   // Parse the optional attribute list.
-  if (parser.parseOptionalAttributeDict(result.attributes)) {
+  if (parser.parseOptionalAttributeDict(result.attributes))
     return M::failure();
-  }
 
   return M::success();
 }
@@ -527,9 +519,8 @@ unsigned getCaseArgumentOffset(L::ArrayRef<M::Attribute> cases, unsigned dest) {
     auto &attr = cases[i];
     if (!attr.dyn_cast_or_null<M::UnitAttr>()) {
       ++o;
-      if (attr.dyn_cast_or_null<ClosedIntervalAttr>()) {
+      if (attr.dyn_cast_or_null<ClosedIntervalAttr>())
         ++o;
-      }
     }
   }
   return o;

@@ -43,6 +43,7 @@ struct DimsTypeStorage;
 struct FieldTypeStorage;
 struct HeapTypeStorage;
 struct IntTypeStorage;
+struct LenTypeStorage;
 struct LogicalTypeStorage;
 struct PointerTypeStorage;
 struct RealTypeStorage;
@@ -64,7 +65,8 @@ enum TypeKind {
   FIR_DIMS,
   FIR_FIELD,
   FIR_HEAP,
-  FIR_INT,     // intrinsic
+  FIR_INT, // intrinsic
+  FIR_LEN,
   FIR_LOGICAL, // intrinsic
   FIR_POINTER,
   FIR_REAL, // intrinsic
@@ -202,6 +204,14 @@ public:
                                mlir::MLIRContext *context, mlir::Type eleTy);
 };
 
+class LenType
+    : public mlir::Type::TypeBase<LenType, mlir::Type, detail::LenTypeStorage> {
+public:
+  using Base::Base;
+  static LenType get(mlir::MLIRContext *ctxt, KindTy _ = 0);
+  static bool kindof(unsigned kind) { return kind == TypeKind::FIR_LEN; }
+};
+
 class PointerType : public mlir::Type::TypeBase<PointerType, mlir::Type,
                                                 detail::PointerTypeStorage> {
 public:
@@ -243,6 +253,12 @@ public:
   mlir::Type getEleTy() const;
   Shape getShape() const;
   mlir::AffineMapAttr getLayoutMap() const;
+  unsigned getDimension() const {
+    auto shape = getShape();
+    if (shape.hasValue())
+      return shape->size();
+    return 0;
+  }
 
   static SequenceType get(const Shape &shape, mlir::Type elementType,
                           mlir::AffineMapAttr map = {});
@@ -282,6 +298,13 @@ public:
   llvm::StringRef getName();
   TypeList getTypeList();
   TypeList getLenParamList();
+
+  mlir::Type getType(llvm::StringRef ident);
+  mlir::Type getType(unsigned index) {
+    assert(index < getNumFields());
+    return getTypeList()[index].second;
+  }
+  unsigned getNumFields() { return getTypeList().size(); }
 
   static RecordType get(mlir::MLIRContext *ctxt, llvm::StringRef name);
   void finalize(llvm::ArrayRef<TypePair> lenPList,

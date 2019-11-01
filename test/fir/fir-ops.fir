@@ -70,14 +70,14 @@ func @instructions() {
   %18 = fir.boxproc_host %17 : (!fir.boxproc<(i32, i32) -> i64>) -> !fir.ref<i32>
   %19 = constant 10 : i32
   %20 = fir.coordinate_of %5, %19 : (!fir.heap<!fir.array<100:f32>>, i32) -> !fir.ref<f32>
-  %21 = fir.field_index("f") : !fir.field
+  %21 = fir.field_index f, !fir.type<derived{f:f32}>
   %22 = fir.undefined !fir.type<derived{f:f32}>
   %23 = fir.extract_value %22, %21 : (!fir.type<derived{f:f32}>, !fir.field) -> f32
   %c1 = constant 1 : i32
   %24 = fir.gendims %c1, %19, %c1 : (i32, i32, i32) -> !fir.dims<1>
   %cf1 = constant 1.0 : f32
   %25 = fir.insert_value %22, %cf1, %21 : (!fir.type<derived{f:f32}>, f32, !fir.field) -> !fir.type<derived{f:f32}>
-  %26 = fir.len_param_index("f") : !fir.field
+  %26 = fir.len_param_index f, !fir.type<derived3{f:f32}>
   %27 = fir.call @box4() : () -> !fir.box<!fir.type<derived3{f:f32}>>
   %28 = fir.dispatch "method"(%27) : (!fir.box<!fir.type<derived3{f:f32}>>) -> i32
   %29 = fir.convert %28 : (i32) -> i64

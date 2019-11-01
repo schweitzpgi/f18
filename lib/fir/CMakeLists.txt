@@ -18,6 +18,7 @@ add_llvm_library(FIR
   Attribute.cpp
   Dialect.cpp
   FIROps.cpp
+  InternalNames.cpp
   IteratedDominanceFrontier.cpp
   KindMapping.cpp
   StdConverter.cpp

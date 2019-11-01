@@ -1022,8 +1022,6 @@ void FIRConverter::translateRoutine(
   finalizeQueued();
 }
 
-M::DialectRegistration<fir::FIROpsDialect> FIROps;
-
 }  // namespace
 
 void Br::crossBurnsideBridge(BurnsideBridge &bridge, const Pa::Program &prg) {
