@@ -39,7 +39,7 @@ set(EXE_LIBS
   MLIRVectorToLLVM
 )
 
-add_llvm_executable(tco tco.cpp)
+add_llvm_tool(tco tco.cpp)
 llvm_update_compile_flags(tco)
 whole_archive_link(tco ${EXE_LIBS})
 target_link_libraries(tco PRIVATE FIR MLIRIR FirTcoLib ${EXE_LIBS} LLVMSupport)

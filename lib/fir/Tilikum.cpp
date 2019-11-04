@@ -90,7 +90,7 @@ public:
   M::LLVM::LLVMType offsetType() {
     return M::LLVM::LLVMType::getInt32Ty(llvmDialect);
   }
-  
+
   // i64 can be used to index into aggregates like arrays
   M::LLVM::LLVMType indexType() {
     return M::LLVM::LLVMType::getInt64Ty(llvmDialect);
@@ -416,6 +416,14 @@ M::LLVM::ConstantOp genConstantOffset(M::Location loc, M::LLVM::LLVMType ity,
   return rewriter.create<M::LLVM::ConstantOp>(loc, ity, cattr);
 }
 
+template <typename... ARGS>
+M::LLVM::GEPOp genGEP(M::Location loc, M::LLVM::LLVMType ty,
+                      M::ConversionPatternRewriter &rewriter, M::Value *base,
+                      ARGS... args) {
+  L::SmallVector<M::Value *, 8> cv{args...};
+  return rewriter.create<M::LLVM::GEPOp>(loc, ty, base, cv);
+}
+
 /// convert to returning the first element of the box (any flavor)
 struct BoxAddrOpConversion : public FIROpConversion<BoxAddrOp> {
   using FIROpConversion::FIROpConversion;
@@ -430,9 +438,8 @@ struct BoxAddrOpConversion : public FIROpConversion<BoxAddrOp> {
     if (auto argty = boxaddr.val()->getType().dyn_cast<BoxType>()) {
       auto ity = lowering.offsetType();
       auto c0 = genConstantOffset(loc, ity, rewriter, 0);
-      L::SmallVector<M::Value *, 4> args{a, c0, c0};
       auto pty = lowering.unwrap(ty).getPointerTo();
-      auto p = rewriter.create<M::LLVM::GEPOp>(loc, pty, args);
+      auto p = genGEP(loc, lowering.unwrap(pty), rewriter, a, c0, c0);
       rewriter.replaceOpWithNewOp<M::LLVM::LoadOp>(boxaddr, ty, p);
     } else {
       auto c0attr = rewriter.getI32IntegerAttr(0);
@@ -473,8 +480,7 @@ struct BoxDimsOpConversion : public FIROpConversion<BoxDimsOp> {
     auto c0 = genConstantOffset(loc, ity, rewriter, 0);
     auto c7 = genConstantOffset(loc, ity, rewriter, 7);
     auto ty = lowering.convertType(boxdims.getResult(0)->getType());
-    L::SmallVector<M::Value *, 4> args{a, c0, c7, dim};
-    auto p = rewriter.create<M::LLVM::GEPOp>(loc, ty, args);
+    auto p = genGEP(loc, lowering.unwrap(ty), rewriter, a, c0, c7, dim);
     rewriter.replaceOpWithNewOp<M::LLVM::LoadOp>(boxdims, ty, p);
     return matchSuccess();
   }
@@ -489,12 +495,11 @@ struct BoxEleSizeOpConversion : public FIROpConversion<BoxEleSizeOp> {
     auto boxelesz = M::cast<BoxEleSizeOp>(op);
     auto a = operands[0];
     auto loc = boxelesz.getLoc();
-    auto ty = lowering.convertType(boxelesz.getType());
     auto ity = lowering.offsetType();
     auto c0 = genConstantOffset(loc, ity, rewriter, 0);
     auto c1 = genConstantOffset(loc, ity, rewriter, 1);
-    L::SmallVector<M::Value *, 4> args{a, c0, c1};
-    auto p = rewriter.create<M::LLVM::GEPOp>(loc, ty, args);
+    auto ty = lowering.convertType(boxelesz.getType());
+    auto p = genGEP(loc, lowering.unwrap(ty), rewriter, a, c0, c1);
     rewriter.replaceOpWithNewOp<M::LLVM::LoadOp>(boxelesz, ty, p);
     return matchSuccess();
   }
@@ -509,12 +514,11 @@ struct BoxIsAllocOpConversion : public FIROpConversion<BoxIsAllocOp> {
     auto boxisalloc = M::cast<BoxIsAllocOp>(op);
     auto a = operands[0];
     auto loc = boxisalloc.getLoc();
-    auto ty = lowering.convertType(boxisalloc.getType());
     auto ity = lowering.offsetType();
     auto c0 = genConstantOffset(loc, ity, rewriter, 0);
     auto c5 = genConstantOffset(loc, ity, rewriter, 5);
-    L::SmallVector<M::Value *, 4> args{a, c0, c5};
-    auto p = rewriter.create<M::LLVM::GEPOp>(loc, ty, args);
+    auto ty = lowering.convertType(boxisalloc.getType());
+    auto p = genGEP(loc, lowering.unwrap(ty), rewriter, a, c0, c5);
     auto ld = rewriter.create<M::LLVM::LoadOp>(loc, ty, p);
     auto ab = genConstantOffset(loc, ity, rewriter, 2);
     auto bit = rewriter.create<M::LLVM::AndOp>(loc, ity, ld, ab);
@@ -533,12 +537,11 @@ struct BoxIsArrayOpConversion : public FIROpConversion<BoxIsArrayOp> {
     auto boxisarray = M::cast<BoxIsArrayOp>(op);
     auto a = operands[0];
     auto loc = boxisarray.getLoc();
-    auto ty = lowering.convertType(boxisarray.getType());
     auto ity = lowering.offsetType();
     auto c0 = genConstantOffset(loc, ity, rewriter, 0);
     auto c3 = genConstantOffset(loc, ity, rewriter, 3);
-    L::SmallVector<M::Value *, 4> args{a, c0, c3};
-    auto p = rewriter.create<M::LLVM::GEPOp>(loc, ty, args);
+    auto ty = lowering.convertType(boxisarray.getType());
+    auto p = genGEP(loc, lowering.unwrap(ty), rewriter, a, c0, c3);
     auto ld = rewriter.create<M::LLVM::LoadOp>(loc, ty, p);
     rewriter.replaceOpWithNewOp<M::LLVM::ICmpOp>(
         boxisarray, M::LLVM::ICmpPredicate::ne, ld, c0);
@@ -868,18 +871,10 @@ M::LLVM::BitcastOp genAllocaWithType(M::Location loc, M::LLVM::LLVMType toTy,
   return rewriter.create<M::LLVM::BitcastOp>(loc, toTy, al);
 }
 
-template <typename... ARGS>
-M::LLVM::GEPOp genGEP(M::Location loc, M::LLVM::LLVMType ty,
-                      M::ConversionPatternRewriter &rewriter, M::Value *base,
-                      ARGS... args) {
-  L::SmallVector<M::Value *, 8> cv{args...};
-  return rewriter.create<M::LLVM::GEPOp>(loc, ty, base, cv);
-}
-
 M::LLVM::BitcastOp genGEPToField(M::Location loc, M::LLVM::LLVMType ty,
                                  M::ConversionPatternRewriter &rewriter,
-                                 M::Value *base, M::Value *zero, M::LLVM::LLVMType ity,
-                                 int field) {
+                                 M::Value *base, M::Value *zero,
+                                 M::LLVM::LLVMType ity, int field) {
   auto coff = genConstantOffset(loc, ity, rewriter, field);
   auto gep = genGEP(loc, ty, rewriter, base, zero, coff);
   return rewriter.create<M::LLVM::BitcastOp>(loc, ty, gep);
@@ -896,10 +891,9 @@ struct EmboxOpConversion : public FIROpConversion<EmboxOp> {
     auto loc = embox.getLoc();
     auto dialect = getDialect();
     auto ty = lowering.unwrap(lowering.convertType(embox.getType()));
-    unsigned align = 8;
-    auto ity = lowering.indexType();
-    auto alloca = genAllocaWithType(loc, ty, dialect, ity, 24, align, rewriter);
+    const unsigned align = 8;
     auto oty = lowering.offsetType();
+    auto alloca = genAllocaWithType(loc, ty, dialect, oty, 24, align, rewriter);
     auto c0 = genConstantOffset(loc, oty, rewriter, 0);
     auto rty = lowering.unwrap(operands[0]->getType()).getPointerTo();
     auto f0p = genGEP(loc, rty, rewriter, alloca, c0, c0);
@@ -979,6 +973,25 @@ M::Attribute getValue(M::Value *value) {
   return {};
 }
 
+/// Generate an alloca of size `size` and cast it to type `toTy`
+M::LLVM::AllocaOp genAlloca(M::Location loc, M::LLVM::LLVMType toTy,
+                            unsigned alignment,
+                            FIRToLLVMTypeConverter &lowering,
+                            M::ConversionPatternRewriter &rewriter) {
+  auto thisPt = rewriter.saveInsertionPoint();
+  auto *thisBlock = rewriter.getInsertionBlock();
+  auto func = M::cast<M::LLVM::LLVMFuncOp>(thisBlock->getParentOp());
+  rewriter.setInsertionPointToStart(&func.front());
+  auto ity = lowering.offsetType();
+  auto size = genConstantOffset(loc, ity, rewriter, 1);
+  auto rv = rewriter.create<M::LLVM::AllocaOp>(loc, toTy, size, alignment);
+  rewriter.restoreInsertionPoint(thisPt);
+  return rv;
+}
+
+/// Is the size of the type constant at compile-time?
+bool staticSize(M::LLVM::LLVMType ty) { return true; }
+
 /// extract a subobject value from an ssa-value of aggregate type
 struct ExtractValueOpConversion : public FIROpConversion<fir::ExtractValueOp> {
   using FIROpConversion::FIROpConversion;
@@ -996,8 +1009,20 @@ struct ExtractValueOpConversion : public FIROpConversion<fir::ExtractValueOp> {
       auto position = M::ArrayAttr::get(attrs, extractVal.getContext());
       rewriter.replaceOpWithNewOp<M::LLVM::ExtractValueOp>(
           extractVal, ty, operands[0], position);
+    } else if (staticSize(lower.unwrap(ty))) {
+      auto loc = extractVal.getLoc();
+      const unsigned align = 8;
+      auto alloca = genAlloca(loc, lowering.unwrap(operands[0]->getType()),
+                              align, lowering, rewriter);
+      rewriter.create<M::LLVM::StoreOp>(loc, operands[0], alloca);
+      L::SmallVector<M::Value *, 8> offs;
+      for (int i = 1, end = operands.size(); i < end; ++i)
+        offs.push_back(operands[i]);
+      auto gep = genGEP(loc, lowering.unwrap(ty), rewriter, alloca, offs);
+      rewriter.replaceOpWithNewOp<M::LLVM::LoadOp>(extractVal, ty, gep);
     } else {
-      TODO(extractVal);
+      // FIXME: handle the case of a dynamic layout
+      TODO(0);
     }
     return matchSuccess();
   }
