@@ -1345,7 +1345,7 @@ def fir_LoopOp : fir_Op<"loop", [ImplicitFirTerminator]> {
   }];
   let arguments = (ins Index:$lowerBound, Index:$upperBound,
                    Variadic<Index>:$optstep, OptionalAttr<I32Attr>:$constep,
-                   OptionalAttr<BoolAttr>:$unordered);
+                   OptionalAttr<UnitAttr>:$unordered);
   let regions = (region SizedRegion<1>:$region);
   let skipDefaultBuilders = 1;
   let builders = [

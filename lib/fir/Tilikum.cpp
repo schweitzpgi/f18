@@ -78,8 +78,8 @@ public:
   FIRToLLVMTypeConverter(M::MLIRContext *context)
       : LLVMTypeConverter(context), kindMapping(context) {}
 
+  // This returns the type of a single column. Rows are added by the caller.
   // fir.dims<r>  -->  llvm<"[r x [3 x i64]]">
-  // FIXME
   M::LLVM::LLVMType dimsType() {
     auto i64Ty{M::LLVM::LLVMType::getInt64Ty(llvmDialect)};
     return M::LLVM::LLVMType::getArrayTy(i64Ty, 3);
@@ -185,9 +185,10 @@ public:
     return fromRealTypeID(kindMapping.getRealTypeID(kind), kind);
   }
 
-  // The cache is needed to keep a unique mapping from name -> StructType
+  // fir.type<name(p : TY'...){f : TY...}>  -->  llvm<"%name = { ty... }">
   M::LLVM::LLVMType convertRecordType(RecordType derived) {
     auto name{derived.getName()};
+    // The cache is needed to keep a unique mapping from name -> StructType
     auto iter{identStructCache.find(name)};
     if (iter != identStructCache.end())
       return iter->second;
@@ -212,6 +213,16 @@ public:
       return baseTy;
     }
     return baseTy.getPointerTo();
+  }
+
+  // tuple<TS...>  -->  llvm<"{ ts... }">
+  M::LLVM::LLVMType convertTupleType(M::TupleType tuple) {
+    L::SmallVector<M::Type, 8> inMembers;
+    tuple.getFlattenedTypes(inMembers);
+    L::SmallVector<M::LLVM::LLVMType, 8> members;
+    for (auto mem : inMembers)
+      members.push_back(convertType(mem).cast<M::LLVM::LLVMType>());
+    return M::LLVM::LLVMType::getStructTy(llvmDialect, members);
   }
 
   // fir.tdesc<any>  -->  llvm<"i8*">
@@ -255,6 +266,8 @@ public:
       return convertSequenceType(sequence);
     if (auto tdesc = t.dyn_cast<TypeDescType>())
       return convertTypeDescType(tdesc.getContext());
+    if (auto tuple = t.dyn_cast<M::TupleType>())
+      return convertTupleType(tuple);
     return LLVMTypeConverter::convertType(t);
   }
 
@@ -294,6 +307,7 @@ public:
 // instantiate static data member
 L::StringMap<M::LLVM::LLVMType> FIRToLLVMTypeConverter::identStructCache;
 
+/// remove `omitNames` (by name) from the attribute dictionary
 L::SmallVector<M::NamedAttribute, 4>
 pruneNamedAttrDict(L::ArrayRef<M::NamedAttribute> attrs,
                    L::ArrayRef<L::StringRef> omitNames) {
@@ -409,6 +423,41 @@ struct AllocMemOpConversion : public FIROpConversion<AllocMemOp> {
   }
 };
 
+/// obtain the free() function
+M::LLVM::LLVMFuncOp getFree(FreeMemOp op,
+                            M::ConversionPatternRewriter &rewriter,
+                            M::LLVM::LLVMDialect *dialect) {
+  auto module = op.getParentOfType<M::ModuleOp>();
+  if (auto freeFunc = module.lookupSymbol<M::LLVM::LLVMFuncOp>("free"))
+    return freeFunc;
+  M::OpBuilder moduleBuilder(op.getParentOfType<M::ModuleOp>().getBodyRegion());
+  auto voidType = M::LLVM::LLVMType::getVoidTy(dialect);
+  return moduleBuilder.create<M::LLVM::LLVMFuncOp>(
+      rewriter.getUnknownLoc(), "free",
+      M::LLVM::LLVMType::getFunctionTy(voidType, getVoidPtrType(dialect),
+                                       /*isVarArg=*/false));
+}
+
+/// lower a freemem instruction into a call to free()
+struct FreeMemOpConversion : public FIROpConversion<fir::FreeMemOp> {
+  using FIROpConversion::FIROpConversion;
+
+  M::PatternMatchResult
+  matchAndRewrite(M::Operation *op, OperandTy operands,
+                  M::ConversionPatternRewriter &rewriter) const override {
+    auto freemem = M::cast<fir::FreeMemOp>(op);
+    auto dialect = getDialect();
+    auto freeFunc = getFree(freemem, rewriter, dialect);
+    auto bitcast = rewriter.create<M::LLVM::BitcastOp>(
+        freemem.getLoc(), getVoidPtrType(dialect), operands[0]);
+    freemem.setAttr("callee", rewriter.getSymbolRefAttr(freeFunc));
+    rewriter.replaceOpWithNewOp<M::LLVM::CallOp>(
+        freemem, M::LLVM::LLVMType::getVoidTy(dialect),
+        L::SmallVector<M::Value *, 1>{bitcast}, freemem.getAttrs());
+    return matchSuccess();
+  }
+};
+
 M::LLVM::ConstantOp genConstantOffset(M::Location loc, M::LLVM::LLVMType ity,
                                       M::ConversionPatternRewriter &rewriter,
                                       int offset) {
@@ -440,6 +489,7 @@ struct BoxAddrOpConversion : public FIROpConversion<BoxAddrOp> {
       auto c0 = genConstantOffset(loc, ity, rewriter, 0);
       auto pty = lowering.unwrap(ty).getPointerTo();
       auto p = genGEP(loc, lowering.unwrap(pty), rewriter, a, c0, c0);
+      // load the pointer from the buffer
       rewriter.replaceOpWithNewOp<M::LLVM::LoadOp>(boxaddr, ty, p);
     } else {
       auto c0attr = rewriter.getI32IntegerAttr(0);
@@ -770,25 +820,6 @@ struct ConvertOpConversion : public FIROpConversion<ConvertOp> {
   }
 };
 
-/// convert to reference to a reference to a subobject
-struct CoordinateOpConversion : public FIROpConversion<CoordinateOp> {
-  using FIROpConversion::FIROpConversion;
-
-  M::PatternMatchResult
-  matchAndRewrite(M::Operation *op, OperandTy operands,
-                  M::ConversionPatternRewriter &rewriter) const override {
-    auto coor = M::cast<CoordinateOp>(op);
-
-    // The base can be a boxed reference or a raw reference
-    if (coor.ref()->getType().dyn_cast<BoxType>()) {
-    } else {
-    }
-
-    // walk the operands...
-    return matchSuccess();
-  }
-};
-
 /// virtual call to a method in a dispatch table
 struct DispatchOpConversion : public FIROpConversion<DispatchOp> {
   using FIROpConversion::FIROpConversion;
@@ -989,9 +1020,6 @@ M::LLVM::AllocaOp genAlloca(M::Location loc, M::LLVM::LLVMType toTy,
   return rv;
 }
 
-/// Is the size of the type constant at compile-time?
-bool staticSize(M::LLVM::LLVMType ty) { return true; }
-
 /// extract a subobject value from an ssa-value of aggregate type
 struct ExtractValueOpConversion : public FIROpConversion<fir::ExtractValueOp> {
   using FIROpConversion::FIROpConversion;
@@ -1001,29 +1029,91 @@ struct ExtractValueOpConversion : public FIROpConversion<fir::ExtractValueOp> {
                   M::ConversionPatternRewriter &rewriter) const override {
     auto extractVal = M::cast<ExtractValueOp>(op);
     auto ty = lowering.convertType(extractVal.getType());
-    // can we use LLVM's extractvalue instruction?
+    auto loc = extractVal.getLoc();
     if (allConstants(operands, 1)) {
+      // we can use LLVM's extractvalue instruction
       L::SmallVector<M::Attribute, 8> attrs;
       for (int i = 1, end = operands.size(); i < end; ++i)
         attrs.push_back(getValue(operands[i]));
       auto position = M::ArrayAttr::get(attrs, extractVal.getContext());
       rewriter.replaceOpWithNewOp<M::LLVM::ExtractValueOp>(
           extractVal, ty, operands[0], position);
-    } else if (staticSize(lower.unwrap(ty))) {
-      auto loc = extractVal.getLoc();
+    } else {
+      // we use a getelementptr instruction to find the value to extract
       const unsigned align = 8;
-      auto alloca = genAlloca(loc, lowering.unwrap(operands[0]->getType()),
-                              align, lowering, rewriter);
+      auto aggPtrTy = lowering.unwrap(operands[0]->getType()).getPointerTo();
+      auto alloca = genAlloca(loc, aggPtrTy, align, lowering, rewriter);
       rewriter.create<M::LLVM::StoreOp>(loc, operands[0], alloca);
+      auto c0 = genConstantOffset(loc, lowering.offsetType(), rewriter, 0);
       L::SmallVector<M::Value *, 8> offs;
+      offs.push_back(c0);
       for (int i = 1, end = operands.size(); i < end; ++i)
         offs.push_back(operands[i]);
-      auto gep = genGEP(loc, lowering.unwrap(ty), rewriter, alloca, offs);
+      auto pty = lowering.unwrap(ty).getPointerTo();
+      auto gep = genGEP(loc, pty, rewriter, alloca, offs);
       rewriter.replaceOpWithNewOp<M::LLVM::LoadOp>(extractVal, ty, gep);
-    } else {
-      // FIXME: handle the case of a dynamic layout
-      TODO(0);
     }
+    return matchSuccess();
+  }
+};
+
+/// InsertValue is the generalized instruction for the composition of new
+/// aggregate type values.
+struct InsertValueOpConversion : public FIROpConversion<InsertValueOp> {
+  using FIROpConversion::FIROpConversion;
+
+  M::PatternMatchResult
+  matchAndRewrite(M::Operation *op, OperandTy operands,
+                  M::ConversionPatternRewriter &rewriter) const override {
+    auto insertVal = cast<InsertValueOp>(op);
+    auto ty = lowering.convertType(insertVal.getType());
+    auto loc = insertVal.getLoc();
+    if (allConstants(operands, 2)) {
+      // we can use LLVM's extractvalue instruction
+      L::SmallVector<M::Attribute, 8> attrs;
+      for (int i = 2, end = operands.size(); i < end; ++i)
+        attrs.push_back(getValue(operands[i]));
+      auto position = M::ArrayAttr::get(attrs, insertVal.getContext());
+      rewriter.replaceOpWithNewOp<M::LLVM::InsertValueOp>(
+          insertVal, ty, operands[0], operands[1], position);
+    } else {
+      // we use a getelementptr instruction to find the position that the value
+      // should be inserted and return a new aggregate value
+      auto loc = insertVal.getLoc();
+      const unsigned align = 8;
+      auto aggPtrTy = lowering.unwrap(operands[0]->getType()).getPointerTo();
+      auto alloca = genAlloca(loc, aggPtrTy, align, lowering, rewriter);
+      rewriter.create<M::LLVM::StoreOp>(loc, operands[0], alloca);
+      auto c0 = genConstantOffset(loc, lowering.offsetType(), rewriter, 0);
+      L::SmallVector<M::Value *, 8> offs;
+      offs.push_back(c0);
+      for (int i = 2, end = operands.size(); i < end; ++i)
+        offs.push_back(operands[i]);
+      auto gep = genGEP(loc, lowering.unwrap(ty).getPointerTo(), rewriter,
+                        alloca, offs);
+      rewriter.create<M::LLVM::StoreOp>(loc, operands[1], gep);
+      rewriter.replaceOpWithNewOp<M::LLVM::LoadOp>(insertVal, aggPtrTy, alloca);
+    }
+    return matchSuccess();
+  }
+};
+
+/// convert to reference to a reference to a subobject
+struct CoordinateOpConversion : public FIROpConversion<CoordinateOp> {
+  using FIROpConversion::FIROpConversion;
+
+  M::PatternMatchResult
+  matchAndRewrite(M::Operation *op, OperandTy operands,
+                  M::ConversionPatternRewriter &rewriter) const override {
+    auto coor = M::cast<CoordinateOp>(op);
+
+    // The base can be a boxed reference or a raw reference
+    if (coor.ref()->getType().dyn_cast<BoxType>()) {
+      // FIXME!
+    } else {
+    }
+
+    // walk the operands...
     return matchSuccess();
   }
 };
@@ -1039,12 +1129,36 @@ struct FieldIndexOpConversion : public FIROpConversion<fir::FieldIndexOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto fieldindex = M::cast<FieldIndexOp>(op);
-    rewriter.replaceOp(fieldindex, {});
+    auto oty = lowering.offsetType();
+    // FIXME: lower to the correct offset or a runtime call
+    auto c0 = genConstantOffset(fieldindex.getLoc(), oty, rewriter, 0);
+    rewriter.replaceOp(fieldindex, c0.getResult());
     return matchSuccess();
   }
 };
 
-// Replace the fir-end op with a null
+// Compute the index of the LEN param in the descriptor addendum.  A value of
+// type field can only be used as an argument to a coordinate_of operation. It
+// derives it's meaning from the context of where it is used.  A LEN parameter
+// cannot be an aggregate itself and thus a LenParamIndexOp can appear only once
+// and must be last in the argument list.
+struct LenParamIndexOpConversion
+    : public FIROpConversion<fir::LenParamIndexOp> {
+  using FIROpConversion::FIROpConversion;
+
+  M::PatternMatchResult
+  matchAndRewrite(M::Operation *op, OperandTy operands,
+                  M::ConversionPatternRewriter &rewriter) const override {
+    auto lenparam = M::cast<LenParamIndexOp>(op);
+    auto oty = lowering.offsetType();
+    // FIXME: generate the correct offset
+    auto c0 = genConstantOffset(lenparam.getLoc(), oty, rewriter, 0);
+    rewriter.replaceOp(lenparam, c0.getResult());
+    return matchSuccess();
+  }
+};
+
+/// lower the fir.end operation to a null (erasing it)
 struct FirEndOpConversion : public FIROpConversion<FirEndOp> {
   using FIROpConversion::FIROpConversion;
 
@@ -1056,40 +1170,7 @@ struct FirEndOpConversion : public FIROpConversion<FirEndOp> {
   }
 };
 
-M::LLVM::LLVMFuncOp getFree(FreeMemOp op,
-                            M::ConversionPatternRewriter &rewriter,
-                            M::LLVM::LLVMDialect *dialect) {
-  auto module = op.getParentOfType<M::ModuleOp>();
-  if (auto freeFunc = module.lookupSymbol<M::LLVM::LLVMFuncOp>("free"))
-    return freeFunc;
-  M::OpBuilder moduleBuilder(op.getParentOfType<M::ModuleOp>().getBodyRegion());
-  auto voidType = M::LLVM::LLVMType::getVoidTy(dialect);
-  return moduleBuilder.create<M::LLVM::LLVMFuncOp>(
-      rewriter.getUnknownLoc(), "free",
-      M::LLVM::LLVMType::getFunctionTy(voidType, getVoidPtrType(dialect),
-                                       /*isVarArg=*/false));
-}
-
-// call free function
-struct FreeMemOpConversion : public FIROpConversion<fir::FreeMemOp> {
-  using FIROpConversion::FIROpConversion;
-
-  M::PatternMatchResult
-  matchAndRewrite(M::Operation *op, OperandTy operands,
-                  M::ConversionPatternRewriter &rewriter) const override {
-    auto freemem = M::cast<fir::FreeMemOp>(op);
-    auto dialect = getDialect();
-    auto freeFunc = getFree(freemem, rewriter, dialect);
-    auto bitcast = rewriter.create<M::LLVM::BitcastOp>(
-        freemem.getLoc(), getVoidPtrType(dialect), operands[0]);
-    freemem.setAttr("callee", rewriter.getSymbolRefAttr(freeFunc));
-    rewriter.replaceOpWithNewOp<M::LLVM::CallOp>(
-        freemem, M::LLVM::LLVMType::getVoidTy(dialect),
-        L::SmallVector<M::Value *, 1>{bitcast}, freemem.getAttrs());
-    return matchSuccess();
-  }
-};
-
+/// lower a gendims operation into a sequence of writes to a temp
 struct GenDimsOpConversion : public FIROpConversion<GenDimsOp> {
   using FIROpConversion::FIROpConversion;
 
@@ -1098,7 +1179,22 @@ struct GenDimsOpConversion : public FIROpConversion<GenDimsOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto gendims = M::cast<GenDimsOp>(op);
-    TODO(gendims);
+    auto loc = gendims.getLoc();
+    auto ty = lowering.convertType(gendims.getType());
+    auto ptrTy = lowering.unwrap(ty).getPointerTo();
+    const unsigned alignment = 8;
+    auto alloca = genAlloca(loc, ptrTy, alignment, lowering, rewriter);
+    auto oty = lowering.offsetType();
+    unsigned offIndex = 0;
+    auto c0 = genConstantOffset(loc, oty, rewriter, 0);
+    auto ity = lowering.indexType();
+    auto ipty = ity.getPointerTo();
+    for (auto op : operands) {
+      auto offset = genConstantOffset(loc, oty, rewriter, offIndex);
+      auto gep = genGEP(loc, ipty, rewriter, alloca, c0, offset);
+      rewriter.create<M::LLVM::StoreOp>(loc, op, gep);
+    }
+    rewriter.replaceOpWithNewOp<M::LLVM::LoadOp>(gendims, ptrTy, alloca);
     return matchSuccess();
   }
 };
@@ -1136,7 +1232,7 @@ struct GlobalOpConversion : public FIROpConversion<fir::GlobalOp> {
     auto global = M::cast<fir::GlobalOp>(op);
     auto tyAttr = M::TypeAttr::get(lowering.convertType(global.getType()));
     M::UnitAttr isConst;
-    if (global.getAttrOfType<M::BoolAttr>("constant").getValue())
+    if (global.getAttr("constant"))
       isConst = M::UnitAttr::get(global.getContext());
     auto name = M::StringAttr::get(
         global.getAttrOfType<M::StringAttr>(M::SymbolTable::getSymbolAttrName())
@@ -1147,50 +1243,6 @@ struct GlobalOpConversion : public FIROpConversion<fir::GlobalOp> {
         rewriter.getI32IntegerAttr(0);
     rewriter.replaceOpWithNewOp<M::LLVM::GlobalOp>(global, tyAttr, isConst,
                                                    name, value, addrSpace);
-    return matchSuccess();
-  }
-};
-
-/// InsertValue is the generalized instruction for the composition of new
-/// aggregate type values.
-struct InsertValueOpConversion : public FIROpConversion<InsertValueOp> {
-  using FIROpConversion::FIROpConversion;
-
-  M::PatternMatchResult
-  matchAndRewrite(M::Operation *op, OperandTy operands,
-                  M::ConversionPatternRewriter &rewriter) const override {
-    auto insertVal = cast<InsertValueOp>(op);
-    auto ty = lowering.convertType(insertVal.getType());
-    // can we use LLVM's extractvalue instruction?
-    if (allConstants(operands, 2)) {
-      L::SmallVector<M::Attribute, 8> attrs;
-      for (int i = 2, end = operands.size(); i < end; ++i)
-        attrs.push_back(getValue(operands[i]));
-      auto position = M::ArrayAttr::get(attrs, insertVal.getContext());
-      rewriter.replaceOpWithNewOp<M::LLVM::InsertValueOp>(
-          insertVal, ty, operands[0], operands[1], position);
-    } else {
-      // offsets must be computed at runtime
-      TODO(insertVal);
-    }
-    return matchSuccess();
-  }
-};
-
-// Compute the index of the LEN param in the descriptor addendum.  A value of
-// type field can only be used as an argument to a coordinate_of, extract_value,
-// or insert_value operation. It derives it's meaning from the context of where
-// it is used.  A LEN parameter cannot be an aggregate itself and thus a
-// LenParamIndexOp can appear only once and must be last in the argument list.
-struct LenParamIndexOpConversion
-    : public FIROpConversion<fir::LenParamIndexOp> {
-  using FIROpConversion::FIROpConversion;
-
-  M::PatternMatchResult
-  matchAndRewrite(M::Operation *op, OperandTy operands,
-                  M::ConversionPatternRewriter &rewriter) const override {
-    auto lenparam = M::cast<LenParamIndexOp>(op);
-    rewriter.replaceOp(lenparam, {});
     return matchSuccess();
   }
 };
