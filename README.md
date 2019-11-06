@@ -36,7 +36,7 @@ This is quite similar to the old way, but with a few subtle differences.
 4. Create a build space for cmake and make/ninja
 
 ```
-  mkdir build; cd build; cmake ../f18-llvm-project/llvm -DCMAKE_BUILD_TYPE=Debug -DLLVM_TARGETS_TO_BUILD=X86 -DLLVM_ENABLE_PROJECTS=flang -DCMAKE_CXX_STANDARD=17 <other-arguments>
+  mkdir build; cd build; cmake ../f18-llvm-project/llvm -DCMAKE_BUILD_TYPE=Debug -DLLVM_TARGETS_TO_BUILD=X86 -DLLVM_EXTERNAL_PROJECTS=flang -DLLVM_ENABLE_PROJECTS=flang -DCMAKE_CXX_STANDARD=17 <other-arguments>
 ```
 
 
