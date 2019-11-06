@@ -43,6 +43,7 @@ struct DimsTypeStorage;
 struct FieldTypeStorage;
 struct HeapTypeStorage;
 struct IntTypeStorage;
+struct LenTypeStorage;
 struct LogicalTypeStorage;
 struct PointerTypeStorage;
 struct RealTypeStorage;
@@ -65,6 +66,7 @@ enum TypeKind {
   FIR_FIELD,
   FIR_HEAP,
   FIR_INT,     // intrinsic
+  FIR_LEN,
   FIR_LOGICAL, // intrinsic
   FIR_POINTER,
   FIR_REAL, // intrinsic
@@ -200,6 +202,14 @@ public:
   static mlir::LogicalResult
   verifyConstructionInvariants(llvm::Optional<mlir::Location> loc,
                                mlir::MLIRContext *context, mlir::Type eleTy);
+};
+
+class LenType
+    : public mlir::Type::TypeBase<LenType, mlir::Type, detail::LenTypeStorage> {
+public:
+  using Base::Base;
+  static LenType get(mlir::MLIRContext *ctxt, KindTy _ = 0);
+  static bool kindof(unsigned kind) { return kind == TypeKind::FIR_LEN; }
 };
 
 class PointerType : public mlir::Type::TypeBase<PointerType, mlir::Type,

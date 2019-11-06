@@ -87,10 +87,17 @@ def fir_DimsType : Type<CPred<"$_self.isa<fir::DimsType>()">, "dim type">;
 def fir_TypeDescType : Type<CPred<"$_self.isa<fir::TypeDescType>()">,
     "type desc type">;
 def fir_FieldType : Type<CPred<"$_self.isa<fir::FieldType>()">, "field type">;
+def fir_LenType : Type<CPred<"$_self.isa<fir::LenType>()">,
+    "LEN parameter type">;
 
-def AnyCoordinateLike : TypeConstraint<Or<[AnyInteger.predicate,
+def AnyComponentLike : TypeConstraint<Or<[AnyInteger.predicate,
     Index.predicate, fir_IntegerType.predicate, fir_FieldType.predicate]>,
     "any coordinate index">;
+def AnyComponentType : Type<AnyComponentLike.predicate, "coordinate type">;
+
+def AnyCoordinateLike : TypeConstraint<Or<[AnyInteger.predicate,
+    Index.predicate, fir_IntegerType.predicate, fir_FieldType.predicate,
+    fir_LenType.predicate]>, "any coordinate index">;
 def AnyCoordinateType : Type<AnyCoordinateLike.predicate, "coordinate type">;
 
 class fir_Op<string mnemonic, list<OpTrait> traits>
@@ -1141,7 +1148,7 @@ def fir_CoordinateOp : fir_Op<"coordinate_of", [NoSideEffect]>,
 }
 
 def fir_ExtractValueOp : fir_OneResultOp<"extract_value", [NoSideEffect]>,
-    Arguments<(ins AnyCompositeLike:$adt, Variadic<AnyCoordinateType>:$coor)> {
+    Arguments<(ins AnyCompositeLike:$adt, Variadic<AnyComponentType>:$coor)> {
   let summary = "Extract a value from an aggregate SSA-value";
 
   let description = [{
@@ -1256,7 +1263,7 @@ def fir_GenDimsOp : fir_OneResultOp<"gendims", [NoSideEffect]>,
 
 def fir_InsertValueOp : fir_OneResultOp<"insert_value", [NoSideEffect]>,
     Arguments<(ins AnyCompositeLike:$adt, AnyType:$val,
-    Variadic<AnyCoordinateType>:$coor)> {
+    Variadic<AnyComponentType>:$coor)> {
   let summary = "insert a new sub-value into a copy of an existing aggregate";
 
   let description = [{
@@ -1291,12 +1298,10 @@ def fir_LenParamIndexOp : fir_OneResultOp<"len_param_index", [NoSideEffect]> {
     "create a field index value from a LEN type parameter identifier";
 
   let description = [{
-    Generate a field (offset) value from an LEN parameter identifier.  Field
-    values may be lowered into exact offsets when the layout of a Fortran
-    derived type is known at compile-time. The type of a field value is
-    `!fir.field` and these values can be used with the `fir.coordinate_of`,
-    `fir.extract_value`, or `fir.insert_value` instructions to compute
-    (abstract) addresses of subobjects.
+    Generate a LEN parameter (offset) value from an LEN parameter identifier.
+    The type of a LEN parameter value is `!fir.len` and these values can be
+    used with the `fir.coordinate_of` instructions to compute (abstract)
+    addresses of LEN parameters.
   }];
 
   let arguments = (ins StrAttr:$field_id);
@@ -1320,17 +1325,21 @@ def fir_LenParamIndexOp : fir_OneResultOp<"len_param_index", [NoSideEffect]> {
       result.addAttribute("field_id",
           parser.getBuilder().getStringAttr(fieldName));
     }
-    M::Type type;
-    if (parser.parseRParen() ||
-        parser.parseColonType(type) ||
-        parser.addTypeToList(type, result.types))
+    if (parser.parseRParen())
       return M::failure();
+    auto lenType = fir::LenType::get(parser.getBuilder().getContext());
+    result.addAttribute("out_type", M::TypeAttr::get(lenType));
     return M::success();
   }];
 
   let printer = [{
-    p << getOperationName() << " (" << getAttr("field_id") << ") : "
-      << getType();
+    p << getOperationName() << " (" << getAttr("field_id") << ')';
+  }];
+
+  let extraClassDeclaration = [{
+    mlir::Type getType() {
+      return getAttrOfType<mlir::TypeAttr>("out_type").getValue();
+    }
   }];
 }
 

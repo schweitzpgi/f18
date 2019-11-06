@@ -426,6 +426,12 @@ protected:
     return FieldType::get(getContext());
   }
 
+  LenType parseLen() {
+    if (checkAtEnd())
+      return {};
+    return LenType::get(getContext());
+  }
+
   // `logical` `<` kind `>`
   LogicalType parseLogical() { return parseKindSingleton<LogicalType>(); }
 
@@ -615,8 +621,8 @@ bool verifyIntegerType(M::Type ty) {
 bool verifyRecordMemberType(M::Type ty) {
   return !(ty.dyn_cast<BoxType>() || ty.dyn_cast<BoxCharType>() ||
            ty.dyn_cast<BoxProcType>() || ty.dyn_cast<DimsType>() ||
-           ty.dyn_cast<FieldType>() || ty.dyn_cast<ReferenceType>() ||
-           ty.dyn_cast<TypeDescType>());
+           ty.dyn_cast<FieldType>() || ty.dyn_cast<LenType>() ||
+           ty.dyn_cast<ReferenceType>() || ty.dyn_cast<TypeDescType>());
 }
 
 bool verifySameLists(L::ArrayRef<RecordType::TypePair> a1,
@@ -717,14 +723,18 @@ M::Type FIRTypeParser::parseType() {
   if (token.kind == TokenKind::ident) {
     if (token.text == "ref")
       return parseReference();
+    if (token.text == "int")
+      return parseInteger();
     if (token.text == "array")
       return parseSequence();
+    if (token.text == "real")
+      return parseReal();
+    if (token.text == "complex")
+      return parseComplex();
     if (token.text == "char")
       return parseCharacter();
     if (token.text == "logical")
       return parseLogical();
-    if (token.text == "real")
-      return parseReal();
     if (token.text == "type")
       return parseDerived();
     if (token.text == "box")
@@ -739,14 +749,12 @@ M::Type FIRTypeParser::parseType() {
       return parseHeap();
     if (token.text == "dims")
       return parseDims();
-    if (token.text == "tdesc")
-      return parseTypeDesc();
     if (token.text == "field")
       return parseField();
-    if (token.text == "int")
-      return parseInteger();
-    if (token.text == "complex")
-      return parseComplex();
+    if (token.text == "len")
+      return parseLen();
+    if (token.text == "tdesc")
+      return parseTypeDesc();
     if (token.text == "void")
       return parseVoid();
     emitError(loc, "not a known fir type");
@@ -836,6 +844,24 @@ struct FieldTypeStorage : public M::TypeStorage {
 private:
   FieldTypeStorage() = delete;
   explicit FieldTypeStorage(KindTy) {}
+};
+
+/// The type of a derived type LEN parameter reference
+struct LenTypeStorage : public M::TypeStorage {
+  using KeyTy = KindTy;
+
+  static unsigned hashKey(const KeyTy &) { return L::hash_combine(0); }
+
+  bool operator==(const KeyTy &) const { return true; }
+
+  static LenTypeStorage *construct(M::TypeStorageAllocator &allocator, KindTy) {
+    auto *storage = allocator.allocate<LenTypeStorage>();
+    return new (storage) LenTypeStorage{0};
+  }
+
+private:
+  LenTypeStorage() = delete;
+  explicit LenTypeStorage(KindTy) {}
 };
 
 /// `LOGICAL` storage
@@ -1250,6 +1276,12 @@ FieldType fir::FieldType::get(M::MLIRContext *ctxt, KindTy) {
   return Base::get(ctxt, FIR_FIELD, 0);
 }
 
+// Len
+
+LenType fir::LenType::get(M::MLIRContext *ctxt, KindTy) {
+  return Base::get(ctxt, FIR_LEN, 0);
+}
+
 // LOGICAL
 
 LogicalType fir::LogicalType::get(M::MLIRContext *ctxt, KindTy kind) {
@@ -1342,7 +1374,8 @@ M::Type fir::ReferenceType::getEleTy() const {
 M::LogicalResult fir::ReferenceType::verifyConstructionInvariants(
     L::Optional<M::Location> loc, M::MLIRContext *context, M::Type eleTy) {
   if (eleTy.dyn_cast<DimsType>() || eleTy.dyn_cast<FieldType>() ||
-      eleTy.dyn_cast<ReferenceType>() || eleTy.dyn_cast<TypeDescType>())
+      eleTy.dyn_cast<LenType>() || eleTy.dyn_cast<ReferenceType>() ||
+      eleTy.dyn_cast<TypeDescType>())
     return M::failure();
   return M::success();
 }
@@ -1365,9 +1398,9 @@ M::LogicalResult fir::PointerType::verifyConstructionInvariants(
     L::Optional<M::Location> loc, M::MLIRContext *context, M::Type eleTy) {
   if (eleTy.dyn_cast<BoxType>() || eleTy.dyn_cast<BoxCharType>() ||
       eleTy.dyn_cast<BoxProcType>() || eleTy.dyn_cast<DimsType>() ||
-      eleTy.dyn_cast<FieldType>() || eleTy.dyn_cast<HeapType>() ||
-      eleTy.dyn_cast<PointerType>() || eleTy.dyn_cast<ReferenceType>() ||
-      eleTy.dyn_cast<TypeDescType>())
+      eleTy.dyn_cast<FieldType>() || eleTy.dyn_cast<LenType>() ||
+      eleTy.dyn_cast<HeapType>() || eleTy.dyn_cast<PointerType>() ||
+      eleTy.dyn_cast<ReferenceType>() || eleTy.dyn_cast<TypeDescType>())
     return M::failure();
   return M::success();
 }
@@ -1388,9 +1421,9 @@ M::LogicalResult fir::HeapType::verifyConstructionInvariants(
     L::Optional<M::Location> loc, M::MLIRContext *context, M::Type eleTy) {
   if (eleTy.dyn_cast<BoxType>() || eleTy.dyn_cast<BoxCharType>() ||
       eleTy.dyn_cast<BoxProcType>() || eleTy.dyn_cast<DimsType>() ||
-      eleTy.dyn_cast<FieldType>() || eleTy.dyn_cast<HeapType>() ||
-      eleTy.dyn_cast<PointerType>() || eleTy.dyn_cast<ReferenceType>() ||
-      eleTy.dyn_cast<TypeDescType>())
+      eleTy.dyn_cast<FieldType>() || eleTy.dyn_cast<LenType>() ||
+      eleTy.dyn_cast<HeapType>() || eleTy.dyn_cast<PointerType>() ||
+      eleTy.dyn_cast<ReferenceType>() || eleTy.dyn_cast<TypeDescType>())
     return M::failure();
   return M::success();
 }
@@ -1421,9 +1454,10 @@ M::LogicalResult fir::SequenceType::verifyConstructionInvariants(
   // DIMENSION attribute can only be applied to an intrinsic or record type
   if (eleTy.dyn_cast<BoxType>() || eleTy.dyn_cast<BoxCharType>() ||
       eleTy.dyn_cast<BoxProcType>() || eleTy.dyn_cast<DimsType>() ||
-      eleTy.dyn_cast<FieldType>() || eleTy.dyn_cast<HeapType>() ||
-      eleTy.dyn_cast<PointerType>() || eleTy.dyn_cast<ReferenceType>() ||
-      eleTy.dyn_cast<TypeDescType>() || eleTy.dyn_cast<SequenceType>())
+      eleTy.dyn_cast<FieldType>() || eleTy.dyn_cast<LenType>() ||
+      eleTy.dyn_cast<HeapType>() || eleTy.dyn_cast<PointerType>() ||
+      eleTy.dyn_cast<ReferenceType>() || eleTy.dyn_cast<TypeDescType>() ||
+      eleTy.dyn_cast<SequenceType>())
     return M::failure();
   return M::success();
 }
@@ -1515,8 +1549,8 @@ M::LogicalResult fir::TypeDescType::verifyConstructionInvariants(
     L::Optional<M::Location> loc, M::MLIRContext *context, M::Type eleTy) {
   if (eleTy.dyn_cast<BoxType>() || eleTy.dyn_cast<BoxCharType>() ||
       eleTy.dyn_cast<BoxProcType>() || eleTy.dyn_cast<DimsType>() ||
-      eleTy.dyn_cast<FieldType>() || eleTy.dyn_cast<ReferenceType>() ||
-      eleTy.dyn_cast<TypeDescType>())
+      eleTy.dyn_cast<FieldType>() || eleTy.dyn_cast<LenType>() ||
+      eleTy.dyn_cast<ReferenceType>() || eleTy.dyn_cast<TypeDescType>())
     return M::failure();
   return M::success();
 }
@@ -1549,6 +1583,8 @@ public:
       os << '>';
     } else if (auto type = ty.dyn_cast<fir::FieldType>()) {
       os << "field";
+    } else if (auto type = ty.dyn_cast<fir::LenType>()) {
+      os << "len";
     } else if (auto type = ty.dyn_cast<fir::BoxType>()) {
       os << "box<";
       type.getEleTy().print(os);
