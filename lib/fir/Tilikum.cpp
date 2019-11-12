@@ -510,6 +510,7 @@ struct BoxAddrOpConversion : public FIROpConversion<BoxAddrOp> {
   }
 };
 
+/// convert to an extractvalue for the 2nd part of the boxchar
 struct BoxCharLenOpConversion : public FIROpConversion<BoxCharLenOp> {
   using FIROpConversion::FIROpConversion;
 
@@ -526,6 +527,7 @@ struct BoxCharLenOpConversion : public FIROpConversion<BoxCharLenOp> {
   }
 };
 
+/// convert to a triple set of GEPs and loads
 struct BoxDimsOpConversion : public FIROpConversion<BoxDimsOp> {
   using FIROpConversion::FIROpConversion;
 
@@ -538,10 +540,23 @@ struct BoxDimsOpConversion : public FIROpConversion<BoxDimsOp> {
     auto loc = boxdims.getLoc();
     auto c0 = genConstantOffset(loc, rewriter, 0);
     auto c7 = genConstantOffset(loc, rewriter, 7);
-    auto ty = convertType(boxdims.getResult(0)->getType());
-    auto p = genGEP(loc, unwrap(ty), rewriter, a, c0, c7, dim);
-    rewriter.replaceOpWithNewOp<M::LLVM::LoadOp>(boxdims, ty, p);
+    auto l0 = loadFromOffset(boxdims, loc, a, c0, c7, dim, 0, rewriter);
+    auto l1 = loadFromOffset(boxdims, loc, a, c0, c7, dim, 1, rewriter);
+    auto l2 = loadFromOffset(boxdims, loc, a, c0, c7, dim, 2, rewriter);
+    rewriter.replaceOp(boxdims,
+                       {l0.getResult(), l1.getResult(), l2.getResult()});
     return matchSuccess();
+  }
+
+  M::LLVM::LoadOp loadFromOffset(BoxDimsOp boxdims, M::Location loc,
+                                 M::Value *a, M::LLVM::ConstantOp c0,
+                                 M::LLVM::ConstantOp c7, M::Value *dim, int off,
+                                 M::ConversionPatternRewriter &rewriter) const {
+    auto ty = convertType(boxdims.getResult(off)->getType());
+    auto pty = unwrap(ty).getPointerTo();
+    auto c = genConstantOffset(loc, rewriter, off);
+    auto p = genGEP(loc, pty, rewriter, a, c0, c7, dim, c);
+    return rewriter.create<M::LLVM::LoadOp>(loc, ty, p);
   }
 };
 
@@ -685,6 +700,20 @@ struct BoxTypeDescOpConversion : public FIROpConversion<BoxTypeDescOp> {
     auto ld = rewriter.create<M::LLVM::LoadOp>(loc, ty, p);
     auto i8ptr = M::LLVM::LLVMType::getInt8PtrTy(getDialect());
     rewriter.replaceOpWithNewOp<M::LLVM::IntToPtrOp>(boxtypedesc, i8ptr, ld);
+    return matchSuccess();
+  }
+};
+
+struct ConstantOpConversion : public FIROpConversion<fir::ConstantOp> {
+  using FIROpConversion::FIROpConversion;
+
+  M::PatternMatchResult
+  matchAndRewrite(M::Operation *op, OperandTy operands,
+                  M::ConversionPatternRewriter &rewriter) const override {
+    auto constop = M::cast<fir::ConstantOp>(op);
+    auto ty = convertType(constop.getType());
+    auto attr = constop.getValue();
+    rewriter.replaceOpWithNewOp<M::LLVM::ConstantOp>(constop, ty, attr);
     return matchSuccess();
   }
 };
@@ -1893,20 +1922,20 @@ struct FIRToLLVMLoweringPass : public M::ModulePass<FIRToLLVMLoweringPass> {
         BoxIsAllocOpConversion, BoxIsArrayOpConversion, BoxIsPtrOpConversion,
         BoxProcHostOpConversion, BoxRankOpConversion, BoxTypeDescOpConversion,
         CallOpConversion, CmpcOpConversion, CmpfOpConversion,
-        ConvertOpConversion, CoordinateOpConversion, DispatchOpConversion,
-        DispatchTableOpConversion, DivcOpConversion, DivfOpConversion,
-        DTEntryOpConversion, EmboxCharOpConversion, EmboxOpConversion,
-        EmboxProcOpConversion, FieldIndexOpConversion, FirEndOpConversion,
-        ExtractValueOpConversion, FreeMemOpConversion, GenDimsOpConversion,
-        GenTypeDescOpConversion, GlobalEntryOpConversion, GlobalOpConversion,
-        InsertValueOpConversion, LenParamIndexOpConversion, LoadOpConversion,
-        LoopOpConversion, ModfOpConversion, MulcOpConversion, MulfOpConversion,
-        NegcOpConversion, NegfOpConversion, NoReassocOpConversion,
-        SelectCaseOpConversion, SelectOpConversion, SelectRankOpConversion,
-        SelectTypeOpConversion, StoreOpConversion, SubcOpConversion,
-        SubfOpConversion, UnboxCharOpConversion, UnboxOpConversion,
-        UnboxProcOpConversion, UndefOpConversion, UnreachableOpConversion,
-        WhereOpConversion>(&context, typeConverter);
+        ConstantOpConversion, ConvertOpConversion, CoordinateOpConversion,
+        DispatchOpConversion, DispatchTableOpConversion, DivcOpConversion,
+        DivfOpConversion, DTEntryOpConversion, EmboxCharOpConversion,
+        EmboxOpConversion, EmboxProcOpConversion, FieldIndexOpConversion,
+        FirEndOpConversion, ExtractValueOpConversion, FreeMemOpConversion,
+        GenDimsOpConversion, GenTypeDescOpConversion, GlobalEntryOpConversion,
+        GlobalOpConversion, InsertValueOpConversion, LenParamIndexOpConversion,
+        LoadOpConversion, LoopOpConversion, ModfOpConversion, MulcOpConversion,
+        MulfOpConversion, NegcOpConversion, NegfOpConversion,
+        NoReassocOpConversion, SelectCaseOpConversion, SelectOpConversion,
+        SelectRankOpConversion, SelectTypeOpConversion, StoreOpConversion,
+        SubcOpConversion, SubfOpConversion, UnboxCharOpConversion,
+        UnboxOpConversion, UnboxProcOpConversion, UndefOpConversion,
+        UnreachableOpConversion, WhereOpConversion>(&context, typeConverter);
     M::populateStdToLLVMConversionPatterns(typeConverter, patterns);
     M::ConversionTarget target{context};
     target.addLegalDialect<M::LLVM::LLVMDialect>();

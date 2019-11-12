@@ -43,6 +43,16 @@ M::Type AllocMemOp::getAllocatedType() {
 
 M::Type AllocMemOp::getRefTy(M::Type ty) { return HeapType::get(ty); }
 
+// BoxDimsOp
+
+/// Get the result types packed in a tuple tuple
+M::Type BoxDimsOp::getTupleType() {
+  L::SmallVector<M::Type, 3> triple{getResult(0)->getType(),
+                                    getResult(1)->getType(),
+                                    getResult(2)->getType()};
+  return mlir::TupleType::get(triple, getContext());
+}
+
 // CallOp
 
 void printCallOp(M::OpAsmPrinter &p, fir::CallOp &op) {

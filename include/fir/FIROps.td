@@ -1081,6 +1081,10 @@ def fir_BoxDimsOp : fir_Op<"box_dims", [NoSideEffect]>,
     p << " : ";
     p.printFunctionalType(getOperation());
   }];
+
+  let extraClassDeclaration = [{
+    mlir::Type getTupleType();
+  }];
 }
 
 def fir_BoxEleSizeOp : fir_SimpleOneResultOp<"box_elesize", [NoSideEffect]>,
@@ -1643,6 +1647,37 @@ def fir_DispatchOp : fir_Op<"dispatch", []>,
     operand_iterator arg_operand_end() { return operand_end(); }
     llvm::StringRef passArgAttrName() { return "pass_arg_pos"; }
     unsigned passArgPos();
+  }];
+}
+
+// Constant operations that support Fortran
+
+def fir_ConstantOp : fir_Op<"constant", [NoSideEffect]>,
+    Results<(outs AnyType)> {
+  let parser = [{
+    M::Attribute attr;
+    M::Type type;
+    if (parser.parseLParen() ||
+        parser.parseAttribute(attr, value(), result.attributes) ||
+        parser.parseRParen() ||
+        parser.parseColonType(type) ||
+        parser.addTypesToList(type, result.types))
+      return M::failure();
+    return M::success();
+  }];
+
+  let printer = [{
+    p << getOperationName() << '(' << getAttr(value())
+      << ") : " << getType();
+  }];
+
+  //let verifier = [{
+  // FIXME!
+  //}];
+
+  let extraClassDeclaration = [{
+    constexpr static char const *value() { return "value"; }
+    mlir::Attribute getValue() { return getAttr(value()); }
   }];
 }
 
