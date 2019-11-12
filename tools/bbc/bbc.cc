@@ -23,7 +23,7 @@
 #include "../../lib/common/default-kinds.h"
 #include "../../lib/parser/characters.h"
 #include "../../lib/parser/dump-parse-tree.h"
-#include "../../lib/parser/flang-features.h"
+#include "../../lib/common/Fortran-features.h"
 #include "../../lib/parser/message.h"
 #include "../../lib/parser/parse-tree-visitor.h"
 #include "../../lib/parser/parse-tree.h"
