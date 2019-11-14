@@ -15,13 +15,11 @@
 add_llvm_library(FIRTransforms
   CSE.cpp
   MemToReg.cpp
+  LINK_LIBS
+  FIR
 )
 
 add_dependencies(FIRTransforms FIROpsIncGen)
-
-target_link_libraries(FIRTransforms
-  FIR
-)
 
 install (TARGETS FIRTransforms
   ARCHIVE DESTINATION lib

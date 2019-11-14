@@ -23,8 +23,11 @@ set(LIBS
   MLIRSupport
 )
 
-add_llvm_library(FirTcoLib tco.cpp)
-target_link_libraries(FirTcoLib ${LIBS})
+add_llvm_library(FirTcoLib
+  tco.cpp
+  LINK_LIBS
+  ${LIBS}
+)
 
 set(EXE_LIBS
   ${LIBS}
