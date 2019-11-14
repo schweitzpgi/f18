@@ -14,7 +14,7 @@
 
 #include "runtime.h"
 #include "builder.h"
-#include "fir/Type.h"
+#include "fir/FIRType.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"

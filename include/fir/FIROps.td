@@ -212,7 +212,7 @@ class fir_AllocatableOp<string mnemonic, list<OpTrait> traits =[]> :
             parser.getNameLoc(), result.operands))
       return M::failure();
     M::Type restype;
-    if (parser.parseOptionalAttributeDict(result.attributes) ||
+    if (parser.parseOptionalAttrDict(result.attributes) ||
         parser.parseColonType(restype) ||
         parser.addTypeToList(restype, result.types))
       return M::failure();
@@ -302,7 +302,7 @@ def fir_LoadOp : fir_OneResultOp<"load", []>,
     M::Type type;
     M::OpAsmParser::OperandType oper;
     if (parser.parseOperand(oper) ||
-        parser.parseOptionalAttributeDict(result.attributes) ||
+        parser.parseOptionalAttrDict(result.attributes) ||
         parser.parseColonType(type) ||
         parser.resolveOperand(oper, type, result.operands))
        return M::failure();
@@ -342,7 +342,7 @@ def fir_StoreOp : fir_Op<"store", []>,
     if (parser.parseOperand(oper) ||
         parser.parseKeyword("to") ||
         parser.parseOperand(store) ||
-        parser.parseOptionalAttributeDict(result.attributes) ||
+        parser.parseOptionalAttrDict(result.attributes) ||
         parser.parseColonType(type) ||
         parser.resolveOperand(oper, elementType(type),
           result.operands) ||
@@ -429,7 +429,7 @@ def fir_FreeMemOp : fir_Op<"freemem", []>,
     M::Type type;
     M::OpAsmParser::OperandType oper;
     if (parser.parseOperand(oper) ||
-        parser.parseOptionalAttributeDict(result.attributes) ||
+        parser.parseOptionalAttrDict(result.attributes) ||
         parser.parseColonType(type) ||
         parser.resolveOperand(oper, type, result.operands))
       return M::failure();
@@ -1614,7 +1614,7 @@ def fir_DispatchOp : fir_Op<"dispatch", []>,
           parser.getBuilder().getStringAttr(calleeName));
     }
     if (parser.parseOperandList(operands, M::OpAsmParser::Delimiter::Paren) ||
-        parser.parseOptionalAttributeDict(result.attributes) ||
+        parser.parseOptionalAttrDict(result.attributes) ||
         parser.parseColonType(calleeType) ||
         parser.addTypesToList(calleeType.getResults(), result.types) ||
         parser.resolveOperands(
@@ -1654,21 +1654,22 @@ def fir_DispatchOp : fir_Op<"dispatch", []>,
 
 def fir_ConstantOp : fir_Op<"constant", [NoSideEffect]>,
     Results<(outs AnyType)> {
+  let summary = "create a constant of FIR type";
+
+  let description = [{
+    An FIR constant
+  }];
+
   let parser = [{
-    M::Attribute attr;
-    M::Type type;
-    if (parser.parseLParen() ||
-        parser.parseAttribute(attr, value(), result.attributes) ||
-        parser.parseRParen() ||
-        parser.parseColonType(type) ||
-        parser.addTypesToList(type, result.types))
+    M::StringAttr attr;
+    if (parser.parseAttribute(attr, value(), result.attributes) ||
+        parser.addTypesToList(attr.getType(), result.types))
       return M::failure();
     return M::success();
   }];
 
   let printer = [{
-    p << getOperationName() << '(' << getAttr(value())
-      << ") : " << getType();
+    p << getOperationName() << ' ' << getAttr(value());
   }];
 
   //let verifier = [{
@@ -1820,7 +1821,7 @@ def fir_AddrOfOp : fir_OneResultOp<"address_of", [NoSideEffect]> {
     if (parser.parseLParen() ||
         parser.parseAttribute(attr, "symbol", result.attributes) ||
         parser.parseRParen() ||
-        parser.parseOptionalAttributeDict(result.attributes) ||
+        parser.parseOptionalAttrDict(result.attributes) ||
         parser.parseColonType(type) ||
         parser.addTypeToList(type, result.types))
       return M::failure();
@@ -1847,7 +1848,7 @@ def fir_ConvertOp : fir_OneResultOp<"convert", [NoSideEffect]>,
     llvm::SmallVector<M::OpAsmParser::OperandType, 1> operands;
     if (parser.parseOperandList(operands, 1,
             M::OpAsmParser::Delimiter::None) ||
-        parser.parseOptionalAttributeDict(result.attributes) ||
+        parser.parseOptionalAttrDict(result.attributes) ||
         parser.parseColonType(type) ||
         parser.resolveOperands(operands, type.getInputs(),
             parser.getNameLoc(), result.operands) ||
@@ -1949,7 +1950,7 @@ def fir_GlobalEntryOp : fir_Op<"global_entry", []>,
     }
     if (parser.parseComma() ||
         parser.parseOperand(constant) ||
-        parser.parseOptionalAttributeDict(result.attributes) ||
+        parser.parseOptionalAttrDict(result.attributes) ||
         parser.parseColonType(type) ||
         parser.resolveOperand(constant, type, result.operands))
       return M::failure();

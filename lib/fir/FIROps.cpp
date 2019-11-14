@@ -14,8 +14,9 @@
 
 #include "fir/FIROps.h"
 #include "fir/Attribute.h"
-#include "fir/Type.h"
+#include "fir/FIRType.h"
 #include "mlir/Dialect/StandardOps/Ops.h"
+#include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/StandardTypes.h"
 #include "mlir/IR/SymbolTable.h"
 #include "llvm/ADT/StringSwitch.h"
@@ -60,7 +61,7 @@ void printCallOp(M::OpAsmPrinter &p, fir::CallOp &op) {
   bool isDirect = callee.hasValue();
   p << op.getOperationName() << ' ';
   if (isDirect)
-    p.printSymbolName(callee.getValue());
+    p << callee.getValue();
   else
     p << *op.getOperand(0);
   p << '(';
@@ -88,7 +89,7 @@ M::ParseResult parseCallOp(M::OpAsmParser &parser, M::OperationState &result) {
   Type type;
 
   if (parser.parseOperandList(operands, M::OpAsmParser::Delimiter::Paren) ||
-      parser.parseOptionalAttributeDict(attrs) || parser.parseColon() ||
+      parser.parseOptionalAttrDict(attrs) || parser.parseColon() ||
       parser.parseType(type))
     return M::failure();
 
@@ -200,7 +201,7 @@ M::ParseResult parseCmpOp(M::OpAsmParser &parser, M::OperationState &result) {
   if (parser.parseAttribute(predicateNameAttr, OPTY::getPredicateAttrName(),
                             attrs) ||
       parser.parseComma() || parser.parseOperandList(ops, 2) ||
-      parser.parseOptionalAttributeDict(attrs) || parser.parseColonType(type) ||
+      parser.parseOptionalAttrDict(attrs) || parser.parseColonType(type) ||
       parser.resolveOperands(ops, type, result.operands))
     return failure();
 
@@ -272,7 +273,7 @@ M::ParseResult DispatchTableOp::parse(M::OpAsmParser &parser,
 
   // Convert the parsed name attr into a string attr.
   result.attributes.back().second =
-      parser.getBuilder().getStringAttr(nameAttr.getValue());
+      parser.getBuilder().getStringAttr(nameAttr.getRootReference());
 
   // Parse the optional table body.
   M::Region *body = result.addRegion();
@@ -327,7 +328,8 @@ M::ParseResult GlobalOp::parse(M::OpAsmParser &parser,
     return failure();
 
   auto &builder = parser.getBuilder();
-  result.attributes.back().second = builder.getStringAttr(nameAttr.getValue());
+  auto name = nameAttr.getRootReference();
+  result.attributes.back().second = builder.getStringAttr(name);
 
   if (!parser.parseOptionalKeyword("constant")) {
     // if "constant" keyword then mark this as a constant, not a variable
@@ -422,13 +424,12 @@ M::ParseResult parseLoopOp(M::OpAsmParser &parser, M::OperationState &result) {
       parser.resolveOperand(ub, indexType, result.operands))
     return M::failure();
 
-  if (parser.parseOptionalKeyword(LoopOp::getStepKeyword())) {
+  if (parser.parseOptionalKeyword(LoopOp::getStepKeyword()))
     result.addAttribute(LoopOp::getStepKeyword(),
                         builder.getIntegerAttr(builder.getIndexType(), 1));
-  } else if (parser.parseOperand(step) ||
-             parser.resolveOperand(step, indexType, result.operands)) {
+  else if (parser.parseOperand(step) ||
+           parser.resolveOperand(step, indexType, result.operands))
     return M::failure();
-  }
 
   if (!parser.parseOptionalKeyword("unordered"))
     result.addAttribute("unordered", builder.getUnitAttr());
@@ -441,17 +442,15 @@ M::ParseResult parseLoopOp(M::OpAsmParser &parser, M::OperationState &result) {
   fir::LoopOp::ensureTerminator(*body, builder, result.location);
 
   // Parse the optional attribute list.
-  if (parser.parseOptionalAttributeDict(result.attributes)) {
+  if (parser.parseOptionalAttrDict(result.attributes))
     return M::failure();
-  }
   return M::success();
 }
 
 fir::LoopOp getForInductionVarOwner(M::Value *val) {
   auto *ivArg = dyn_cast<M::BlockArgument>(val);
-  if (!ivArg) {
+  if (!ivArg)
     return fir::LoopOp();
-  }
   assert(ivArg->getOwner() && "unlinked block argument");
   auto *containingInst = ivArg->getOwner()->getParentOp();
   return dyn_cast_or_null<fir::LoopOp>(containingInst);
@@ -507,7 +506,7 @@ M::ParseResult parseWhereOp(M::OpAsmParser &parser, M::OperationState &result) {
   }
 
   // Parse the optional attribute list.
-  if (parser.parseOptionalAttributeDict(result.attributes))
+  if (parser.parseOptionalAttrDict(result.attributes))
     return M::failure();
 
   return M::success();

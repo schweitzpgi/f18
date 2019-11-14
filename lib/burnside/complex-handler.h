@@ -19,7 +19,7 @@
 
 #include "fe-helper.h"
 #include "fir/FIROps.h"
-#include "fir/Type.h"
+#include "fir/FIRType.h"
 
 namespace Fortran::burnside {
 /// Provide helpers to generate Complex manipulations in FIR.

@@ -16,9 +16,9 @@
 #include "builder.h"
 #include "convert-expr.h"
 #include "fe-helper.h"
-#include "fir/Dialect.h"
+#include "fir/FIRDialect.h"
 #include "fir/FIROps.h"
-#include "fir/Type.h"
+#include "fir/FIRType.h"
 #include "flattened.h"
 #include "intrinsics.h"
 #include "io.h"
@@ -166,13 +166,13 @@ class FIRConverter {
     return {};
   }
   M::Value *genGE(M::Value *lhs, M::Value *rhs) {
-    return genCompare<M::CmpIPredicate::SGE>(lhs, rhs);
+    return genCompare<M::CmpIPredicate::sge>(lhs, rhs);
   }
   M::Value *genLE(M::Value *lhs, M::Value *rhs) {
-    return genCompare<M::CmpIPredicate::SLE>(lhs, rhs);
+    return genCompare<M::CmpIPredicate::sle>(lhs, rhs);
   }
   M::Value *genEQ(M::Value *lhs, M::Value *rhs) {
-    return genCompare<M::CmpIPredicate::EQ>(lhs, rhs);
+    return genCompare<M::CmpIPredicate::eq>(lhs, rhs);
   }
   M::Value *genAND(M::Value *lhs, M::Value *rhs) {
     return build().create<M::AndOp>(lhs->getLoc(), lhs, rhs);
@@ -364,7 +364,8 @@ class FIRConverter {
     auto &fas{stmt.statement};
     auto &ctrl{std::get<Co::Indirection<Pa::ConcurrentHeader>>(fas.t).value()};
     auto &bld{build()};
-    (void)ctrl; (void)bld; // FIXME
+    (void)ctrl;
+    (void)bld;  // FIXME
     // bld.create<fir::LoopOp>();
     for (auto &s : std::get<std::list<Pa::ForallBodyConstruct>>(forall.t)) {
       genFIROnVariant(s);
@@ -453,7 +454,7 @@ class FIRConverter {
       auto zero{build().create<M::ConstantOp>(
           load.getLoc(), build().getIntegerAttr(load.getType(), 0))};
       auto cond{build().create<M::CmpIOp>(
-          load.getLoc(), M::CmpIPredicate::SGT, load, zero)};
+          load.getLoc(), M::CmpIPredicate::sgt, load, zero)};
       info->condition = cond;
     }
   }
@@ -464,6 +465,7 @@ class FIRConverter {
     build().create<M::CallOp>(toLocation(), callee, operands);
     build().create<fir::UnreachableOp>(toLocation());
   }
+
   void genReturnStmt(AnalysisData &, const Pa::FunctionSubprogram &func) {
     auto &stmt{std::get<Pa::Statement<Pa::FunctionStmt>>(func.t)};
     auto &name{std::get<Pa::Name>(stmt.statement.t)};
@@ -475,9 +477,11 @@ class FIRConverter {
     M::Value *resultVal{build().create<fir::LoadOp>(toLocation(), resultRef)};
     build().create<M::ReturnOp>(toLocation(), resultVal);
   }
+
   void genReturnStmt(const Pa::MainProgram &) {
     build().create<M::ReturnOp>(toLocation());
   }
+
   void genReturnStmt(
       const Pa::SubroutineSubprogram &, const Pa::ReturnStmt * = nullptr) {
     // TODO use Pa::ReturnStmt for alternate return

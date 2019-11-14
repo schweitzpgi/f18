@@ -7,7 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "fir/Analysis/IteratedDominanceFrontier.h"
-#include "fir/Dialect.h"
+#include "fir/FIRDialect.h"
 #include "fir/FIROps.h"
 #include "fir/Transforms/Passes.h"
 #include "mlir/Analysis/Dominance.h"

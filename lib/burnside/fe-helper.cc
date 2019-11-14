@@ -14,7 +14,7 @@
 
 #include "fe-helper.h"
 #include "bridge.h"
-#include "fir/Type.h"
+#include "fir/FIRType.h"
 #include "../semantics/expression.h"
 #include "../semantics/tools.h"
 #include "../semantics/type.h"

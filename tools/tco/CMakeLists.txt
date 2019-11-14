@@ -15,6 +15,7 @@
 set(LIBS
   FIR
   FIRTransforms
+  MLIRAffineToStandard
   MLIRAnalysis
   MLIRLLVMIR
   MLIRParser

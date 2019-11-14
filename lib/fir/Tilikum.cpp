@@ -14,10 +14,10 @@
 
 #include "fir/Tilikum/Tilikum.h"
 #include "fir/Attribute.h"
-#include "fir/Dialect.h"
+#include "fir/FIRDialect.h"
 #include "fir/FIROps.h"
+#include "fir/FIRType.h"
 #include "fir/KindMapping.h"
-#include "fir/Type.h"
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVM.h"
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVMPass.h"
 #include "mlir/Dialect/AffineOps/AffineOps.h"
@@ -206,12 +206,13 @@ public:
   // fir.array<c ... :any>  -->  llvm<"[...[c x any]]">
   M::LLVM::LLVMType convertSequenceType(SequenceType seq) {
     auto baseTy = unwrap(convertType(seq.getEleTy()));
-    if (auto shape = seq.getShape()) {
-      for (auto e : shape.getValue())
-        if (e.hasValue())
-          baseTy = M::LLVM::LLVMType::getArrayTy(baseTy, e.getValue());
-        else
-          return baseTy.getPointerTo();
+    auto shape = seq.getShape();
+    if (shape.size()) {
+      for (auto e : shape) {
+        if (e < 0)
+          e = 0;
+        baseTy = M::LLVM::LLVMType::getArrayTy(baseTy, e);
+      }
       return baseTy;
     }
     return baseTy.getPointerTo();
@@ -272,6 +273,8 @@ public:
       return convertTypeDescType(tdesc.getContext());
     if (auto tuple = t.dyn_cast<M::TupleType>())
       return convertTupleType(tuple);
+    if (auto none = t.dyn_cast<M::NoneType>())
+      return M::LLVM::LLVMType::getStructTy(llvmDialect, {});
     return LLVMTypeConverter::convertType(t);
   }
 
@@ -348,6 +351,7 @@ protected:
   M::Type convertType(M::Type ty) const { return lowering.convertType(ty); }
   M::LLVM::LLVMType unwrap(M::Type ty) const { return lowering.unwrap(ty); }
   M::LLVM::LLVMType voidPtrTy() const { return getVoidPtrType(getDialect()); }
+
   M::LLVM::ConstantOp genConstantOffset(M::Location loc,
                                         M::ConversionPatternRewriter &rewriter,
                                         int offset) const {
@@ -368,8 +372,8 @@ struct AddrOfOpConversion : public FIROpConversion<fir::AddrOfOp> {
     auto addr = M::cast<fir::AddrOfOp>(op);
     auto ty = unwrap(convertType(addr.getType()));
     auto attrs = pruneNamedAttrDict(addr.getAttrs(), {"symbol"});
-    rewriter.replaceOpWithNewOp<M::LLVM::AddressOfOp>(addr, ty, addr.symbol(),
-                                                      attrs);
+    rewriter.replaceOpWithNewOp<M::LLVM::AddressOfOp>(
+        addr, ty, addr.symbol().getRootReference(), attrs);
     return matchSuccess();
   }
 };
@@ -711,8 +715,15 @@ struct ConstantOpConversion : public FIROpConversion<fir::ConstantOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto constop = M::cast<fir::ConstantOp>(op);
-    auto ty = convertType(constop.getType());
+    auto ty_ = constop.getType();
+    auto ty = convertType(ty_);
     auto attr = constop.getValue();
+    auto attr_ = attr.cast<M::StringAttr>();
+    if (auto ft = ty_.dyn_cast<fir::RealType>()) {
+      auto kind = ft.getFKind();
+      L::APFloat f{L::APFloat::IEEEdouble(), attr_.getValue()};
+      attr = M::FloatAttr::get(M::FloatType::getF64(constop.getContext()), f);
+    }
     rewriter.replaceOpWithNewOp<M::LLVM::ConstantOp>(constop, ty, attr);
     return matchSuccess();
   }
@@ -1198,6 +1209,8 @@ struct CoordinateOpConversion : public FIROpConversion<CoordinateOp> {
   }
 };
 
+/// convert a field index to a runtime function that computes the byte offset of
+/// the dynamic field
 struct FieldIndexOpConversion : public FIROpConversion<fir::FieldIndexOp> {
   using FIROpConversion::FIROpConversion;
 
@@ -1206,17 +1219,23 @@ struct FieldIndexOpConversion : public FIROpConversion<fir::FieldIndexOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto field = M::cast<FieldIndexOp>(op);
-    L::Twine tyName = field.on_type().dyn_cast<RecordType>().getName();
-    L::Twine fldName = field.field_id();
     // call the compiler generated function to determine the byte offset of
     // the field at runtime
-    auto methodName = "_QQOFFSETOF_" + tyName + "_" + fldName;
-    auto symAttr = M::SymbolRefAttr::get(methodName.str(), field.getContext());
+    auto symAttr = M::SymbolRefAttr::get(methodName(field), field.getContext());
     L::SmallVector<M::NamedAttribute, 1> attrs{
         rewriter.getNamedAttr("callee", symAttr)};
     auto ty = lowering.offsetType();
     rewriter.replaceOpWithNewOp<M::LLVM::CallOp>(field, ty, operands, attrs);
     return matchSuccess();
+  }
+
+  // constructing the name of the method
+  inline static std::string methodName(FieldIndexOp field) {
+    L::Twine fldName = field.field_id();
+    // note: using std::string to dodge a bug in g++ 7.4.0
+    std::string tyName = field.on_type().cast<RecordType>().getName();
+    L::Twine methodName = "_QQOFFSETOF_" + tyName + "_" + fldName;
+    return methodName.str();
   }
 };
 

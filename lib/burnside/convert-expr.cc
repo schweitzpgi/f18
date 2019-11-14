@@ -14,11 +14,11 @@
 
 #include "convert-expr.h"
 #include "builder.h"
-#include "complex.h"
+#include "complex-handler.h"
 #include "fe-helper.h"
-#include "fir/Dialect.h"
+#include "fir/FIRDialect.h"
 #include "fir/FIROps.h"
-#include "fir/Type.h"
+#include "fir/FIRType.h"
 #include "intrinsics.h"
 #include "runtime.h"
 #include "../common/default-kinds.h"
@@ -80,12 +80,12 @@ class ExprLowering {
   /// unordered, but we may want to cons ordered in certain situation.
   static M::CmpIPredicate translateRelational(Co::RelationalOperator rop) {
     switch (rop) {
-    case Co::RelationalOperator::LT: return M::CmpIPredicate::SLT;
-    case Co::RelationalOperator::LE: return M::CmpIPredicate::SLE;
-    case Co::RelationalOperator::EQ: return M::CmpIPredicate::EQ;
-    case Co::RelationalOperator::NE: return M::CmpIPredicate::NE;
-    case Co::RelationalOperator::GT: return M::CmpIPredicate::SGT;
-    case Co::RelationalOperator::GE: return M::CmpIPredicate::SGE;
+    case Co::RelationalOperator::LT: return M::CmpIPredicate::slt;
+    case Co::RelationalOperator::LE: return M::CmpIPredicate::sle;
+    case Co::RelationalOperator::EQ: return M::CmpIPredicate::eq;
+    case Co::RelationalOperator::NE: return M::CmpIPredicate::ne;
+    case Co::RelationalOperator::GT: return M::CmpIPredicate::sgt;
+    case Co::RelationalOperator::GE: return M::CmpIPredicate::sge;
     }
     assert(false && "unhandled INTEGER relational operator");
     return {};
@@ -407,10 +407,10 @@ class ExprLowering {
       break;
     case Ev::LogicalOperator::Or: result = createLogicalOp<M::OrOp>(op); break;
     case Ev::LogicalOperator::Eqv:
-      result = createCompareOp<M::CmpIOp>(op, M::CmpIPredicate::EQ);
+      result = createCompareOp<M::CmpIOp>(op, M::CmpIPredicate::eq);
       break;
     case Ev::LogicalOperator::Neqv:
-      result = createCompareOp<M::CmpIOp>(op, M::CmpIPredicate::NE);
+      result = createCompareOp<M::CmpIOp>(op, M::CmpIPredicate::ne);
       break;
     }
     if (!result) {

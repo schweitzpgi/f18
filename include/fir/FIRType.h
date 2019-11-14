@@ -12,12 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef FIR_TYPE_H
-#define FIR_TYPE_H
+#ifndef DIALECT_FIR_FIRTYPE_H
+#define DIALECT_FIR_FIRTYPE_H
 
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Types.h"
-#include "llvm/ADT/Optional.h"
+#include "llvm/ADT/SmallVector.h"
 
 namespace llvm {
 class raw_ostream;
@@ -26,6 +26,11 @@ template <typename>
 class ArrayRef;
 class hash_code;
 } // namespace llvm
+
+namespace mlir {
+class DialectAsmParser;
+class DialectAsmPrinter;
+} // namespace mlir
 
 namespace fir {
 
@@ -245,20 +250,13 @@ class SequenceType : public mlir::Type::TypeBase<SequenceType, mlir::Type,
                                                  detail::SequenceTypeStorage> {
 public:
   using Base::Base;
-  using BoundInfo = int64_t;
-  using Extent = llvm::Optional<BoundInfo>;
-  using Bounds = std::vector<Extent>;
-  using Shape = llvm::Optional<Bounds>;
+  using Extent = int64_t;
+  using Shape = llvm::SmallVector<Extent, 8>;
 
   mlir::Type getEleTy() const;
   Shape getShape() const;
   mlir::AffineMapAttr getLayoutMap() const;
-  unsigned getDimension() const {
-    auto shape = getShape();
-    if (shape.hasValue())
-      return shape->size();
-    return 0;
-  }
+  unsigned getDimension() const { return getShape().size(); }
 
   static SequenceType get(const Shape &shape, mlir::Type elementType,
                           mlir::AffineMapAttr map = {});
@@ -320,17 +318,10 @@ public:
                                llvm::StringRef name);
 };
 
-mlir::Type parseFirType(FIROpsDialect *dialect, llvm::StringRef rawData,
-                        mlir::Location loc);
+mlir::Type parseFirType(FIROpsDialect *, mlir::DialectAsmParser &parser);
 
-void printFirType(FIROpsDialect *dialect, mlir::Type ty, llvm::raw_ostream &os);
+void printFirType(FIROpsDialect *, mlir::Type ty, mlir::DialectAsmPrinter &p);
 
 } // namespace fir
 
-namespace llvm {
-inline llvm::hash_code hash_value(const Optional<int64_t> &ext) {
-  return fir::hash_value(ext);
-}
-} // namespace llvm
-
-#endif // FIR_TYPE_H
+#endif // DIALECT_FIR_FIRTYPE_H

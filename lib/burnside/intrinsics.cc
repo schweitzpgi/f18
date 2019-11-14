@@ -14,10 +14,10 @@
 
 #include "intrinsics.h"
 #include "builder.h"
-#include "complex.h"
+#include "complex-handler.h"
 #include "fe-helper.h"
 #include "fir/FIROps.h"
-#include "fir/Type.h"
+#include "fir/FIRType.h"
 #include "runtime.h"
 #include "llvm/ADT/Optional.h"
 #include "llvm/ADT/Twine.h"
@@ -118,7 +118,7 @@ private:
 
   /// Define the different FIR generators that can be mapped to intrinsic to
   /// generate the related code.
-  using Generator = mlir::Value *(Implementation::*)(Context &)const;
+  using Generator = mlir::Value *(Implementation::*)(Context &) const;
   /// Search a runtime function that is associated to the generic intrinsic name
   /// and whose signature matches the intrinsic arguments and result types.
   /// If no such runtime function is found but a runtime function associated
@@ -473,8 +473,8 @@ template<Extremum extremum>
 static mlir::Value *createCompare(mlir::Location loc, mlir::OpBuilder &builder,
     mlir::Value *left, mlir::Value *right) {
   static constexpr auto integerPredicate{extremum == Extremum::Max
-          ? mlir::CmpIPredicate::SGT
-          : mlir::CmpIPredicate::SLT};
+          ? mlir::CmpIPredicate::sgt
+          : mlir::CmpIPredicate::slt};
   static constexpr auto realPredicate{extremum == Extremum::Max
           ? fir::CmpFPredicate::UGT
           : fir::CmpFPredicate::ULT};
@@ -517,4 +517,5 @@ mlir::Value *IntrinsicLibrary::Implementation::genExtremum(
   }
   return result;
 }
-}
+
+}  // namespace Fortran::burnside
