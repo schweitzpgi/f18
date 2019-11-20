@@ -269,9 +269,9 @@ std::string CompileFortran(std::string path, Fortran::parser::Options options,
 
   // MLIR+FIR
   fir::NameMangler nameMangler;
-  auto burnside = Br::getBurnsideBridge(
+  auto burnside = Br::BurnsideBridge::create(
       semanticsContext.defaultKinds(), &parsing.cooked());
-  Br::crossBurnsideBridge(burnside, parseTree, nameMangler);
+  burnside.lower(parseTree, nameMangler);
   mlir::ModuleOp mlirModule{burnside.getModule()};
   mlir::PassManager pm{mlirModule.getContext()};
   if (driver.dumpHLFIR) {
@@ -285,10 +285,10 @@ std::string CompileFortran(std::string path, Fortran::parser::Options options,
     pm.addPass(fir::createFIRToStdPass());
   }
   if (driver.lowerToLLVM) {
-    pm.addPass(fir::createFIRToLLVMPass());
+    pm.addPass(fir::createFIRToLLVMPass(nameMangler));
   }
   if (driver.lowerToLLVMIR) {
-    pm.addPass(fir::createLLVMDialectToLLVMPass("a.ll", nameMangler));
+    pm.addPass(fir::createLLVMDialectToLLVMPass("a.ll"));
   }
   if (mlir::succeeded(pm.run(mlirModule))) {
     if (driver.dumpFIR) {
