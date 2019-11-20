@@ -73,6 +73,7 @@ class ExprLowering {
   SymMap loadedSymbols{};
   Co::IntrinsicTypeDefaultKinds const &defaults;
   IntrinsicLibrary const &intrinsics;
+  bool genLogicalAsI1{false};
 
   M::Location getLoc() { return location; }
 
@@ -117,20 +118,10 @@ class ExprLowering {
   }
 
   /// Generate a logical/boolean constant of `value`
-  M::Type getMLIRlogicalType() {
-    return M::IntegerType::get(1, builder.getContext());
-  }
-  M::Value *genMLIRLogicalConstant(M::MLIRContext *context, bool value) {
-    auto attr{builder.getIntegerAttr(getMLIRlogicalType(), value ? 1 : 0)};
-    return builder.create<M::ConstantOp>(getLoc(), getMLIRlogicalType(), attr)
-        .getResult();
-  }
-  template<int KIND>
-  M::Value *genLogicalConstant(M::MLIRContext *context, bool value) {
-    auto mlirCst{genMLIRLogicalConstant(context, value)};
-    M::Type firLogicalTy{getFIRType(context, defaults, LogicalCat, KIND)};
-    auto res{builder.create<fir::ConvertOp>(getLoc(), firLogicalTy, mlirCst)};
-    return res.getResult();
+  M::Value *genLogicalConstantAsI1(M::MLIRContext *context, bool value) {
+    M::Type i1Type{M::IntegerType::get(1, builder.getContext())};
+    auto attr{builder.getIntegerAttr(i1Type, value ? 1 : 0)};
+    return builder.create<M::ConstantOp>(getLoc(), i1Type, attr).getResult();
   }
 
   template<int KIND>
@@ -157,19 +148,6 @@ class ExprLowering {
   }
   template<typename OpTy, typename A> M::Value *createBinaryOp(A const &ex) {
     return createBinaryOp<OpTy>(ex, genval(ex.left()), genval(ex.right()));
-  }
-  template<typename OpTy, typename A> M::Value *createLogicalOp(A const &ex) {
-    auto mlirTy{M::IntegerType::get(1, builder.getContext())};
-    auto *lhs{genval(ex.left())};
-    auto *rhs{genval(ex.right())};
-    // mlir logical ops do not work with fir.logical<k>, so the operation
-    // is wrapped in conversions
-    auto lhsConv{builder.create<fir::ConvertOp>(getLoc(), mlirTy, lhs)};
-    auto rhsConv{builder.create<fir::ConvertOp>(getLoc(), mlirTy, rhs)};
-    auto op{createBinaryOp<OpTy>(ex, lhsConv, rhsConv)};
-    assert(lhs);
-    auto resType{lhs->getType()};
-    return builder.create<fir::ConvertOp>(getLoc(), resType, op);
   }
 
   M::FuncOp getFunction(L::StringRef name, M::FunctionType funTy) {
@@ -251,6 +229,7 @@ class ExprLowering {
         translateSymbolToFIRType(builder.getContext(), defaults, sym), &*sym);
   }
   M::Value *gendef(Se::SymbolRef sym) { return gen(sym); }
+
   M::Value *genval(Se::SymbolRef sym) {
     // Do not load the same symbols several time in one expression.
     // Fortran guarantees variable value must be the same wherever it
@@ -387,11 +366,9 @@ class ExprLowering {
       static_assert(TC == CharacterCat);
       TODO();
     }
-    auto logicalTy{getFIRType(builder.getContext(), defaults, LogicalCat)};
-    return builder.create<fir::ConvertOp>(getLoc(), logicalTy, result);
+    return result;
   }
 
-  // TODO JP: the thing below should not be required.
   M::Value *genval(Ev::Relational<Ev::SomeType> const &op) {
     return std::visit([&](const auto &x) { return genval(x); }, op.u);
   }
@@ -399,27 +376,33 @@ class ExprLowering {
   template<Co::TypeCategory TC1, int KIND, Co::TypeCategory TC2>
   M::Value *genval(Ev::Convert<Ev::Type<TC1, KIND>, TC2> const &convert) {
     auto ty{getFIRType(builder.getContext(), defaults, TC1, KIND)};
-    return builder.create<fir::ConvertOp>(getLoc(), ty, genval(convert.left()));
+    M::Value *operand{genval(convert.left())};
+    if (TC1 == LogicalCat && genLogicalAsI1) {
+      // If an i1 result is needed, it does not make sens to convert between
+      // `fir.logical` types to later convert back to the result to i1.
+      return operand;
+    }
+    return builder.create<fir::ConvertOp>(getLoc(), ty, operand);
   }
+
   template<typename A> M::Value *genval(Ev::Parentheses<A> const &) { TODO(); }
 
   template<int KIND> M::Value *genval(const Ev::Not<KIND> &op) {
+    // Request operands to be generated as `i1` and restore after this scope.
+    auto restorer{common::ScopedSet(genLogicalAsI1, true)};
     auto *context{builder.getContext()};
-    auto mlirLogical{builder.create<fir::ConvertOp>(
-        getLoc(), getMLIRlogicalType(), genval(op.left()))};
-    auto i1One{genMLIRLogicalConstant(context, 1)};
-    auto mlirRes{builder.create<M::XOrOp>(getLoc(), mlirLogical, i1One)};
-    auto firTy{getFIRType(builder.getContext(), defaults, LogicalCat, KIND)};
-    return builder.create<fir::ConvertOp>(getLoc(), firTy, mlirRes).getResult();
+    auto logical{genval(op.left())};
+    auto one{genLogicalConstantAsI1(context, true)};
+    return builder.create<M::XOrOp>(getLoc(), logical, one).getResult();
   }
 
   template<int KIND> M::Value *genval(Ev::LogicalOperation<KIND> const &op) {
+    // Request operands to be generated as `i1` and restore after this scope.
+    auto restorer{common::ScopedSet(genLogicalAsI1, true)};
     mlir::Value *result{nullptr};
     switch (op.logicalOperator) {
-    case Ev::LogicalOperator::And:
-      result = createLogicalOp<M::AndOp>(op);
-      break;
-    case Ev::LogicalOperator::Or: result = createLogicalOp<M::OrOp>(op); break;
+    case Ev::LogicalOperator::And: result = createBinaryOp<M::AndOp>(op); break;
+    case Ev::LogicalOperator::Or: result = createBinaryOp<M::OrOp>(op); break;
     case Ev::LogicalOperator::Eqv:
       result = createCompareOp<M::CmpIOp>(op, M::CmpIPredicate::eq);
       break;
@@ -427,16 +410,14 @@ class ExprLowering {
       result = createCompareOp<M::CmpIOp>(op, M::CmpIPredicate::ne);
       break;
     case Ev::LogicalOperator::Not:
-      // LogicalOperations are binary operations. Expr for Not is
-      // evaluate::Not<KIND>.
-      assert(false);
+      // lib/evaluate expression for .NOT. is evaluate::Not<KIND>.
+      assert(false && ".NOT. is not a binary operator");
       break;
     }
     if (!result) {
       assert(false && "unhandled logical operation");
     }
-    auto logicalTy{getFIRType(builder.getContext(), defaults, LogicalCat)};
-    return builder.create<fir::ConvertOp>(getLoc(), logicalTy, result);
+    return result;
   }
 
   template<Co::TypeCategory TC, int KIND>
@@ -454,7 +435,7 @@ class ExprLowering {
     } else if constexpr (TC == LogicalCat) {
       auto opt{con.GetScalarValue()};
       if (opt.has_value())
-        return genLogicalConstant<KIND>(builder.getContext(), opt->IsTrue());
+        return genLogicalConstantAsI1(builder.getContext(), opt->IsTrue());
       assert(false && "logical constant has no value");
       return {};
     } else if constexpr (TC == RealCat) {
@@ -664,6 +645,12 @@ class ExprLowering {
       M::Type ty{getFIRType(builder.getContext(), defaults, TC, KIND)};
       L::SmallVector<M::Value *, 2> operands;
       // Lower arguments
+      // For now, logical arguments for intrinsic are lowered to `fir.logical`
+      // so that TRANSFER can work. For some arguments, it could lead to useless
+      // conversions (e.g scalar MASK of MERGE will be converted to `i1`), but
+      // the generated code is at least correct. To improve this, the intrinsic
+      // lowering facility should control argument lowering.
+      auto restorer{common::ScopedSet(genLogicalAsI1, false)};
       for (const auto &arg : funRef.arguments()) {
         if (auto *expr{Ev::UnwrapExpr<Ev::Expr<Ev::SomeType>>(arg)}) {
           operands.push_back(genval(*expr));
@@ -679,6 +666,9 @@ class ExprLowering {
       // TODO: explicit interface
       L::SmallVector<M::Type, 2> argTypes;
       L::SmallVector<M::Value *, 2> operands;
+      // Logical arguments of user functions must be lowered to `fir.logical`
+      // and not `i1`.
+      auto restorer{common::ScopedSet(genLogicalAsI1, false)};
       for (const auto &arg : funRef.arguments()) {
         assert(
             arg.has_value() && "optional argument requires explicit interface");
@@ -698,7 +688,11 @@ class ExprLowering {
       M::FunctionType funTy{
           M::FunctionType::get(argTypes, resultType, builder.getContext())};
       M::FuncOp func{getFunction(funRef.proc().GetName(), funTy)};
-      M::CallOp call{builder.create<M::CallOp>(getLoc(), func, operands)};
+      auto call{builder.create<M::CallOp>(getLoc(), func, operands)};
+      // For now, Fortran return value are implemented with a single MLIR
+      // function return value.
+      assert(call.getNumResults() == 1 &&
+          "Expected exactly one result in FUNCTION call");
       return call.getResult(0);
     }
   }
@@ -714,6 +708,35 @@ class ExprLowering {
     return std::visit([&](const auto &e) { return genval(e); }, exp.u);
   }
 
+  template<int KIND>
+  M::Value *genval(Ev::Expr<Ev::Type<LogicalCat, KIND>> const &exp) {
+    auto *result{std::visit([&](const auto &e) { return genval(e); }, exp.u)};
+    // Handle the `i1` to `fir.logical` conversions as needed.
+    if (result) {
+      M::Type type{result->getType()};
+      if (type.isa<fir::LogicalType>()) {
+        if (genLogicalAsI1) {
+          M::Type i1Type{M::IntegerType::get(1, builder.getContext())};
+          result = builder.create<fir::ConvertOp>(getLoc(), i1Type, result);
+        }
+      } else if (type.isa<M::IntegerType>()) {
+        if (!genLogicalAsI1) {
+          M::Type firLogicalType{
+              getFIRType(builder.getContext(), defaults, LogicalCat, KIND)};
+          result =
+              builder.create<fir::ConvertOp>(getLoc(), firLogicalType, result);
+        }
+      } else if (auto seqType{type.dyn_cast_or_null<fir::SequenceType>()}) {
+        // TODO: Conversions at array level should probably be avoided.
+        // This depends on how array expressions will be lowered.
+        assert(false && "logical array loads not yet implemented");
+      } else {
+        assert(false && "unexpected logical type in expression");
+      }
+    }
+    return result;
+  }
+
   template<typename A> M::Value *gendef(const A &) {
     assert(false && "expression error");
     return {};
@@ -723,9 +746,9 @@ public:
   explicit ExprLowering(M::Location loc, M::OpBuilder &bldr,
       SomeExpr const &vop, SymMap &map,
       Co::IntrinsicTypeDefaultKinds const &defaults,
-      IntrinsicLibrary const &intr)
+      IntrinsicLibrary const &intr, bool logicalAsI1 = false)
     : location{loc}, builder{bldr}, expr{vop}, symMap{map}, defaults{defaults},
-      intrinsics{intr} {}
+      intrinsics{intr}, genLogicalAsI1{logicalAsI1} {}
 
   /// Lower the expression `expr` into MLIR standard dialect
   M::Value *gen() { return gen(expr); }
@@ -738,7 +761,15 @@ M::Value *Br::createSomeExpression(M::Location loc, M::OpBuilder &builder,
     Ev::Expr<Ev::SomeType> const &expr, SymMap &symMap,
     Co::IntrinsicTypeDefaultKinds const &defaults,
     IntrinsicLibrary const &intrinsics) {
-  return ExprLowering{loc, builder, expr, symMap, defaults, intrinsics}
+  return ExprLowering{loc, builder, expr, symMap, defaults, intrinsics, false}
+      .genval();
+}
+
+M::Value *Br::createI1LogicalExpression(M::Location loc, M::OpBuilder &builder,
+    Ev::Expr<Ev::SomeType> const &expr, SymMap &symMap,
+    Co::IntrinsicTypeDefaultKinds const &defaults,
+    IntrinsicLibrary const &intrinsics) {
+  return ExprLowering{loc, builder, expr, symMap, defaults, intrinsics, true}
       .genval();
 }
 
