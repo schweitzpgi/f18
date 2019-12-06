@@ -401,16 +401,16 @@ class FirConverter {
 
   M::Value *createFIRAddr(M::Location loc, const Se::SomeExpr *expr) {
     return createSomeAddress(
-        loc, *builder, *expr, symbolMap, defaults, intrinsics);
+        loc, *builder, *expr, localSymbols, defaults, intrinsics);
   }
 
   M::Value *createFIRExpr(M::Location loc, const Se::SomeExpr *expr) {
     return createSomeExpression(
-        loc, *builder, *expr, symbolMap, defaults, intrinsics);
+        loc, *builder, *expr, localSymbols, defaults, intrinsics);
   }
   M::Value *createLogicalExprAsI1(M::Location loc, const Se::SomeExpr *expr) {
     return createI1LogicalExpression(
-        loc, *builder, *expr, symbolMap, defaults, intrinsics);
+        loc, *builder, *expr, localSymbols, defaults, intrinsics);
   }
 
   M::FuncOp genRuntimeFunction(RuntimeEntryCode rec, int kind) {
@@ -514,8 +514,9 @@ class FirConverter {
       Se::Symbol const *&symbol) {
     setCurrentPosition(stmt.source);
     auto &n{std::get<Pa::Name>(stmt.statement.t)};
-    name = n.ToString();
     symbol = n.symbol;
+    assert(symbol && "Name resolution failure");
+    name = applyNameMangling(*symbol);  // FIXME: use NameMangler
   }
   void genFIR(const Pa::Statement<Pa::EndFunctionStmt> &stmt, std::string &,
       Se::Symbol const *&) {
@@ -526,8 +527,9 @@ class FirConverter {
       Se::Symbol const *&symbol) {
     setCurrentPosition(stmt.source);
     auto &n{std::get<Pa::Name>(stmt.statement.t)};
-    name = n.ToString();
     symbol = n.symbol;
+    assert(symbol && "Name resolution failure");
+    name = applyNameMangling(*symbol);  // FIXME: use NameMangler
   }
   void genFIR(const Pa::Statement<Pa::EndSubroutineStmt> &stmt, std::string &,
       Se::Symbol const *&) {
@@ -564,7 +566,7 @@ class FirConverter {
     auto &name = std::get<Pa::Name>(stmt->t);
     assert(name.symbol);
     const auto &details{name.symbol->get<Se::SubprogramDetails>()};
-    M::Value *resultRef{symbolMap.lookupSymbol(details.result())};
+    M::Value *resultRef{localSymbols.lookupSymbol(details.result())};
     // FIXME: what happens if result was never referenced before and hence no
     // temp was created?
     assert(resultRef);
@@ -1150,7 +1152,7 @@ private:
   Pa::CharBlock currentPosition;
   CFGMapType cfgMap;
   std::list<CFGSinkListType> cfgEdgeSetPool;
-  SymMap symbolMap;
+  SymMap symbolMap;  // FIXME: is it for global variables ?
   AST::Evaluation *currentEvaluation;  // FIXME: this is a hack
 
 public:
