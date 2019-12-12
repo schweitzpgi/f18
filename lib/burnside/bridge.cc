@@ -27,20 +27,12 @@
 #include "fir/FIROps.h"
 #include "fir/FIRType.h"
 #include "fir/InternalNames.h"
+#include "llvm/Support/CommandLine.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/StandardOps/Ops.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/Parser.h"
 #include "mlir/Target/LLVMIR.h"
-
-#undef TODO
-#define TODO() \
-  llvm::errs() << __FILE__ << ":" << __LINE__ << " not yet implemented\n"; \
-  std::exit(1)
-
-#undef SOFT_TODO
-#define SOFT_TODO() \
-  llvm::errs() << __FILE__ << ":" << __LINE__ << " not yet implemented\n";
 
 namespace Br = Fortran::burnside;
 namespace Co = Fortran::common;
@@ -54,6 +46,14 @@ using namespace Fortran;
 using namespace Fortran::burnside;
 
 namespace {
+
+L::cl::opt<bool> ClDisableToDoAssert("disable-burnside-todo",
+    L::cl::desc("disable burnside bridge asserts"), L::cl::init(false),
+    L::cl::Hidden);
+
+#undef TODO
+#define TODO() \
+  assert(false && "not implemented yet")
 
 using SelectCaseConstruct = Pa::CaseConstruct;
 using SelectRankConstruct = Pa::SelectRankConstruct;
@@ -69,6 +69,16 @@ constexpr static bool isStopStmt(const Pa::StopStmt &stm) {
 // CfgBuilder implementation
 #include "cfg-builder.h"
 
+#undef TODO
+#define TODO() \
+  { \
+    if (ClDisableToDoAssert) \
+      mlir::emitError(toLocation(), __FILE__) \
+          << ":" << __LINE__ << " not implemented"; \
+    else \
+      assert(false && "not yet implemented"); \
+  }
+
 /// Converter from AST to FIR
 ///
 /// After building the AST and decorating it, the FirConverter processes that
@@ -82,25 +92,18 @@ class FirConverter : public AbstractConverter {
   //
 
   M::Value *createFIRAddr(M::Location loc, const Se::SomeExpr *expr) {
-    return createSomeAddress(
-        loc, *builder, *expr, localSymbols, defaults, intrinsics);
+    return createSomeAddress(loc, *this, *expr, localSymbols, intrinsics);
   }
 
   M::Value *createFIRExpr(M::Location loc, const Se::SomeExpr *expr) {
-    return createSomeExpression(
-        loc, *builder, *expr, localSymbols, defaults, intrinsics);
+    return createSomeExpression(loc, *this, *expr, localSymbols, intrinsics);
   }
   M::Value *createLogicalExprAsI1(M::Location loc, const Se::SomeExpr *expr) {
     return createI1LogicalExpression(
-        loc, *builder, *expr, localSymbols, defaults, intrinsics);
+        loc, *this, *expr, localSymbols, intrinsics);
   }
   M::Value *createTemporary(M::Location loc, const Se::Symbol &sym) {
-    return ::createTemporary(loc, *builder, localSymbols,
-        translateSymbolToFIRType(builder->getContext(), defaults, sym), &sym);
-  }
-
-  std::string mangledName(SymbolRef symbol) {
-    return mangle::mangleName(mangler, symbol);
+    return Br::createTemporary(loc, *builder, localSymbols, genType(sym), &sym);
   }
 
   // TODO: we need a map for the various Fortran runtime entry points
@@ -195,7 +198,7 @@ class FirConverter : public AbstractConverter {
   void genFIR(const Pa::Statement<Pa::ProgramStmt> &stmt, std::string &name,
       const Se::Symbol *&) {
     setCurrentPosition(stmt.source);
-    name = mangler.doProgramEntry();
+    name = uniquer.doProgramEntry();
   }
   void genFIR(const Pa::Statement<Pa::EndProgramStmt> &stmt, std::string &,
       const Se::Symbol *&) {
@@ -208,7 +211,7 @@ class FirConverter : public AbstractConverter {
     auto &n{std::get<Pa::Name>(stmt.statement.t)};
     symbol = n.symbol;
     assert(symbol && "Name resolution failure");
-    name = mangledName(*symbol);
+    name = mangleName(*symbol);
   }
   void genFIR(const Pa::Statement<Pa::EndFunctionStmt> &stmt, std::string &,
       const Se::Symbol *&symbol) {
@@ -222,7 +225,7 @@ class FirConverter : public AbstractConverter {
     auto &n{std::get<Pa::Name>(stmt.statement.t)};
     symbol = n.symbol;
     assert(symbol && "Name resolution failure");
-    name = mangledName(*symbol);
+    name = mangleName(*symbol);
   }
   void genFIR(const Pa::Statement<Pa::EndSubroutineStmt> &stmt, std::string &,
       const Se::Symbol *&) {
@@ -265,10 +268,10 @@ class FirConverter : public AbstractConverter {
     // FIXME: alt-returns
     builder->create<M::ReturnOp>(toLocation());
   }
-  void genFIR(const Pa::EndSubroutineStmt &stmt) {
+  void genFIR(const Pa::EndSubroutineStmt &) {
     genFIRProcedureExit(static_cast<const Pa::SubroutineStmt *>(nullptr));
   }
-  void genFIR(const Pa::EndMpSubprogramStmt &stmt) {
+  void genFIR(const Pa::EndMpSubprogramStmt &) {
     genFIRProcedureExit(static_cast<const Pa::MpSubprogramStmt *>(nullptr));
   }
 
@@ -339,8 +342,8 @@ class FirConverter : public AbstractConverter {
   void genFIRIOSwitch(AST::Evaluation &) { TODO(); }
 
   // Iterative loop control-flow semantics
-  void genFIREvalIterative(AST::Evaluation &eval) {
-    // FIXME
+  void genFIREvalIterative(AST::Evaluation &) {
+    TODO();
   }
 
   void switchInsertionPointToWhere(fir::WhereOp &where) {
@@ -500,7 +503,7 @@ class FirConverter : public AbstractConverter {
                      // TODO bindName()?
                      argsList = details.dummyArgs();
                    },
-                   [](const Pa::ProcComponentRef &) { TODO(); },
+                   [&](const Pa::ProcComponentRef &) { TODO(); },
                },
         std::get<Pa::ProcedureDesignator>(stmt.v.t).u);
     for (auto *d : argsList) {
@@ -511,6 +514,7 @@ class FirConverter : public AbstractConverter {
     auto funTy{M::FunctionType::get(argTy, resTy, builder->getContext())};
     // FIXME: mangle name
     M::FuncOp func{getFunc(funName, funTy)};
+    (void)func; // FIXME
     std::vector<M::Value *> actuals;
     for (auto &aa : std::get<std::list<Pa::ActualArgSpec>>(stmt.v.t)) {
       auto &kw = std::get<std::optional<Pa::Keyword>>(aa.t);
@@ -521,9 +525,9 @@ class FirConverter : public AbstractConverter {
                        // FIXME: needs to match argument, assumes trivial by-ref
                        fe = genExprAddr(*Se::GetExpr(e));
                      },
-                     [](const Pa::AltReturnSpec &) { TODO(); },
-                     [](const Pa::ActualArg::PercentRef &) { TODO(); },
-                     [](const Pa::ActualArg::PercentVal &) { TODO(); },
+                     [&](const Pa::AltReturnSpec &) { TODO(); },
+                     [&](const Pa::ActualArg::PercentRef &) { TODO(); },
+                     [&](const Pa::ActualArg::PercentVal &) { TODO(); },
                  },
           arg.u);
       if (kw.has_value()) {
@@ -572,9 +576,9 @@ class FirConverter : public AbstractConverter {
       // pushDoContext(&ss);
     }
 #endif
-    SOFT_TODO();
+    TODO();
   }
-  void genFIR(const Pa::IfConstruct &) { SOFT_TODO(); }
+  void genFIR(const Pa::IfConstruct &) { TODO(); }
 
   void genFIR(const SelectCaseConstruct &) { TODO(); }
   void genFIR(const SelectRankConstruct &) { TODO(); }
@@ -673,7 +677,7 @@ class FirConverter : public AbstractConverter {
   void genFIR(const Pa::RewindStmt &stmt) { genRewindStatement(*this, stmt); }
   void genFIR(const Pa::WriteStmt &stmt) { genWriteStatement(*this, stmt); }
 
-  void genFIR(const Pa::AllocateStmt &) { SOFT_TODO(); }
+  void genFIR(const Pa::AllocateStmt &) { TODO(); }
   void genFIR(const Pa::AssignmentStmt &stmt) {
     auto *rhs{Se::GetExpr(std::get<Pa::Expr>(stmt.t))};
     auto *lhs{Se::GetExpr(std::get<Pa::Variable>(stmt.t))};
@@ -682,7 +686,7 @@ class FirConverter : public AbstractConverter {
   }
 
   void genFIR(const Pa::ContinueStmt &) {}  // do nothing
-  void genFIR(const Pa::DeallocateStmt &) { SOFT_TODO(); }
+  void genFIR(const Pa::DeallocateStmt &) { TODO(); }
   void genFIR(const Pa::EventPostStmt &) {
     // call some runtime routine
     TODO();
@@ -721,7 +725,7 @@ class FirConverter : public AbstractConverter {
           po.u);
     }
   }
-  void genFIR(const Pa::PointerAssignmentStmt &) { SOFT_TODO(); }
+  void genFIR(const Pa::PointerAssignmentStmt &) { TODO(); }
 
   void genFIR(const Pa::SyncAllStmt &) {
     // call some runtime routine
@@ -912,7 +916,7 @@ class FirConverter : public AbstractConverter {
       std::visit(
           [&](auto *p) { genFIR(*p, name, symbol); }, func.funStmts.front());
     } else {
-      name = mangler.doProgramEntry();
+      name = uniquer.doProgramEntry();
     }
 
     startNewFunction(func, name, symbol);
@@ -1034,7 +1038,7 @@ private:
   const Co::IntrinsicTypeDefaultKinds &defaults;
   IntrinsicLibrary intrinsics;
   M::OpBuilder *builder{nullptr};
-  fir::NameMangler &mangler;
+  fir::NameUniquer &uniquer;
   SymMap localSymbols;
   std::list<Closure> localEdgeQ;
   LabelMapType localBlockMap;
@@ -1049,12 +1053,12 @@ public:
   FirConverter &operator=(const FirConverter &) = delete;
   virtual ~FirConverter() = default;
 
-  explicit FirConverter(BurnsideBridge &bridge, fir::NameMangler &mangler)
+  explicit FirConverter(BurnsideBridge &bridge, fir::NameUniquer &uniquer)
     : mlirContext{bridge.getMLIRContext()}, cooked{bridge.getCookedSource()},
       module{bridge.getModule()}, defaults{bridge.getDefaultKinds()},
       intrinsics{IntrinsicLibrary::create(
           IntrinsicLibrary::Version::LLVM, bridge.getMLIRContext())},
-      mangler{mangler} {}
+      uniquer{uniquer} {}
 
   /// Convert the AST to FIR
   void run(AST::Program &ast) {
@@ -1073,7 +1077,7 @@ public:
       std::visit(common::visitors{
                      [&](AST::FunctionLikeUnit &f) { lowerFunc(f, {}); },
                      [&](AST::ModuleLikeUnit &m) { lowerMod(m); },
-                     [](AST::BlockDataUnit &) { SOFT_TODO(); },
+                     [&](AST::BlockDataUnit &) { TODO(); },
                  },
           u);
     }
@@ -1083,29 +1087,35 @@ public:
   // AbstractConverter overrides
 
   M::Value *genExprAddr(
-      const SomeExpr &expr, M::Location *loc = nullptr) override {
+      const SomeExpr &expr, M::Location *loc = nullptr) override final {
     return createFIRAddr(loc ? *loc : toLocation(), &expr);
   }
   M::Value *genExprValue(
-      const SomeExpr &expr, M::Location *loc = nullptr) override {
+      const SomeExpr &expr, M::Location *loc = nullptr) override final {
     return createFIRExpr(loc ? *loc : toLocation(), &expr);
   }
 
-  M::Type genType(const Ev::DataRef &data) override {
+  M::Type genType(const Ev::DataRef &data) override final {
     return translateDataRefToFIRType(&mlirContext, defaults, data);
   }
-  M::Type genType(const SomeExpr &expr) override {
+  M::Type genType(const SomeExpr &expr) override final {
     return translateSomeExprToFIRType(&mlirContext, defaults, &expr);
   }
-  M::Type genType(const SymbolRef &sym) override {
+  M::Type genType(SymbolRef sym) override final {
     return translateSymbolToFIRType(&mlirContext, defaults, sym);
   }
+  M::Type genType(common::TypeCategory tc, int kind) override final {
+    return getFIRType(&mlirContext, defaults, tc, kind);
+  }
+  M::Type genType(common::TypeCategory tc) override final {
+    return getFIRType(&mlirContext, defaults, tc);
+  }
 
-  M::Location getCurrentLocation() override { return toLocation(); }
-  M::Location genLocation() override {
+  M::Location getCurrentLocation() override final { return toLocation(); }
+  M::Location genLocation() override final {
     return M::UnknownLoc::get(&mlirContext);
   }
-  M::Location genLocation(const Pa::CharBlock &block) override {
+  M::Location genLocation(const Pa::CharBlock &block) override final {
     if (cooked) {
       auto loc{cooked->GetSourcePositionRange(block)};
       if (loc.has_value()) {
@@ -1118,17 +1128,21 @@ public:
     return genLocation();
   }
 
-  M::OpBuilder &getOpBuilder() override { return *builder; }
-  M::ModuleOp &getModuleOp() override { return module; }
+  M::OpBuilder &getOpBuilder() override final { return *builder; }
+  M::ModuleOp &getModuleOp() override final { return module; }
+
+  std::string mangleName(SymbolRef symbol) override final {
+    return mangle::mangleName(uniquer, symbol);
+  }
 };
 
 }  // namespace
 
 void Br::BurnsideBridge::lower(
-    const Pa::Program &prg, fir::NameMangler &mangler) {
+    const Pa::Program &prg, fir::NameUniquer &uniquer) {
   AST::Program *ast{Br::createAST(prg)};
   Br::annotateControl(*ast);
-  FirConverter converter{*this, mangler};
+  FirConverter converter{*this, uniquer};
   converter.run(*ast);
   delete ast;
 }
