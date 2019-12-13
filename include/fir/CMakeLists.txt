@@ -1,3 +1,7 @@
+if (LLVM_DIR)
+  include(AddMLIR)
+endif()
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-error")
 set(LLVM_TARGET_DEFINITIONS FIROps.td)
 mlir_tablegen(FIROps.h.inc -gen-op-decls)
 mlir_tablegen(FIROps.cpp.inc -gen-op-defs)
