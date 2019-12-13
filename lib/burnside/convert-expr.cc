@@ -90,17 +90,23 @@ class ExprLowering {
     return {};
   }
 
-  /// Convert parser's REAL relational operators to MLIR.  TODO: using
-  /// unordered, but we may want to cons ordered in certain situation.
+  /// Convert parser's REAL relational operators to MLIR.
+  /// The choice of order (O prefix) vs unorder (U prefix) follows Fortran 2018
+  /// requirements in the IEEE context (table 17.1 of F2018). This choice is
+  /// also applied in other contexts because it is easier and in line with
+  /// other Fortran compilers.
+  /// FIXME: The signaling/quiet aspect of the table 17.1 requirement is not
+  /// fully enforced. FIR and LLVM `fcmp` instructions do not give any guarantee
+  /// whether the comparison will signal or not in case of quiet NaN argument.
   static fir::CmpFPredicate translateFloatRelational(
       Co::RelationalOperator rop) {
     switch (rop) {
-    case Co::RelationalOperator::LT: return fir::CmpFPredicate::ULT;
-    case Co::RelationalOperator::LE: return fir::CmpFPredicate::ULE;
-    case Co::RelationalOperator::EQ: return fir::CmpFPredicate::UEQ;
+    case Co::RelationalOperator::LT: return fir::CmpFPredicate::OLT;
+    case Co::RelationalOperator::LE: return fir::CmpFPredicate::OLE;
+    case Co::RelationalOperator::EQ: return fir::CmpFPredicate::OEQ;
     case Co::RelationalOperator::NE: return fir::CmpFPredicate::UNE;
-    case Co::RelationalOperator::GT: return fir::CmpFPredicate::UGT;
-    case Co::RelationalOperator::GE: return fir::CmpFPredicate::UGE;
+    case Co::RelationalOperator::GT: return fir::CmpFPredicate::OGT;
+    case Co::RelationalOperator::GE: return fir::CmpFPredicate::OGE;
     }
     assert(false && "unhandled REAL relational operator");
     return {};
