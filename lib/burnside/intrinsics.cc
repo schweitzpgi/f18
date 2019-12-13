@@ -72,8 +72,47 @@ private:
   Map library;
 };
 
-/// enum used to templatized code gen for intrinsics that are alike.
+/// Enums used to templatize and share lowering of MIN and MAX.
 enum class Extremum { Min, Max };
+// There are different ways to deal with NaNs in MIN and MAX.
+// Known existing behaviors are listed below and can be selected for
+// f18 MIN/MAX implementation.
+enum class ExtremumBehavior {
+  // Note: the Signaling/quiet aspect of NaNs in the behaviors below are
+  // not described because there is no way to control/observe such aspect in
+  // MLIR/LLVM yet. The IEEE behaviors come with requirements regarding this
+  // aspect that are therefore currently not enforced. In the descriptions
+  // below, NaNs can be signaling or quite. Returned NaNs may be signaling
+  // if one of the input NaN was signaling but it cannot be guaranteed either.
+  // Existing compilers using an IEEE behavior (gfortran) also do not fulfill
+  // signaling/quiet requirements.
+  IeeeMinMaximumNumber,
+  // IEEE minimumNumber/maximumNumber behavior (754-2019, section 9.6):
+  // If one of the argument is and number and the other is NaN, return the
+  // number. If both arguements are NaN, return NaN.
+  // Compilers: gfortran.
+  IeeeMinMaximum,
+  // IEEE minimum/maximum behavior (754-2019, section 9.6):
+  // If one of the argument is NaN, return NaN.
+  MinMaxss,
+  // x86 minss/maxss behavior:
+  // If the second argument is a number and the other is NaN, return the number.
+  // In all other cases where at least one operand is NaN, return NaN.
+  // Compilers: xlf (only for MAX), ifort, pgfortran -nollvm, and nagfor.
+  PgfortranLlvm,
+  // "Opposite of" x86 minss/maxss behavior:
+  // If the first argument is a number and the other is NaN, return the
+  // number.
+  // In all other cases where at least one operand is NaN, return NaN.
+  // Compilers: xlf (only for MIN), and pgfortran (with llvm).
+  IeeeMinMaxNum
+  // IEEE minNum/maxNum behavior (754-2008, section 5.3.1):
+  // TODO: Not implemented.
+  // It is the only behavior where the signaling/quiet aspect of a NaN argument
+  // impacts if the result should be NaN or the argument that is a number.
+  // LLVM/MLIR do not provide ways to observe this aspect, so it is not
+  // possible to implement it without some target dependent runtime.
+};
 
 /// The implementation of IntrinsicLibrary is based on a map that associates
 /// Fortran intrinsics generic names to the related FIR generator functions.
@@ -141,7 +180,9 @@ private:
     return genWrapperCall<&I::genRuntimeCall>(c);
   }
   mlir::Value *genConjg(Context &) const;
-  template<Extremum extremum> mlir::Value *genExtremum(Context &) const;
+  template<Extremum, ExtremumBehavior>
+  mlir::Value *genExtremum(Context &) const;
+  mlir::Value *genMerge(Context &) const;
 
   struct IntrinsicHanlder {
     const char *name;
@@ -154,8 +195,9 @@ private:
   /// be attempted.
   static constexpr IntrinsicHanlder handlers[]{
       {"conjg", &I::genConjg},
-      {"max", &I::genExtremum<Extremum::Max>},
-      {"min", &I::genExtremum<Extremum::Min>},
+      {"max", &I::genExtremum<Extremum::Max, ExtremumBehavior::MinMaxss>},
+      {"min", &I::genExtremum<Extremum::Min, ExtremumBehavior::MinMaxss>},
+      {"merge", &I::genMerge},
   };
 
   // helpers
@@ -577,41 +619,71 @@ mlir::Value *IntrinsicLibrary::Implementation::genConjg(
   mlir::OpBuilder &builder{*genCtxt.builder};
   ComplexHandler cplxHandler{builder, genCtxt.loc};
 
-  // TODO a negation unary would be better than a sub to zero ?
   mlir::Value *cplx{genCtxt.arguments[0]};
-  mlir::Type realType{cplxHandler.getComplexPartType(cplx)};
-  mlir::Value *zero{builder.create<mlir::ConstantOp>(
-      genCtxt.loc, realType, builder.getZeroAttr(realType))};
   mlir::Value *imag{cplxHandler.extract<ComplexHandler::Part::Imag>(cplx)};
-  mlir::Value *negImag{
-      genCtxt.builder->create<mlir::SubFOp>(genCtxt.loc, zero, imag)};
+  mlir::Value *negImag{genCtxt.builder->create<fir::NegfOp>(genCtxt.loc, imag)};
   return cplxHandler.insert<ComplexHandler::Part::Imag>(cplx, negImag);
 }
 
-static mlir::FuncOp getMergeFunc(mlir::Type type, mlir::ModuleOp module) {
-  llvm::SmallVector<mlir::Type, 3> argTypes{
-      type, type, fir::LogicalType::get(module.getContext(), 4)};
-  auto mergeType{
-      mlir::FunctionType::get(argTypes, {type}, module.getContext())};
-  auto mergeName{getIntrinsicWrapperName("merge", mergeType)};
-  return createFunction(module, mergeName, mergeType);
+// MERGE
+mlir::Value *IntrinsicLibrary::Implementation::genMerge(
+    Context &genCtxt) const {
+  assert(genCtxt.arguments.size() == 3);
+  mlir::Type resType{genCtxt.getResultType()};
+  mlir::OpBuilder &builder{*genCtxt.builder};
+
+  auto *trueVal{genCtxt.arguments[0]};
+  auto *falseVal{genCtxt.arguments[1]};
+  auto *mask{genCtxt.arguments[2]};
+  mlir::Type i1Type{mlir::IntegerType::get(1, builder.getContext())};
+  mask = builder.create<fir::ConvertOp>(genCtxt.loc, i1Type, mask);
+  return builder.create<mlir::SelectOp>(genCtxt.loc, mask, trueVal, falseVal);
 }
 
-template<Extremum extremum>
-static mlir::Value *createCompare(mlir::Location loc, mlir::OpBuilder &builder,
-    mlir::Value *left, mlir::Value *right) {
+// Compare two FIR values and return boolean result as i1.
+template<Extremum extremum, ExtremumBehavior behavior>
+static mlir::Value *createExtremumCompare(mlir::Location loc,
+    mlir::OpBuilder &builder, mlir::Value *left, mlir::Value *right) {
   static constexpr auto integerPredicate{extremum == Extremum::Max
           ? mlir::CmpIPredicate::sgt
           : mlir::CmpIPredicate::slt};
-  static constexpr auto realPredicate{extremum == Extremum::Max
+  static constexpr auto unorderedCmp{extremum == Extremum::Max
           ? fir::CmpFPredicate::UGT
           : fir::CmpFPredicate::ULT};
+  static constexpr auto orderedCmp{extremum == Extremum::Max
+          ? fir::CmpFPredicate::OGT
+          : fir::CmpFPredicate::OLT};
   auto type{left->getType()};
   mlir::Value *result{nullptr};
   if (type.isa<mlir::FloatType>() || type.isa<fir::RealType>()) {
-    // TODO: The type we get from CmpfOp is a bit weird (it is the operands
-    // types, and not a boolean).
-    result = builder.create<fir::CmpfOp>(loc, realPredicate, left, right);
+    // Note: the signaling/quit aspect of the result required by IEEE
+    // cannot currently be obtained with LLVM without ad-hoc runtime.
+    if constexpr (behavior == ExtremumBehavior::IeeeMinMaximumNumber) {
+      // Return the number if one of the inputs is NaN and the other is
+      // a number.
+      auto leftIsResult{
+          builder.create<fir::CmpfOp>(loc, orderedCmp, left, right)};
+      auto rightIsNan{builder.create<fir::CmpfOp>(
+          loc, fir::CmpFPredicate::UNE, right, right)};
+      result = builder.create<mlir::OrOp>(loc, leftIsResult, rightIsNan);
+    } else if constexpr (behavior == ExtremumBehavior::IeeeMinMaximum) {
+      // Always return NaNs if one the input is NaNs
+      auto leftIsResult{
+          builder.create<fir::CmpfOp>(loc, orderedCmp, left, right)};
+      auto leftIsNan{builder.create<fir::CmpfOp>(
+          loc, fir::CmpFPredicate::UNE, left, left)};
+      result = builder.create<mlir::OrOp>(loc, leftIsResult, leftIsNan);
+    } else if constexpr (behavior == ExtremumBehavior::MinMaxss) {
+      // If the left is a NaN, return the right whatever it is.
+      result = builder.create<fir::CmpfOp>(loc, orderedCmp, left, right);
+    } else if constexpr (behavior == ExtremumBehavior::PgfortranLlvm) {
+      // If one of the operand is a NaN, return left whatever it is.
+      result = builder.create<fir::CmpfOp>(loc, unorderedCmp, left, right);
+    } else {
+      // TODO: ieeMinNum/ieeeMaxNum
+      static_assert(behavior == ExtremumBehavior::IeeeMinMaxNum,
+          "ieeeMinNum/ieeMaxNum behavior not implemented");
+    }
   } else if (type.isa<mlir::IntegerType>()) {
     result = builder.create<mlir::CmpIOp>(loc, integerPredicate, left, right);
   } else if (type.isa<fir::CharacterType>()) {
@@ -620,28 +692,21 @@ static mlir::Value *createCompare(mlir::Location loc, mlir::OpBuilder &builder,
     // So we may need a temp.
   }
   assert(result);
-  // TODO which logical type should comparisons return ?
-  // This is also currently not observed in convert-expr
-  auto resTy{fir::LogicalType::get(getModule(&builder).getContext(), 4)};
-  return builder.create<fir::ConvertOp>(loc, resTy, result);
+  return result;
 }
 
 // MIN and MAX
-// Extremum intrinsic are lowered using the MERGE intrinsic
-// to avoid introducing branches.
-template<Extremum extremum>
+template<Extremum extremum, ExtremumBehavior behavior>
 mlir::Value *IntrinsicLibrary::Implementation::genExtremum(
     Context &genCtxt) const {
   auto &builder{*genCtxt.builder};
   auto loc{genCtxt.loc};
   assert(genCtxt.arguments.size() >= 2);
   auto *result{genCtxt.arguments[0]};
-  auto mergeFunc{getMergeFunc(result->getType(), genCtxt.getModuleOp())};
   for (auto *arg : genCtxt.arguments.drop_front()) {
-    auto mask{createCompare<extremum>(loc, builder, result, arg)};
-    llvm::SmallVector<mlir::Value *, 3> mergeArgs{result, arg, mask};
-    result =
-        builder.create<mlir::CallOp>(loc, mergeFunc, mergeArgs).getResult(0);
+    auto mask{
+        createExtremumCompare<extremum, behavior>(loc, builder, result, arg)};
+    result = builder.create<mlir::SelectOp>(loc, mask, result, arg);
   }
   return result;
 }
