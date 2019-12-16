@@ -6,6 +6,7 @@
 #
 #===------------------------------------------------------------------------===#
 
+add_subdirectory(burnside)
 add_subdirectory(Common)
 add_subdirectory(Evaluate)
 add_subdirectory(Decimal)
