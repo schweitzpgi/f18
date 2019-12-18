@@ -27,6 +27,7 @@ target_link_libraries(FirBbcLib ${LIBS} FIRTransforms)
 set(EXE_LIBS
   ${LIBS}
   FIRTransforms
+  MLIRAffineToStandard
   FortranCommon
   FortranParser
   FortranEvaluate

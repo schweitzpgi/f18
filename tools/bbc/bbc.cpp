@@ -284,12 +284,11 @@ std::string CompileFortran(std::string path, Fortran::parser::Options options,
   // Run FIR mem2reg and CSE as a pair
   pm.addPass(fir::createMemToRegPass());
   pm.addPass(fir::createCSEPass());
-  if (driver.lowerToStd) {
-    pm.addPass(fir::createFIRToStdPass());
-  }
   if (driver.lowerToLLVM) {
     pm.addPass(fir::createLowerToLoopPass());
-    pm.addPass(fir::createFIRToStdPass());
+    if (driver.lowerToStd) {
+      pm.addPass(fir::createFIRToStdPass());
+    }
     pm.addPass(mlir::createLowerToCFGPass());
     pm.addPass(fir::createFIRToLLVMPass(nameUniquer));
   }
