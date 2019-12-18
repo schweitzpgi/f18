@@ -15,6 +15,7 @@
 #include "builder.h"
 #include "bridge.h"
 #include "convert-type.h"
+#include "fir/FIROpsSupport.h"
 #include "llvm/ADT/StringRef.h"
 #include "mlir/IR/Module.h"
 #include "mlir/IR/Value.h"
@@ -29,17 +30,14 @@ using namespace Fortran::burnside;
 
 M::FuncOp B::createFunction(B::AbstractConverter &converter,
     llvm::StringRef name, M::FunctionType funcTy) {
-  auto func{M::FuncOp::create(converter.getCurrentLocation(), name, funcTy)};
-  converter.getModuleOp().push_back(func);
-  return func;
+  return fir::createFuncOp(
+      converter.getCurrentLocation(), converter.getModuleOp(), name, funcTy);
 }
 
 M::FuncOp B::createFunction(
     M::ModuleOp module, llvm::StringRef name, M::FunctionType funcTy) {
-  auto loc{M::UnknownLoc::get(module.getContext())};
-  auto func{M::FuncOp::create(loc, name, funcTy)};
-  module.push_back(func);
-  return func;
+  return fir::createFuncOp(
+      M::UnknownLoc::get(module.getContext()), module, name, funcTy);
 }
 
 M::FuncOp B::getNamedFunction(M::ModuleOp module, llvm::StringRef name) {
