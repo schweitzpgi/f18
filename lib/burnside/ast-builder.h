@@ -17,6 +17,7 @@
 
 #include "../parser/parse-tree.h"
 #include "../semantics/scope.h"
+#include "llvm/Support/raw_ostream.h"
 
 namespace Fortran::burnside {
 namespace AST {
@@ -323,6 +324,8 @@ AST::Program *createAST(const parser::Program &root);
 /// The AST must be decorated with control-flow annotations to prepare it for
 /// use in generating a CFG-like structure.
 void annotateControl(AST::Program &ast);
+
+void dumpAST(llvm::raw_ostream &o, AST::Program &ast);
 
 }  // namespace burnside
 
