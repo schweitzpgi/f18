@@ -98,6 +98,9 @@ mlir::Type translateSomeExprToFIRType(mlir::MLIRContext *ctxt,
 mlir::Type translateSymbolToFIRType(mlir::MLIRContext *ctxt,
     common::IntrinsicTypeDefaultKinds const &defaults, const SymbolRef symbol);
 
+mlir::FunctionType translateSymbolToFIRFunctionType(mlir::MLIRContext *ctxt,
+    common::IntrinsicTypeDefaultKinds const &defaults, const SymbolRef symbol);
+
 mlir::Type convertReal(mlir::MLIRContext *ctxt, int KIND);
 
 }  // burnside
