@@ -136,6 +136,9 @@ public:
   /// Cross the bridge from the Fortran parse-tree, etc. to FIR+OpenMP+MLIR
   void lower(const parser::Program &program, fir::NameUniquer &uniquer);
 
+  void dumpPreFIR(bool flag = true) { dumpPreFIR_ = flag; }
+  bool getDumpPreFIR() { return dumpPreFIR_; }
+
 private:
   explicit BurnsideBridge(const common::IntrinsicTypeDefaultKinds &defaultKinds,
       const parser::CookedSource *cooked);
@@ -146,6 +149,7 @@ private:
   const parser::CookedSource *cooked;
   std::unique_ptr<mlir::MLIRContext> context;
   std::unique_ptr<mlir::ModuleOp> module;
+  bool dumpPreFIR_{false};
 };
 
 }  // Fortran::burnside
