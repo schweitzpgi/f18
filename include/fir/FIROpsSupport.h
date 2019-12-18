@@ -68,6 +68,10 @@ inline bool pureCall(mlir::Operation *op) {
 mlir::FuncOp createFuncOp(mlir::Location loc, mlir::ModuleOp module,
                           llvm::StringRef name, mlir::FunctionType type);
 
+/// Get or create a GlobalOp in a module.
+fir::GlobalOp createGlobalOp(mlir::Location loc, mlir::ModuleOp module,
+                             llvm::StringRef name, mlir::Type type);
+
 } // namespace fir
 
 #endif // FIR_FIROPS_SUPPORT_H
