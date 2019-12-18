@@ -13,25 +13,16 @@
 // limitations under the License.
 
 #include "fir/Transforms/StdConverter.h"
+#include "fir/Attribute.h"
 #include "fir/FIRDialect.h"
-#include "fir/FIROps.h"
+#include "fir/FIROpsSupport.h"
 #include "fir/FIRType.h"
 #include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
-#include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVM.h"
-#include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVMPass.h"
-#include "mlir/Dialect/AffineOps/AffineOps.h"
-#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/StandardOps/Ops.h"
 #include "mlir/IR/StandardTypes.h"
 #include "mlir/Pass/Pass.h"
-#include "mlir/Target/LLVMIR.h"
+#include "mlir/Transforms/DialectConversion.h"
 #include "llvm/ADT/ArrayRef.h"
-#include "llvm/Config/abi-breaking.h"
-#include "llvm/IR/IRBuilder.h"
-#include "llvm/IR/Module.h"
-#include "llvm/IR/Type.h"
-#include "llvm/Support/FileSystem.h"
-#include "llvm/Support/raw_ostream.h"
 
 // This module performs the conversion of FIR operations to MLIR standard and/or
 // LLVM-IR dialects.
@@ -59,6 +50,7 @@ public:
   using TypeConverter::TypeConverter;
 
   // convert a front-end kind value to either a std dialect type
+  // FIXME: use KindMapping
   static M::Type kindToRealType(M::MLIRContext *ctx, KindTy kind) {
     switch (kind) {
     case 2:
@@ -75,108 +67,135 @@ public:
 
   /// Convert FIR types to MLIR standard dialect types
   M::Type convertType(M::Type t) override {
-    if (auto cplx = t.dyn_cast<CplxType>()) {
+    if (auto cplx = t.dyn_cast<CplxType>())
       return M::ComplexType::get(
           kindToRealType(cplx.getContext(), cplx.getFKind()));
-    }
-    if (auto integer = t.dyn_cast<IntType>()) {
+    if (auto integer = t.dyn_cast<IntType>())
       return M::IntegerType::get(integer.getFKind() * 8, integer.getContext());
-    }
-    if (auto real = t.dyn_cast<RealType>()) {
+    if (auto real = t.dyn_cast<RealType>())
       return kindToRealType(real.getContext(), real.getFKind());
-    }
     return t;
   }
 };
 
-// Lower a SELECT operation into a cascade of conditional branches. The last
-// case must be the `true` condition.
-inline void rewriteSelectConstruct(M::Operation *op, OperandTy operands,
-                                   L::ArrayRef<M::Block *> dests,
-                                   L::ArrayRef<OperandTy> destOperands,
-                                   M::OpBuilder &rewriter) {
-  L::SmallVector<M::Value *, 1> noargs;
-  L::SmallVector<M::Block *, 8> blocks;
-  auto loc{op->getLoc()};
-  blocks.push_back(rewriter.getInsertionBlock());
-  for (std::size_t i = 1; i < dests.size(); ++i)
-    blocks.push_back(rewriter.createBlock(dests[0]));
-  rewriter.setInsertionPointToEnd(blocks[0]);
-  if (dests.size() == 1) {
-    rewriter.create<M::BranchOp>(loc, dests[0], destOperands[0]);
-    return;
-  }
-  rewriter.create<M::CondBranchOp>(loc, operands[1], dests[0], destOperands[0],
-                                   blocks[1], noargs);
-  for (std::size_t i = 1; i < dests.size() - 1; ++i) {
-    rewriter.setInsertionPointToEnd(blocks[i]);
-    rewriter.create<M::CondBranchOp>(loc, operands[i + 1], dests[i],
-                                     destOperands[i], blocks[i + 1], noargs);
-  }
-  std::size_t last{dests.size() - 1};
-  rewriter.setInsertionPointToEnd(blocks[last]);
-  rewriter.create<M::BranchOp>(loc, dests[last], destOperands[last]);
-}
-
-/// Convert FIR dialect to standard dialect
-class FIRToStdLoweringPass : public M::ModulePass<FIRToStdLoweringPass> {
-  M::OpBuilder *builder;
-
-  void lowerSelect(M::Operation *op) {
-    if (M::dyn_cast<SelectCaseOp>(op) || M::dyn_cast<SelectRankOp>(op) ||
-        M::dyn_cast<SelectTypeOp>(op)) {
-      // build the lists of operands and successors
-      L::SmallVector<M::Value *, 4> operands{op->operand_begin(),
-                                             op->operand_end()};
-      L::SmallVector<M::Block *, 2> destinations;
-      destinations.reserve(op->getNumSuccessors());
-      L::SmallVector<OperandTy, 2> destOperands;
-      unsigned firstSuccOpd = op->getSuccessorOperandIndex(0);
-      for (unsigned i = 0, seen = 0, e = op->getNumSuccessors(); i < e; ++i) {
-        destinations.push_back(op->getSuccessor(i));
-        unsigned n = op->getNumSuccessorOperands(i);
-        destOperands.push_back(
-            L::makeArrayRef(operands.data() + firstSuccOpd + seen, n));
-        seen += n;
-      }
-      // do the rewrite
-      rewriteSelectConstruct(
-          op, L::makeArrayRef(operands.data(), operands.data() + firstSuccOpd),
-          destinations, destOperands, *builder);
-    }
-  }
-
+/// FIR conversion pattern template
+template <typename FromOp>
+class FIROpConversion : public M::ConversionPattern {
 public:
-  void runOnModule() override {
+  explicit FIROpConversion(M::MLIRContext *ctx, FIRToStdTypeConverter &lowering)
+      : ConversionPattern(FromOp::getOperationName(), 1, ctx),
+        lowering(lowering) {}
+
+protected:
+  M::Type convertType(M::Type ty) const { return lowering.convertType(ty); }
+
+  FIRToStdTypeConverter &lowering;
+};
+
+/// SelectTypeOp converted to an if-then-else chain
+///
+/// This lowers the test conditions to calls into the runtime
+struct SelectTypeOpConversion : public FIROpConversion<SelectTypeOp> {
+  using FIROpConversion::FIROpConversion;
+
+  M::PatternMatchResult
+  matchAndRewrite(M::Operation *op, OperandTy operands,
+                  L::ArrayRef<M::Block *> destinations,
+                  L::ArrayRef<OperandTy> destOperands,
+                  M::ConversionPatternRewriter &rewriter) const override {
+    auto selecttype = M::cast<SelectTypeOp>(op);
+    auto conds = selecttype.getNumConditions();
+    auto attrName = SelectTypeOp::AttrName;
+    auto caseAttr = selecttype.getAttrOfType<M::ArrayAttr>(attrName);
+    auto cases = caseAttr.getValue();
+    // Selector must be of type !fir.box<T>
+    auto &selector = operands[0];
+    auto loc = selecttype.getLoc();
+    auto mod = op->getParentOfType<M::ModuleOp>();
+    for (unsigned t = 0; t != conds; ++t) {
+      auto &attr = cases[t];
+      if (auto a = attr.dyn_cast_or_null<fir::ExactTypeAttr>()) {
+        genTypeLadderStep(loc, true, selector, a.getType(), destinations[t],
+                          destOperands[t], mod, rewriter);
+        continue;
+      }
+      if (auto a = attr.dyn_cast_or_null<fir::SubclassAttr>()) {
+        genTypeLadderStep(loc, false, selector, a.getType(), destinations[t],
+                          destOperands[t], mod, rewriter);
+        continue;
+      }
+      assert(attr.dyn_cast_or_null<M::UnitAttr>());
+      assert((t + 1 == conds) && "unit must be last");
+      rewriter.replaceOpWithNewOp<M::BranchOp>(selecttype, destinations[t],
+                                               M::ValueRange{destOperands[t]});
+    }
+    return matchSuccess();
+  }
+
+  static void lookupFunction(L::StringRef name, M::FunctionType type,
+                             M::ModuleOp module,
+                             M::ConversionPatternRewriter &rewriter) {
+    fir::createFuncOp(rewriter.getUnknownLoc(), module, name, type);
+  }
+
+  static void genTypeLadderStep(M::Location loc, bool exactTest,
+                                M::Value *selector, M::Type ty, M::Block *dest,
+                                OperandTy destOps, M::ModuleOp module,
+                                M::ConversionPatternRewriter &rewriter) {
+    M::Type tydesc = fir::TypeDescType::get(ty);
+    M::Value *t = rewriter.create<GenTypeDescOp>(loc, M::TypeAttr::get(tydesc));
+    std::vector<M::Value *> actuals = {selector, t};
+    auto fty = rewriter.getI1Type();
+    std::vector<M::Type> argTy = {fir::BoxType::get(rewriter.getNoneType()),
+                                  tydesc};
+    L::StringRef funName =
+        exactTest ? "FIXME_exact_type_match" : "FIXME_isa_type_test";
+    lookupFunction(funName, rewriter.getFunctionType(argTy, fty), module,
+                   rewriter);
+    // FIXME: need to call actual runtime routines for (1) testing if the
+    // runtime type of the selector is an exact match to a derived type or (2)
+    // testing if the runtime type of the selector is a derived type or one of
+    // that derived type's subtypes.
+    auto cmp = rewriter.create<M::CallOp>(
+        loc, fty, rewriter.getSymbolRefAttr(funName), actuals);
+    auto *thisBlock = rewriter.getInsertionBlock();
+    auto *newBlock = rewriter.createBlock(dest);
+    rewriter.setInsertionPointToEnd(thisBlock);
+    rewriter.create<M::CondBranchOp>(loc, cmp.getResult(0), dest, destOps,
+                                     newBlock, OperandTy{});
+    rewriter.setInsertionPointToEnd(newBlock);
+  }
+};
+
+/// Convert affine dialect, fir.select_type to standard dialect
+class FIRToStdLoweringPass : public M::FunctionPass<FIRToStdLoweringPass> {
+public:
+  void runOnFunction() override {
     if (ClDisableFirToStd)
       return;
 
-    return; // FIXME
-
-    for (auto fn : getModule().getOps<M::FuncOp>()) {
-      M::OpBuilder rewriter{&fn.getBody()};
-      builder = &rewriter;
-      fn.walk([&](M::Operation *op) { lowerSelect(op); });
-    }
-    auto &context{getContext()};
+    auto *context{&getContext()};
     FIRToStdTypeConverter typeConverter;
     M::OwningRewritePatternList patterns;
-    // patterns.insert<>(&context, typeConverter);
-    M::populateAffineToStdConversionPatterns(patterns, &context);
-    M::populateFuncOpTypeConversionPattern(patterns, &context, typeConverter);
-    M::ConversionTarget target{context};
+    patterns.insert<SelectTypeOpConversion>(context, typeConverter);
+    M::populateAffineToStdConversionPatterns(patterns, context);
+    M::populateFuncOpTypeConversionPattern(patterns, context, typeConverter);
+    M::ConversionTarget target{*context};
     target.addLegalDialect<M::StandardOpsDialect, fir::FIROpsDialect>();
     target.addDynamicallyLegalOp<M::FuncOp>([&](M::FuncOp op) {
       return typeConverter.isSignatureLegal(op.getType());
     });
-    target.addDynamicallyLegalOp<M::ModuleOp>(
-        [&](M::ModuleOp op) { return true; });
+    target.addIllegalOp<SelectTypeOp>();
     if (M::failed(M::applyPartialConversion(
             getModule(), target, std::move(patterns), &typeConverter))) {
-      M::emitError(M::UnknownLoc::get(&context),
+      M::emitError(M::UnknownLoc::get(context),
                    "error in converting to standard dialect\n");
       signalPassFailure();
     }
+  }
+
+  M::ModuleOp getModule() {
+    return getFunction().getParentOfType<M::ModuleOp>();
   }
 };
 

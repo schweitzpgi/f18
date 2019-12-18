@@ -61,6 +61,13 @@ inline bool pureCall(mlir::Operation *op) {
   return false;
 }
 
+/// Get or create a FuncOp in a module.
+///
+/// If `module` already contains FuncOp `name`, it is returned. Otherwise, a new
+/// FuncOp is created, and that new FuncOp is returned.
+mlir::FuncOp createFuncOp(mlir::Location loc, mlir::ModuleOp module,
+                          llvm::StringRef name, mlir::FunctionType type);
+
 } // namespace fir
 
 #endif // FIR_FIROPS_SUPPORT_H
