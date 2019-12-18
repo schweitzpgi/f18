@@ -52,8 +52,7 @@ L::cl::opt<bool> ClDisableToDoAssert("disable-burnside-todo",
     L::cl::Hidden);
 
 #undef TODO
-#define TODO() \
-  assert(false && "not implemented yet")
+#define TODO() assert(false && "not implemented yet")
 
 using SelectCaseConstruct = Pa::CaseConstruct;
 using SelectRankConstruct = Pa::SelectRankConstruct;
@@ -342,9 +341,7 @@ class FirConverter : public AbstractConverter {
   void genFIRIOSwitch(AST::Evaluation &) { TODO(); }
 
   // Iterative loop control-flow semantics
-  void genFIREvalIterative(AST::Evaluation &) {
-    TODO();
-  }
+  void genFIREvalIterative(AST::Evaluation &) { TODO(); }
 
   void switchInsertionPointToWhere(fir::WhereOp &where) {
     builder->setInsertionPointToStart(&where.whereRegion().front());
@@ -514,7 +511,7 @@ class FirConverter : public AbstractConverter {
     auto funTy{M::FunctionType::get(argTy, resTy, builder->getContext())};
     // FIXME: mangle name
     M::FuncOp func{getFunc(funName, funTy)};
-    (void)func; // FIXME
+    (void)func;  // FIXME
     std::vector<M::Value *> actuals;
     for (auto &aa : std::get<std::list<Pa::ActualArgSpec>>(stmt.v.t)) {
       auto &kw = std::get<std::optional<Pa::Keyword>>(aa.t);
@@ -836,22 +833,8 @@ class FirConverter : public AbstractConverter {
     // get arguments and return type if any, otherwise just use empty vectors
     L::SmallVector<M::Type, 8> args;
     L::SmallVector<M::Type, 2> results;
-    if (symbol) {
-      auto *details{symbol->detailsIf<Se::SubprogramDetails>()};
-      assert(details && "details for semantics::Symbol must be subprogram");
-      for (auto *a : details->dummyArgs()) {
-        if (a) {  // nullptr indicates alternate return argument
-          auto type{genType(*a)};
-          args.push_back(fir::ReferenceType::get(type));
-        }
-      }
-      if (details->isFunction()) {
-        // FIXME: handle subroutines that return magic values
-        auto result{details->result()};
-        results.push_back(genType(result));
-      }
-    }
-    auto funcTy{M::FunctionType::get(args, results, &mlirContext)};
+    auto funcTy{symbol ? genFunctionType(*symbol)
+                       : M::FunctionType::get(args, results, &mlirContext)};
     return createFunction(*this, name, funcTy);
   }
 
@@ -1081,6 +1064,10 @@ public:
                  },
           u);
     }
+  }
+
+  M::FunctionType genFunctionType(SymbolRef sym) {
+    return translateSymbolToFIRFunctionType(&mlirContext, defaults, sym);
   }
 
   //
