@@ -115,11 +115,11 @@ struct DriverOptions {
   bool dumpUnparseWithSymbols{false};
   bool dumpParseTree{false};
   bool dumpSymbols{false};
-  bool debugLinearFIR{false};
   bool debugResolveNames{false};
   bool debugSemantics{false};
   bool measureTree{false};
   bool runBackend{true};
+  bool dumpPreFIR{false};
   bool dumpHLFIR{true};
   bool dumpFIR{true};
   bool lowerToStd{true};
@@ -244,8 +244,7 @@ std::string CompileFortran(std::string path, Fortran::parser::Options options,
   }
   // TODO: Change this predicate to just "if (!driver.debugNoSemantics)"
   if (driver.debugSemantics || driver.debugResolveNames || driver.dumpSymbols ||
-      driver.dumpUnparseWithSymbols || driver.debugLinearFIR ||
-      driver.runBackend) {
+      driver.dumpUnparseWithSymbols || driver.runBackend) {
     Fortran::semantics::Semantics semantics{
         semanticsContext, parseTree, parsing.cooked()};
     semantics.Perform();
@@ -272,6 +271,9 @@ std::string CompileFortran(std::string path, Fortran::parser::Options options,
   fir::NameUniquer nameUniquer;
   auto burnside = Br::BurnsideBridge::create(
       semanticsContext.defaultKinds(), &parsing.cooked());
+  if (driver.dumpPreFIR) {
+    burnside.dumpPreFIR();
+  }
   burnside.lower(parseTree, nameUniquer);
   mlir::ModuleOp mlirModule{burnside.getModule()};
   mlir::PassManager pm{mlirModule.getContext()};
@@ -444,8 +446,8 @@ int main(int argc, char *const argv[]) {
       driver.dumpUnparse = true;
     } else if (arg == "-funparse-with-symbols") {
       driver.dumpUnparseWithSymbols = true;
-    } else if (arg == "-fdebug-dump-linear-ir") {
-      driver.debugLinearFIR = true;
+    } else if (arg == "-fdebug-dump-pre-fir") {
+      driver.dumpPreFIR = true;
     } else if (arg == "-fno-dump-hl-fir") {
       driver.dumpHLFIR = false;
     } else if (arg == "-fno-dump-fir") {
@@ -512,8 +514,8 @@ int main(int argc, char *const argv[]) {
           << "  -fdebug-resolve-names\n"
           << "  -fdebug-instrumented-parse\n"
           << "  -fdebug-semantics    perform semantic checks\n"
+          << "  -fdebug-dump-pre-fir dump the IR tree prior to FIR\n"
           << "  -fdotty              print FIR as a dotty graph\n"
-          << "  -fdebug-dump-linear-ir dump the flat linear FIR for debug\n"
           << "  -v -c -o -I -D -U    have their usual meanings\n"
           << "  -help                print this again\n"
           << "Other options are passed through to the compiler.\n";
