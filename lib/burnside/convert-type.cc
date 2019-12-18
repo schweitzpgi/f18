@@ -247,24 +247,51 @@ public:
     return bounds;
   }
 
+  M::Type genDummyArgType(const Se::Symbol &dummy) {
+    if (auto *type{dummy.GetType()}) {
+      auto *tySpec{type->AsIntrinsic()};
+      if (tySpec && tySpec->category() == CharacterCat) {
+        auto kind = toConstant(tySpec->kind());
+        return fir::BoxCharType::get(context, kind);
+      }
+    }
+    if (Se::IsDescriptor(dummy)) {
+      // FIXME: This should be the first case, but it seems to
+      // fire at assumed length character on purpose which is
+      // not what I expect.
+      TODO();
+    }
+    return fir::ReferenceType::get(gen(dummy));
+  }
+
+  M::FunctionType genFunctionType(Se::SymbolRef symbol) {
+    llvm::SmallVector<M::Type, 1> returnTys;
+    llvm::SmallVector<M::Type, 4> inputTys;
+    if (auto *proc = symbol->detailsIf<Se::SubprogramDetails>()) {
+      if (proc->isFunction()) {
+        returnTys.emplace_back(gen(proc->result()));
+      }
+      // FIXME: handle alt-return
+      for (auto *arg : proc->dummyArgs()) {
+        // Nullptr args are alternate returns indicators
+        if (arg) {
+          inputTys.emplace_back(genDummyArgType(*arg));
+        }
+      }
+    } else if (auto *proc = symbol->detailsIf<Se::ProcEntityDetails>()) {
+      // TODO Should probably use evaluate::Characteristics for that.
+      TODO();
+    } else {
+      assert(false && "unexpected symbol details for function");
+    }
+    return M::FunctionType::get(inputTys, returnTys, context);
+  }
+
   /// Type consing from a symbol. A symbol's type must be created from the type
   /// discovered by the front-end at runtime.
   M::Type gen(Se::SymbolRef symbol) {
-    if (auto *proc = symbol->detailsIf<Se::SubprogramDetails>()) {
-      M::Type returnTy{mkVoid()};
-      if (proc->isFunction()) {
-        returnTy = gen(proc->result());
-      }
-      // FIXME: handle alt-return
-      llvm::SmallVector<M::Type, 4> inputTys;
-      for (auto *arg : proc->dummyArgs()) {
-        // FIXME: not all args are pass by ref
-        // Nullptr args are alternate returns indicators
-        if (arg) {
-          inputTys.emplace_back(fir::ReferenceType::get(gen(*arg)));
-        }
-      }
-      return M::FunctionType::get(inputTys, returnTy, context);
+    if (symbol->detailsIf<Se::SubprogramDetails>()) {
+      return genFunctionType(symbol);
     }
     M::Type returnTy{};
     if (auto *type{symbol->GetType()}) {
@@ -364,6 +391,11 @@ M::Type Br::translateSomeExprToFIRType(M::MLIRContext *context,
 M::Type Br::translateSymbolToFIRType(M::MLIRContext *context,
     Co::IntrinsicTypeDefaultKinds const &defaults, const SymbolRef symbol) {
   return TypeBuilder{context, defaults}.gen(symbol);
+}
+
+M::FunctionType Br::translateSymbolToFIRFunctionType(M::MLIRContext *context,
+    Co::IntrinsicTypeDefaultKinds const &defaults, const SymbolRef symbol) {
+  return TypeBuilder{context, defaults}.genFunctionType(symbol);
 }
 
 M::Type Br::convertReal(M::MLIRContext *context, int kind) {
