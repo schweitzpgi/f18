@@ -676,10 +676,53 @@ class FirConverter : public AbstractConverter {
 
   void genFIR(const Pa::AllocateStmt &) { TODO(); }
   void genFIR(const Pa::AssignmentStmt &stmt) {
-    auto *rhs{Se::GetExpr(std::get<Pa::Expr>(stmt.t))};
-    auto *lhs{Se::GetExpr(std::get<Pa::Variable>(stmt.t))};
-    builder->create<fir::StoreOp>(
-        toLocation(), genExprValue(*rhs), genExprAddr(*lhs));
+    assert(stmt.typedAssignment && "assignment analysis failed");
+    // Warning: v->u must become v.u after next f18 rebase
+    if (auto *assignment{std::get_if<Ev::Assignment::IntrinsicAssignment>(
+            &stmt.typedAssignment->v->u)}) {
+      const Se::Symbol *sym{Ev::UnwrapWholeSymbolDataRef(assignment->lhs)};
+      if (sym && Se::IsAllocatable(*sym)) {
+        // Assignment of allocatable are more complex, the lhs
+        // may need to be deallocated/reallocated.
+        // See Fortran 2018 10.2.1.3 p3
+        TODO();
+      } else if (sym && Se::IsPointer(*sym)) {
+        // Target of the pointer must be assigned.
+        // See Fortran 2018 10.2.1.3 p2
+        TODO();
+      } else if (assignment->lhs.Rank() > 0) {
+        // Array assignment
+        // See Fortran 2018 10.2.1.3 p5, p6, and p7
+        TODO();
+      } else {
+        // Scalar assignments
+        std::optional<Ev::DynamicType> lhsType{assignment->lhs.GetType()};
+        assert(lhsType && "lhs cannot be typeless");
+        switch (lhsType->category()) {
+        case IntegerCat:
+        case RealCat:
+        case ComplexCat:
+        case LogicalCat:
+          // Fortran 2018 10.2.1.3 p8 and p9
+          // Conversions are already inserted by semantic
+          // analysis.
+          builder->create<fir::StoreOp>(toLocation(),
+              genExprValue(assignment->rhs), genExprAddr(assignment->lhs));
+          break;
+        case CharacterCat:
+          // Fortran 2018 10.2.1.3 p10 and p11
+          TODO();
+          break;
+        case DerivedCat:
+          // Fortran 2018 10.2.1.3 p12 and p13
+          TODO();
+          break;
+        }
+      }
+    } else {
+      // Defined assignment: call ProcRef
+      TODO();
+    }
   }
 
   void genFIR(const Pa::ContinueStmt &) {}  // do nothing
