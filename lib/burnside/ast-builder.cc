@@ -602,6 +602,166 @@ inline void annotateFuncCFG(AST::FunctionLikeUnit &flu) {
   annotateEvalListCFG(flu.evals, nullptr);
 }
 
+const char *evalName(AST::Evaluation &e) {
+  return std::visit(
+      Co::visitors{
+          [](const Pa::AllocateStmt *) { return "AllocateStmt"; },
+          [](const Pa::ArithmeticIfStmt *) { return "ArithmeticIfStmt"; },
+          [](const Pa::AssignedGotoStmt *) { return "AssignedGotoStmt"; },
+          [](const Pa::AssignmentStmt *x) { return "AssignmentStmt"; },
+          [](const Pa::AssignStmt *) { return "AssignStmt"; },
+          [](const Pa::BackspaceStmt *) { return "BackspaceStmt"; },
+          [](const Pa::CallStmt *) { return "CallStmt"; },
+          [](const Pa::CloseStmt *) { return "CloseStmt"; },
+          [](const Pa::ComputedGotoStmt *) { return "ComputedGotoStmt"; },
+          [](const Pa::ContinueStmt *) { return "ContinueStmt"; },
+          [](const Pa::CycleStmt *) { return "CycleStmt"; },
+          [](const Pa::DeallocateStmt *) { return "DeallocateStmt"; },
+          [](const Pa::EndfileStmt *) { return "EndfileStmt"; },
+          [](const Pa::EventPostStmt *) { return "EventPostStmt"; },
+          [](const Pa::EventWaitStmt *) { return "EventWaitStmt"; },
+          [](const Pa::ExitStmt *) { return "ExitStmt"; },
+          [](const Pa::FailImageStmt *) { return "FailImageStmt"; },
+          [](const Pa::FlushStmt *) { return "FlushStmt"; },
+          [](const Pa::ForallStmt *) { return "ForallStmt"; },
+          [](const Pa::FormTeamStmt *) { return "FormTeamStmt"; },
+          [](const Pa::GotoStmt *) { return "GotoStmt"; },
+          [](const Pa::IfStmt *x) { return "IfStmt"; },
+          [](const Pa::InquireStmt *) { return "InquireStmt"; },
+          [](const Pa::LockStmt *) { return "LockStmt"; },
+          [](const Pa::NullifyStmt *) { return "NullifyStmt"; },
+          [](const Pa::OpenStmt *) { return "OpenStmt"; },
+          [](const Pa::PauseStmt *) { return "PauseStmt"; },
+          [](const Pa::PointerAssignmentStmt *) {
+            return "PointerAssignmentStmt";
+          },
+          [](const Pa::PrintStmt *) { return "PrintStmt"; },
+          [](const Pa::ReadStmt *) { return "ReadStmt"; },
+          [](const Pa::ReturnStmt *) { return "ReturnStmt"; },
+          [](const Pa::RewindStmt *) { return "RewindStmt"; },
+          [](const Pa::StopStmt *) { return "StopStmt"; },
+          [](const Pa::SyncAllStmt *) { return "SyncAllStmt"; },
+          [](const Pa::SyncImagesStmt *) { return "SyncImagesStmt"; },
+          [](const Pa::SyncMemoryStmt *) { return "SyncMemoryStmt"; },
+          [](const Pa::SyncTeamStmt *) { return "SyncTeamStmt"; },
+          [](const Pa::UnlockStmt *) { return "UnlockStmt"; },
+          [](const Pa::WaitStmt *) { return "WaitStmt"; },
+          [](const Pa::WhereStmt *) { return "WhereStmt"; },
+          [](const Pa::WriteStmt *) { return "WriteStmt"; },
+
+          [](const AST::CGJump) { return "CGJump"; },
+
+          [](const Pa::DataStmt *) { return "DataStmt"; },
+          [](const Pa::EntryStmt *) { return "EntryStmt"; },
+          [](const Pa::FormatStmt *) { return "FormatStmt"; },
+          [](const Pa::NamelistStmt *) { return "NamelistStmt"; },
+
+          [](const Pa::AssociateConstruct *) { return "AssociateConstruct"; },
+          [](const Pa::BlockConstruct *) { return "BlockConstruct"; },
+          [](const Pa::CaseConstruct *) { return "CaseConstruct"; },
+          [](const Pa::ChangeTeamConstruct *) { return "ChangeTeamConstruct"; },
+          [](const Pa::CompilerDirective *) { return "CompilerDirective"; },
+          [](const Pa::CriticalConstruct *) { return "CriticalConstruct"; },
+          [](const Pa::DoConstruct *) { return "DoConstruct"; },
+          [](const Pa::ForallConstruct *) { return "ForallConstruct"; },
+          [](const Pa::IfConstruct *) { return "IfConstruct"; },
+          [](const Pa::OmpEndLoopDirective *) { return "OmpEndLoopDirective"; },
+          [](const Pa::OpenMPConstruct *) { return "OpenMPConstruct"; },
+          [](const Pa::SelectRankConstruct *) { return "SelectRankConstruct"; },
+          [](const Pa::SelectTypeConstruct *) { return "SelectTypeConstruct"; },
+          [](const Pa::WhereConstruct *) { return "WhereConstruct"; },
+
+          [](const Pa::AssociateStmt *) { return "AssociateStmt"; },
+          [](const Pa::BlockStmt *) { return "BlockStmt"; },
+          [](const Pa::CaseStmt *) { return "CaseStmt"; },
+          [](const Pa::ChangeTeamStmt *) { return "ChangeTeamStmt"; },
+          [](const Pa::CriticalStmt *) { return "CriticalStmt"; },
+          [](const Pa::ElseIfStmt *x) { return "ElseIfStmt"; },
+          [](const Pa::ElseStmt *) { return "ElseStmt"; },
+          [](const Pa::ElsewhereStmt *) { return "ElsewhereStmt"; },
+          [](const Pa::EndAssociateStmt *) { return "EndAssociateStmt"; },
+          [](const Pa::EndBlockStmt *) { return "EndBlockStmt"; },
+          [](const Pa::EndChangeTeamStmt *) { return "EndChangeTeamStmt"; },
+          [](const Pa::EndCriticalStmt *) { return "EndCriticalStmt"; },
+          [](const Pa::EndDoStmt *) { return "EndDoStmt"; },
+          [](const Pa::EndForallStmt *) { return "EndForallStmt"; },
+          [](const Pa::EndIfStmt *) { return "EndIfStmt"; },
+          [](const Pa::EndSelectStmt *) { return "EndSelectStmt"; },
+          [](const Pa::EndWhereStmt *) { return "EndWhereStmt"; },
+          [](const Pa::ForallConstructStmt *) { return "ForallConstructStmt"; },
+          [](const Pa::IfThenStmt *x) { return "IfThenStmt"; },
+          [](const Pa::MaskedElsewhereStmt *) { return "MaskedElsewhereStmt"; },
+          [](const Pa::NonLabelDoStmt *) { return "NonLabelDoStmt"; },
+          [](const Pa::SelectCaseStmt *) { return "SelectCaseStmt"; },
+          [](const Pa::SelectRankCaseStmt *) { return "SelectRankCaseStmt"; },
+          [](const Pa::SelectRankStmt *) { return "SelectRankStmt"; },
+          [](const Pa::SelectTypeStmt *) { return "SelectTypeStmt"; },
+          [](const Pa::TypeGuardStmt *) { return "TypeGuardStmt"; },
+          [](const Pa::WhereConstructStmt *) { return "WhereConstructStmt"; },
+      },
+      e.u);
+}
+
+void dumpEvalList(
+    llvm::raw_ostream &o, std::list<AST::Evaluation> &evals, int indent = 1) {
+  static const std::string white{"                                      ++"};
+  std::string indentString{white.substr(0, indent * 2)};
+  for (AST::Evaluation &e : evals) {
+    const char *name{evalName(e)};
+    if (e.isConstruct()) {
+      o << indentString << "<<" << name << ">>\n";
+      dumpEvalList(o, *e.getConstructEvals(), indent + 1);
+      o << indentString << "<<End" << name << ">>\n";
+    } else {
+      o << indentString << name << ": " << e.pos.ToString() << '\n';
+    }
+  }
+}
+
+void dumpFunctionLikeUnit(llvm::raw_ostream &o, AST::FunctionLikeUnit &flu) {
+  const char *unitKind{};
+  std::string name{};
+  std::string header{};
+  std::visit(Co::visitors{
+                 [&](const Pa::Statement<Pa::ProgramStmt> *s) {
+                   unitKind = "Program";
+                   name = s->statement.v.ToString();
+                 },
+                 [&](const Pa::Statement<Pa::FunctionStmt> *s) {
+                   unitKind = "Function";
+                   name = std::get<Pa::Name>(s->statement.t).ToString();
+                   header = s->source.ToString();
+                 },
+                 [&](const Pa::Statement<Pa::SubroutineStmt> *s) {
+                   unitKind = "Subroutine";
+                   name = std::get<Pa::Name>(s->statement.t).ToString();
+                   header = s->source.ToString();
+                 },
+                 [&](const Pa::Statement<Pa::MpSubprogramStmt> *s) {
+                   unitKind = "MpSubprogram";
+                   name = s->statement.v.ToString();
+                   header = s->source.ToString();
+                 },
+                 [&](auto *) {
+                   if (std::get_if<const Pa::Statement<Pa::EndProgramStmt> *>(
+                           &flu.funStmts.back())) {
+                     unitKind = "Program";
+                     name = "<anonymous>";
+                   } else {
+                     unitKind = ">>>>> Error - no program unit <<<<<";
+                   }
+                 },
+             },
+      flu.funStmts.front());
+  o << unitKind << ' ' << name;
+  if (header.size()) {
+    o << ": " << header;
+  }
+  o << '\n';
+  dumpEvalList(o, flu.evals);
+  o << "End" << unitKind << ' ' << name << "\n\n";
+}
+
 }  // namespace
 
 Br::AST::FunctionLikeUnit::FunctionLikeUnit(
@@ -676,6 +836,28 @@ void Br::annotateControl(AST::Program &ast) {
                      }
                    },
                },
+        unit);
+  }
+}
+
+/// Dump an AST.
+void Br::dumpAST(llvm::raw_ostream &o, AST::Program &ast) {
+  for (auto &unit : ast.getUnits()) {
+    std::visit(
+        Co::visitors{
+            [&](AST::BlockDataUnit &) { o << "BlockData\nEndBlockData\n\n"; },
+            [&](AST::FunctionLikeUnit &f) {
+              dumpFunctionLikeUnit(o, f);
+              for (auto &f : f.funcs) {
+                dumpFunctionLikeUnit(o, f);
+              }
+            },
+            [&](AST::ModuleLikeUnit &u) {
+              for (auto &f : u.funcs) {
+                dumpFunctionLikeUnit(o, f);
+              }
+            },
+        },
         unit);
   }
 }
