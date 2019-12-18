@@ -1142,6 +1142,9 @@ void Br::BurnsideBridge::lower(
     const Pa::Program &prg, fir::NameUniquer &uniquer) {
   AST::Program *ast{Br::createAST(prg)};
   Br::annotateControl(*ast);
+  if (getDumpPreFIR()) {
+    Br::dumpAST(llvm::errs(), *ast);
+  }
   FirConverter converter{*this, uniquer};
   converter.run(*ast);
   delete ast;
