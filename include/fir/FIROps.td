@@ -1900,6 +1900,14 @@ def fir_GenTypeDescOp : fir_OneResultOp<"gentypedesc", [NoSideEffect]> {
     return M::success();
   }];
 
+  let builders = [OpBuilder<
+    "Builder *, OperationState &result, mlir::TypeAttr res",
+    [{
+      result.addAttribute("in_type", res);
+      result.addTypes(res.getValue());
+    }]
+  >];
+
   let printer = [{
     p << getOperationName() << ' ' << getAttr("in_type");
     p << " : " << getType();
