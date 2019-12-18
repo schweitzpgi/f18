@@ -14,9 +14,12 @@
 
 #include "fir/FIROps.h"
 #include "fir/Attribute.h"
+#include "fir/FIROpsSupport.h"
 #include "fir/FIRType.h"
 #include "mlir/Dialect/StandardOps/Ops.h"
 #include "mlir/IR/Diagnostics.h"
+#include "mlir/IR/Function.h"
+#include "mlir/IR/Module.h"
 #include "mlir/IR/StandardTypes.h"
 #include "mlir/IR/SymbolTable.h"
 #include "llvm/ADT/StringSwitch.h"
@@ -585,6 +588,15 @@ void printUnaryOp(Operation *op, OpAsmPrinter &p) {
 bool isReferenceLike(M::Type type) {
   return type.isa<fir::ReferenceType>() || type.isa<fir::HeapType>() ||
          type.isa<fir::PointerType>();
+}
+
+M::FuncOp createFuncOp(M::Location loc, M::ModuleOp module, StringRef name,
+                       M::FunctionType type) {
+  if (auto f = module.lookupSymbol<M::FuncOp>(name))
+    return f;
+  auto f = M::FuncOp::create(loc, name, type);
+  module.push_back(f);
+  return f;
 }
 
 // Tablegen operators
