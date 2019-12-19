@@ -29,6 +29,27 @@ class MLIRContext;
 
 namespace fir {
 
+/// The kind mapping is an encoded string that informs FIR how the Fortran KIND
+/// values from the front-end should be converted to LLVM IR types.  This
+/// encoding allows the mapping from front-end KIND values to backend LLVM IR
+/// types to be customized by the front-end.
+///
+/// The provided string uses the following syntax.
+///
+///   intrinsic-key `:` kind-value (`,` intrinsic-key `:` kind-value)*
+///
+/// intrinsic-key is a single character for the intrinsic type.
+///   'i' : INTEGER   (size in bits)
+///   'l' : LOGICAL   (size in bits)
+///   'a' : CHARACTER (size in bits)
+///   'r' : REAL    (encoding value)
+///   'c' : COMPLEX (encoding value)
+///
+/// kind-value is either an unsigned integer (for 'i', 'l', and 'a') or one of
+/// 'Half', 'Float', 'Double', 'X86_FP80', or 'FP128' (for 'r' and 'c').
+///
+/// If LLVM adds support for new floating-point types, the final list should be
+/// extended.
 class KindMapping {
 public:
   using KindTy = unsigned;
