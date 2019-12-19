@@ -23,8 +23,10 @@ class Pass;
 
 namespace fir {
 
+class KindMapping;
+
 /// Convert FIR to the standard dialect
-std::unique_ptr<mlir::Pass> createFIRToStdPass();
+std::unique_ptr<mlir::Pass> createFIRToStdPass(KindMapping &);
 
 } // namespace fir
 
