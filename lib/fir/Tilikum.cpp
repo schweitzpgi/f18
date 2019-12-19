@@ -1578,6 +1578,16 @@ struct StoreOpConversion : public FIROpConversion<fir::StoreOp> {
   }
 };
 
+// cons an extractvalue on a tuple value, returning value at element `x`
+M::LLVM::ExtractValueOp
+genExtractValueWithIndex(M::Location loc, M::Value *tuple, M::LLVM::LLVMType ty,
+                         M::ConversionPatternRewriter &rewriter,
+                         M::MLIRContext *ctx, int x) {
+  auto cx = M::ArrayAttr::get(rewriter.getI32IntegerAttr(x), ctx);
+  auto xty = ty.getStructElementType(x);
+  return rewriter.create<M::LLVM::ExtractValueOp>(loc, xty, tuple, cx);
+}
+
 // unbox a CHARACTER box value, yielding its components
 struct UnboxCharOpConversion : public FIROpConversion<UnboxCharOp> {
   using FIROpConversion::FIROpConversion;
@@ -1586,16 +1596,12 @@ struct UnboxCharOpConversion : public FIROpConversion<UnboxCharOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto unboxchar = M::cast<UnboxCharOp>(op);
-    auto ctx = unboxchar.getContext();
+    auto *ctx = unboxchar.getContext();
     auto loc = unboxchar.getLoc();
     auto *tuple = operands[0];
     auto ty = unwrap(tuple->getType());
-    auto c0 = M::ArrayAttr::get(rewriter.getI32IntegerAttr(0), ctx);
-    auto ptrty = ty.getStructElementType(0);
-    auto ptr = rewriter.create<M::LLVM::ExtractValueOp>(loc, ptrty, tuple, c0);
-    auto c1 = M::ArrayAttr::get(rewriter.getI32IntegerAttr(1), ctx);
-    auto lenty = ty.getStructElementType(1);
-    auto len = rewriter.create<M::LLVM::ExtractValueOp>(loc, lenty, tuple, c1);
+    auto ptr = genExtractValueWithIndex(loc, tuple, ty, rewriter, ctx, 0);
+    auto len = genExtractValueWithIndex(loc, tuple, ty, rewriter, ctx, 1);
     std::vector<M::Value *> repls = {ptr, len};
     unboxchar.replaceAllUsesWith(repls);
     rewriter.eraseOp(unboxchar);
@@ -1603,7 +1609,20 @@ struct UnboxCharOpConversion : public FIROpConversion<UnboxCharOp> {
   }
 };
 
-// unbox a generic box value, yielding its components
+// generate a GEP into a structure and load the element at position `x`
+M::LLVM::LoadOp genLoadWithIndex(M::Location loc, M::Value *tuple,
+                                 M::LLVM::LLVMType ty,
+                                 M::ConversionPatternRewriter &rewriter,
+                                 M::MLIRContext *ctx, M::LLVM::LLVMType oty,
+                                 M::LLVM::ConstantOp c0, int x) {
+  auto ax = rewriter.getI32IntegerAttr(x);
+  auto cx = rewriter.create<M::LLVM::ConstantOp>(loc, oty, ax);
+  auto xty = ty.getStructElementType(x);
+  auto gep = genGEP(loc, xty.getPointerTo(), rewriter, tuple, c0, cx);
+  return rewriter.create<M::LLVM::LoadOp>(loc, xty, gep);
+}
+
+// unbox a generic box reference, yielding its components
 struct UnboxOpConversion : public FIROpConversion<UnboxOp> {
   using FIROpConversion::FIROpConversion;
 
@@ -1611,9 +1630,24 @@ struct UnboxOpConversion : public FIROpConversion<UnboxOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto unbox = M::cast<UnboxOp>(op);
-    // FIXME: thread all the tuple args to their uses here
-    unbox.replaceAllUsesWith(operands);
-    rewriter.replaceOp(unbox, {});
+    auto *ctx = unbox.getContext();
+    auto loc = unbox.getLoc();
+    auto *tuple = operands[0];
+    auto ty = unwrap(tuple->getType());
+    auto oty = lowering.offsetType();
+    auto c0 = rewriter.create<M::LLVM::ConstantOp>(
+        loc, oty, rewriter.getI32IntegerAttr(0));
+    auto ptr = genLoadWithIndex(loc, tuple, ty, rewriter, ctx, oty, c0, 0);
+    auto len = genLoadWithIndex(loc, tuple, ty, rewriter, ctx, oty, c0, 1);
+    auto ver = genLoadWithIndex(loc, tuple, ty, rewriter, ctx, oty, c0, 2);
+    auto rank = genLoadWithIndex(loc, tuple, ty, rewriter, ctx, oty, c0, 3);
+    auto type = genLoadWithIndex(loc, tuple, ty, rewriter, ctx, oty, c0, 4);
+    auto attr = genLoadWithIndex(loc, tuple, ty, rewriter, ctx, oty, c0, 5);
+    auto xtra = genLoadWithIndex(loc, tuple, ty, rewriter, ctx, oty, c0, 6);
+    // FIXME: add dims, etc.
+    std::vector<M::Value *> repls = {ptr, len, ver, rank, type, attr, xtra};
+    unbox.replaceAllUsesWith(repls);
+    rewriter.eraseOp(unbox);
     return matchSuccess();
   }
 };
@@ -1626,16 +1660,12 @@ struct UnboxProcOpConversion : public FIROpConversion<UnboxProcOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto unboxproc = M::cast<UnboxProcOp>(op);
-    auto ctx = unboxproc.getContext();
+    auto *ctx = unboxproc.getContext();
     auto loc = unboxproc.getLoc();
     auto *tuple = operands[0];
     auto ty = unwrap(tuple->getType());
-    auto c0 = M::ArrayAttr::get(rewriter.getI32IntegerAttr(0), ctx);
-    auto ptrty = ty.getStructElementType(0);
-    auto ptr = rewriter.create<M::LLVM::ExtractValueOp>(loc, ptrty, tuple, c0);
-    auto c1 = M::ArrayAttr::get(rewriter.getI32IntegerAttr(1), ctx);
-    auto hty = ty.getStructElementType(1);
-    auto host = rewriter.create<M::LLVM::ExtractValueOp>(loc, hty, tuple, c1);
+    auto ptr = genExtractValueWithIndex(loc, tuple, ty, rewriter, ctx, 0);
+    auto host = genExtractValueWithIndex(loc, tuple, ty, rewriter, ctx, 1);
     std::vector<M::Value *> repls = {ptr, host};
     unboxproc.replaceAllUsesWith(repls);
     rewriter.eraseOp(unboxproc);
