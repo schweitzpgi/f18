@@ -647,9 +647,6 @@ static mlir::Value *createExtremumCompare(mlir::Location loc,
   static constexpr auto integerPredicate{extremum == Extremum::Max
           ? mlir::CmpIPredicate::sgt
           : mlir::CmpIPredicate::slt};
-  static constexpr auto unorderedCmp{extremum == Extremum::Max
-          ? fir::CmpFPredicate::UGT
-          : fir::CmpFPredicate::ULT};
   static constexpr auto orderedCmp{extremum == Extremum::Max
           ? fir::CmpFPredicate::OGT
           : fir::CmpFPredicate::OLT};
@@ -678,6 +675,9 @@ static mlir::Value *createExtremumCompare(mlir::Location loc,
       result = builder.create<fir::CmpfOp>(loc, orderedCmp, left, right);
     } else if constexpr (behavior == ExtremumBehavior::PgfortranLlvm) {
       // If one of the operand is a NaN, return left whatever it is.
+      static constexpr auto unorderedCmp{extremum == Extremum::Max
+              ? fir::CmpFPredicate::UGT
+              : fir::CmpFPredicate::ULT};
       result = builder.create<fir::CmpfOp>(loc, unorderedCmp, left, right);
     } else {
       // TODO: ieeMinNum/ieeeMaxNum
