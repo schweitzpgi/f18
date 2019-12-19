@@ -31,6 +31,7 @@
 #include "../../lib/semantics/unparse-with-symbols.h"
 #include "fir/FIRDialect.h"
 #include "fir/InternalNames.h"
+#include "fir/KindMapping.h"
 #include "fir/Tilikum/Tilikum.h"
 #include "fir/Transforms/Passes.h"
 #include "fir/Transforms/StdConverter.h"
@@ -271,6 +272,7 @@ std::string CompileFortran(std::string path, Fortran::parser::Options options,
   fir::NameUniquer nameUniquer;
   auto burnside = Br::BurnsideBridge::create(
       semanticsContext.defaultKinds(), &parsing.cooked());
+  fir::KindMapping kindMap{&burnside.getMLIRContext()};
   if (driver.dumpPreFIR) {
     burnside.dumpPreFIR();
   }
@@ -287,7 +289,7 @@ std::string CompileFortran(std::string path, Fortran::parser::Options options,
   if (driver.lowerToLLVM) {
     pm.addPass(fir::createLowerToLoopPass());
     if (driver.lowerToStd) {
-      pm.addPass(fir::createFIRToStdPass());
+      pm.addPass(fir::createFIRToStdPass(kindMap));
     }
     pm.addPass(mlir::createLowerToCFGPass());
     pm.addPass(fir::createFIRToLLVMPass(nameUniquer));
