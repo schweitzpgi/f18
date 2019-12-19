@@ -54,6 +54,8 @@ public:
   /// Get the LLVM Type::TypeID of !fir.complex<kind>
   LLVMTypeID getComplexTypeID(KindTy kind);
 
+  mlir::MLIRContext *getContext() const { return context; }
+
 private:
   MatchResult badMapString(llvm::Twine const &ptr);
   MatchResult parse(llvm::StringRef kindMap);
