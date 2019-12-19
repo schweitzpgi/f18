@@ -1513,9 +1513,9 @@ void selectMatchAndRewrite(FIRToLLVMTypeConverter &lowering, M::Operation *op,
     }
     assert(attr.template dyn_cast_or_null<M::UnitAttr>());
     assert((t + 1 == conds) && "unit must be last");
-    rewriter.replaceOpWithNewOp<M::LLVM::BrOp>(
-        select, M::ValueRange{}, destinations[t],
-        M::ValueRange{destOperands[t]});
+    rewriter.replaceOpWithNewOp<M::LLVM::BrOp>(select, M::ValueRange{},
+                                               destinations[t],
+                                               M::ValueRange{destOperands[t]});
   }
 }
 
@@ -1586,8 +1586,19 @@ struct UnboxCharOpConversion : public FIROpConversion<UnboxCharOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto unboxchar = M::cast<UnboxCharOp>(op);
-    unboxchar.replaceAllUsesWith(operands);
-    rewriter.replaceOp(unboxchar, {});
+    auto ctx = unboxchar.getContext();
+    auto loc = unboxchar.getLoc();
+    auto *tuple = operands[0];
+    auto ty = unwrap(tuple->getType());
+    auto c0 = M::ArrayAttr::get(rewriter.getI32IntegerAttr(0), ctx);
+    auto ptrty = ty.getStructElementType(0);
+    auto ptr = rewriter.create<M::LLVM::ExtractValueOp>(loc, ptrty, tuple, c0);
+    auto c1 = M::ArrayAttr::get(rewriter.getI32IntegerAttr(1), ctx);
+    auto lenty = ty.getStructElementType(1);
+    auto len = rewriter.create<M::LLVM::ExtractValueOp>(loc, lenty, tuple, c1);
+    std::vector<M::Value *> repls = {ptr, len};
+    unboxchar.replaceAllUsesWith(repls);
+    rewriter.eraseOp(unboxchar);
     return matchSuccess();
   }
 };
@@ -1600,6 +1611,7 @@ struct UnboxOpConversion : public FIROpConversion<UnboxOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto unbox = M::cast<UnboxOp>(op);
+    // FIXME: thread all the tuple args to their uses here
     unbox.replaceAllUsesWith(operands);
     rewriter.replaceOp(unbox, {});
     return matchSuccess();
@@ -1614,8 +1626,19 @@ struct UnboxProcOpConversion : public FIROpConversion<UnboxProcOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto unboxproc = M::cast<UnboxProcOp>(op);
-    unboxproc.replaceAllUsesWith(operands);
-    rewriter.replaceOp(unboxproc, {});
+    auto ctx = unboxproc.getContext();
+    auto loc = unboxproc.getLoc();
+    auto *tuple = operands[0];
+    auto ty = unwrap(tuple->getType());
+    auto c0 = M::ArrayAttr::get(rewriter.getI32IntegerAttr(0), ctx);
+    auto ptrty = ty.getStructElementType(0);
+    auto ptr = rewriter.create<M::LLVM::ExtractValueOp>(loc, ptrty, tuple, c0);
+    auto c1 = M::ArrayAttr::get(rewriter.getI32IntegerAttr(1), ctx);
+    auto hty = ty.getStructElementType(1);
+    auto host = rewriter.create<M::LLVM::ExtractValueOp>(loc, hty, tuple, c1);
+    std::vector<M::Value *> repls = {ptr, host};
+    unboxproc.replaceAllUsesWith(repls);
+    rewriter.eraseOp(unboxproc);
     return matchSuccess();
   }
 };
