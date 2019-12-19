@@ -17,6 +17,7 @@
 #include "fir/FIRDialect.h"
 #include "fir/FIROpsSupport.h"
 #include "fir/FIRType.h"
+#include "fir/KindMapping.h"
 #include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
 #include "mlir/Dialect/StandardOps/Ops.h"
 #include "mlir/IR/StandardTypes.h"
@@ -49,33 +50,42 @@ class FIRToStdTypeConverter : public M::TypeConverter {
 public:
   using TypeConverter::TypeConverter;
 
-  // convert a front-end kind value to either a std dialect type
-  // FIXME: use KindMapping
-  static M::Type kindToRealType(M::MLIRContext *ctx, KindTy kind) {
-    switch (kind) {
-    case 2:
+  explicit FIRToStdTypeConverter(KindMapping &kindMap) : kindMap{kindMap} {}
+
+  // convert front-end REAL kind value to a std dialect type, if possible
+  static M::Type kindToRealType(KindMapping &kindMap, KindTy kind) {
+    auto *ctx = kindMap.getContext();
+    switch (kindMap.getRealTypeID(kind)) {
+    case L::Type::TypeID::HalfTyID:
       return M::FloatType::getF16(ctx);
-    case 3:
+#if 0
+    case L::Type::TypeID:: FIXME TyID:
       return M::FloatType::getBF16(ctx);
-    case 4:
+#endif
+    case L::Type::TypeID::FloatTyID:
       return M::FloatType::getF32(ctx);
-    case 8:
+    case L::Type::TypeID::DoubleTyID:
       return M::FloatType::getF64(ctx);
+    case L::Type::TypeID::X86_FP80TyID: // MLIR does not support yet
+    case L::Type::TypeID::FP128TyID:    // MLIR does not support yet
+    default:
+      return fir::RealType::get(ctx, kind);
     }
-    return fir::RealType::get(ctx, kind);
   }
 
-  /// Convert FIR types to MLIR standard dialect types
+  /// Convert some FIR types to MLIR standard dialect types
   M::Type convertType(M::Type t) override {
     if (auto cplx = t.dyn_cast<CplxType>())
-      return M::ComplexType::get(
-          kindToRealType(cplx.getContext(), cplx.getFKind()));
+      return M::ComplexType::get(kindToRealType(kindMap, cplx.getFKind()));
     if (auto integer = t.dyn_cast<IntType>())
       return M::IntegerType::get(integer.getFKind() * 8, integer.getContext());
     if (auto real = t.dyn_cast<RealType>())
-      return kindToRealType(real.getContext(), real.getFKind());
+      return kindToRealType(kindMap, real.getFKind());
     return t;
   }
+
+private:
+  KindMapping &kindMap;
 };
 
 /// FIR conversion pattern template
@@ -132,12 +142,6 @@ struct SelectTypeOpConversion : public FIROpConversion<SelectTypeOp> {
     return matchSuccess();
   }
 
-  static void lookupFunction(L::StringRef name, M::FunctionType type,
-                             M::ModuleOp module,
-                             M::ConversionPatternRewriter &rewriter) {
-    fir::createFuncOp(rewriter.getUnknownLoc(), module, name, type);
-  }
-
   static void genTypeLadderStep(M::Location loc, bool exactTest,
                                 M::Value *selector, M::Type ty, M::Block *dest,
                                 OperandTy destOps, M::ModuleOp module,
@@ -150,8 +154,8 @@ struct SelectTypeOpConversion : public FIROpConversion<SelectTypeOp> {
                                   tydesc};
     L::StringRef funName =
         exactTest ? "FIXME_exact_type_match" : "FIXME_isa_type_test";
-    lookupFunction(funName, rewriter.getFunctionType(argTy, fty), module,
-                   rewriter);
+    createFuncOp(rewriter.getUnknownLoc(), module, funName,
+                 rewriter.getFunctionType(argTy, fty));
     // FIXME: need to call actual runtime routines for (1) testing if the
     // runtime type of the selector is an exact match to a derived type or (2)
     // testing if the runtime type of the selector is a derived type or one of
@@ -170,12 +174,14 @@ struct SelectTypeOpConversion : public FIROpConversion<SelectTypeOp> {
 /// Convert affine dialect, fir.select_type to standard dialect
 class FIRToStdLoweringPass : public M::FunctionPass<FIRToStdLoweringPass> {
 public:
+  explicit FIRToStdLoweringPass(KindMapping &kindMap) : kindMap{kindMap} {}
+
   void runOnFunction() override {
     if (ClDisableFirToStd)
       return;
 
     auto *context{&getContext()};
-    FIRToStdTypeConverter typeConverter;
+    FIRToStdTypeConverter typeConverter{kindMap};
     M::OwningRewritePatternList patterns;
     patterns.insert<SelectTypeOpConversion>(context, typeConverter);
     M::populateAffineToStdConversionPatterns(patterns, context);
@@ -197,10 +203,13 @@ public:
   M::ModuleOp getModule() {
     return getFunction().getParentOfType<M::ModuleOp>();
   }
+
+private:
+  KindMapping &kindMap;
 };
 
 } // namespace
 
-std::unique_ptr<M::Pass> fir::createFIRToStdPass() {
-  return std::make_unique<FIRToStdLoweringPass>();
+std::unique_ptr<M::Pass> fir::createFIRToStdPass(fir::KindMapping &kindMap) {
+  return std::make_unique<FIRToStdLoweringPass>(kindMap);
 }
