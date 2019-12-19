@@ -13,6 +13,7 @@
 
 #include "fir/FIRDialect.h"
 #include "fir/InternalNames.h"
+#include "fir/KindMapping.h"
 #include "fir/Tilikum/Tilikum.h"
 #include "fir/Transforms/Passes.h"
 #include "fir/Transforms/StdConverter.h"
@@ -68,6 +69,7 @@ int compileFIR() {
 
   // run passes
   fir::NameUniquer uniquer;
+  fir::KindMapping kindMap{context.get()};
   mlir::PassManager pm{context.get()};
   pm.addPass(fir::createMemToRegPass());
   pm.addPass(fir::createCSEPass());
@@ -75,7 +77,7 @@ int compileFIR() {
   pm.addPass(fir::createPromoteToAffinePass());
   // convert fir dialect to loop
   pm.addPass(fir::createLowerToLoopPass());
-  pm.addPass(fir::createFIRToStdPass());
+  pm.addPass(fir::createFIRToStdPass(kindMap));
   // convert loop dialect to standard
   pm.addPass(mlir::createLowerToCFGPass());
   pm.addPass(fir::createFIRToLLVMPass(uniquer));
