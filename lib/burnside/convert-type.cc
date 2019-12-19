@@ -278,7 +278,7 @@ public:
           inputTys.emplace_back(genDummyArgType(*arg));
         }
       }
-    } else if (auto *proc = symbol->detailsIf<Se::ProcEntityDetails>()) {
+    } else if (symbol->detailsIf<Se::ProcEntityDetails>()) {
       // TODO Should probably use evaluate::Characteristics for that.
       TODO();
     } else {
