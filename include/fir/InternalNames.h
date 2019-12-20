@@ -15,14 +15,12 @@
 #ifndef FIR_INTERNAL_NAMES_H
 #define FIR_INTERNAL_NAMES_H
 
+#include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/Optional.h"
 #include "llvm/ADT/StringSet.h"
 #include <cstdint>
 
 namespace llvm {
-template <typename>
-class ArrayRef;
-template <typename>
-class Optional;
 class Twine;
 } // namespace llvm
 
@@ -41,6 +39,7 @@ namespace fir {
 struct NameUniquer {
   enum class IntrinsicType { CHARACTER, COMPLEX, INTEGER, LOGICAL, REAL };
 
+  /// The sort of the unique name
   enum class NameKind {
     NOT_UNIQUED,
     COMMON,
@@ -54,7 +53,15 @@ struct NameUniquer {
     VARIABLE
   };
 
+  /// Components of an unparsed unique name
   struct DeconstructedName {
+    DeconstructedName(llvm::StringRef name) : name{name} {}
+    DeconstructedName(llvm::ArrayRef<std::string> modules,
+                      llvm::Optional<std::string> host, llvm::StringRef name,
+                      llvm::ArrayRef<std::int64_t> kinds)
+        : modules{modules.begin(), modules.end()}, host{host}, name{name},
+          kinds{kinds.begin(), kinds.end()} {}
+
     llvm::SmallVector<std::string, 2> modules;
     llvm::Optional<std::string> host;
     std::string name;
@@ -97,6 +104,10 @@ struct NameUniquer {
   /// Unique a (derived) type descriptor name
   std::string doTypeDescriptor(llvm::ArrayRef<llvm::StringRef> modules,
                                llvm::Optional<llvm::StringRef> host,
+                               llvm::StringRef name,
+                               llvm::ArrayRef<std::int64_t> kinds);
+  std::string doTypeDescriptor(llvm::ArrayRef<std::string> modules,
+                               llvm::Optional<std::string> host,
                                llvm::StringRef name,
                                llvm::ArrayRef<std::int64_t> kinds);
 
