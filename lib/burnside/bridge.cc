@@ -678,10 +678,103 @@ class FirConverter : public AbstractConverter {
   void genFIR(const Pa::WriteStmt &stmt) { genWriteStatement(*this, stmt); }
 
   void genFIR(const Pa::AllocateStmt &) { TODO(); }
+
+  void genCharacterAssignement(
+      const Ev::Assignment::IntrinsicAssignment &assignment) {
+    // Helper to get address and length from an Expr that is a character
+    // variable designator
+    auto getAddrAndLength{[&](const SomeExpr &charDesignatorExpr)
+                              -> std::pair<mlir::Value *, mlir::Value *> {
+      auto *addr{genExprAddr(charDesignatorExpr)};
+      const auto &charExpr{
+          std::get<Ev::Expr<Ev::SomeCharacter>>(charDesignatorExpr.u)};
+      // FIXME LEN() should also succeed on character(*) and return a
+      // DescriptorInquiry, this does not work but should be fixed after FIR f18
+      // is rebased with master f18 that contains PR871.
+      std::optional<Ev::Expr<Ev::SubscriptInteger>> lenExpr{charExpr.LEN()};
+      assert(lenExpr && "could not get expression to compute character length");
+      auto *len{genExprValue(Ev::AsGenericExpr(std::move(*lenExpr)))};
+      return {addr, len};
+    }};
+
+    auto lhsAddrAndLen{getAddrAndLength(assignment.lhs)};
+    // FIXME:  In general an address cannot be obtained for rhs because it does
+    // not have to be a variable. rhs either needs to be materialized (but this
+    // just push the problem into assigning into a temp), or each element of the
+    // character rhs must be computed and directly assigned in the related lhs
+    // element.
+    auto rhsAddrAndLen{getAddrAndLength(assignment.rhs)};
+
+    // Generate the copy.
+    // FIXME: Currently assumes no overlap (else a temp should be used).
+
+    // Get reference and character type.
+    assert(lhsAddrAndLen.first && "could not get character variable address");
+    auto charRefType{
+        lhsAddrAndLen.first->getType().dyn_cast<fir::ReferenceType>()};
+    assert(charRefType && "expected character reference type");
+    auto charType{charRefType.getEleTy()};
+    // Cast character string to array of character to index it in fir.loop
+    // This is currently required by fir::CoordinateOp.
+    fir::SequenceType::Shape shape{-1};
+    auto arrayRefCharType{
+        fir::ReferenceType::get(fir::SequenceType::get(shape, charType))};
+    auto lhsArrayView{builder->create<fir::ConvertOp>(
+        toLocation(), arrayRefCharType, lhsAddrAndLen.first)};
+    auto rhsArrayView{builder->create<fir::ConvertOp>(
+        toLocation(), arrayRefCharType, rhsAddrAndLen.first)};
+
+    // Build loop to copy rhs
+    auto indexTy{M::IndexType::get(builder->getContext())};
+    auto zero{builder->create<M::ConstantOp>(
+        toLocation(), indexTy, builder->getIntegerAttr(indexTy, 0))};
+    auto one{builder->create<M::ConstantOp>(
+        toLocation(), indexTy, builder->getIntegerAttr(indexTy, 1))};
+    L::SmallVector<M::Value *, 1> step;
+    step.emplace_back(one);
+    // Copy the minimum of the lhs and rhs lengths
+    auto cmpLen{builder->create<M::CmpIOp>(toLocation(), M::CmpIPredicate::slt,
+        lhsAddrAndLen.second, rhsAddrAndLen.second)};
+    auto copyLen{builder->create<M::SelectOp>(
+        toLocation(), cmpLen, lhsAddrAndLen.second, rhsAddrAndLen.second)};
+    auto copyMaxIndex{
+        builder->create<fir::ConvertOp>(toLocation(), indexTy, copyLen)};
+    auto copyLoop{
+        builder->create<fir::LoopOp>(toLocation(), zero, copyMaxIndex, step)};
+    auto *insPt{builder->getInsertionBlock()};
+    builder->setInsertionPointToStart(copyLoop.getBody());
+    auto index{copyLoop.getInductionVar()};
+    auto lhsElementAddr{builder->create<fir::CoordinateOp>(
+        toLocation(), charRefType, lhsArrayView, index)};
+    auto rhsElementAddr{builder->create<fir::CoordinateOp>(
+        toLocation(), charRefType, rhsArrayView, index)};
+    auto elementVal{builder->create<fir::LoadOp>(toLocation(), rhsElementAddr)};
+    builder->create<fir::StoreOp>(toLocation(), elementVal, lhsElementAddr);
+    builder->setInsertionPointToEnd(insPt);
+
+    // Build loop to pad lhs with blanks if needed.
+    auto padMaxIndex{builder->create<fir::ConvertOp>(
+        toLocation(), indexTy, lhsAddrAndLen.second)};
+    auto byteTy{M::IntegerType::get(8, builder->getContext())};
+    auto asciiSpace{builder->create<M::ConstantOp>(
+        toLocation(), byteTy, builder->getIntegerAttr(byteTy, 32))};
+    auto blank{
+        builder->create<fir::ConvertOp>(toLocation(), charType, asciiSpace)};
+    auto padLoop{builder->create<fir::LoopOp>(
+        toLocation(), copyMaxIndex, padMaxIndex, step)};
+    insPt = builder->getInsertionBlock();
+    builder->setInsertionPointToStart(padLoop.getBody());
+    auto padIndex{padLoop.getInductionVar()};
+    auto lhsElementAddrPad{builder->create<fir::CoordinateOp>(
+        toLocation(), charRefType, lhsArrayView, padIndex)};
+    builder->create<fir::StoreOp>(toLocation(), blank, lhsElementAddrPad);
+    builder->setInsertionPointToEnd(insPt);
+  }
+
   void genFIR(const Pa::AssignmentStmt &stmt) {
     assert(stmt.typedAssignment && "assignment analysis failed");
     // Warning: v->u must become v.u after next f18 rebase
-    if (auto *assignment{std::get_if<Ev::Assignment::IntrinsicAssignment>(
+    if (const auto *assignment{std::get_if<Ev::Assignment::IntrinsicAssignment>(
             &stmt.typedAssignment->v->u)}) {
       const Se::Symbol *sym{Ev::UnwrapWholeSymbolDataRef(assignment->lhs)};
       if (sym && Se::IsAllocatable(*sym)) {
@@ -714,7 +807,7 @@ class FirConverter : public AbstractConverter {
           break;
         case CharacterCat:
           // Fortran 2018 10.2.1.3 p10 and p11
-          TODO();
+          genCharacterAssignement(*assignment);
           break;
         case DerivedCat:
           // Fortran 2018 10.2.1.3 p12 and p13
