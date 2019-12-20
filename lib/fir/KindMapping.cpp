@@ -66,6 +66,7 @@ LLVMTypeID defaultRealKind(KindTy kind) {
   }
 }
 
+// lookup the kind-value given the defaults, the mappings, and a KIND key
 template <typename RT, char KEY>
 RT doLookup(std::function<RT(KindTy)> def,
             std::map<char, std::map<KindTy, RT>> const &map, KindTy kind) {
@@ -78,11 +79,13 @@ RT doLookup(std::function<RT(KindTy)> def,
   return def(kind);
 }
 
+// do a lookup for INTERGER, LOGICAL, or CHARACTER
 template <char KEY, typename MAP>
 Bitsize getIntegerLikeBitsize(KindTy kind, MAP const &map) {
   return doLookup<Bitsize, KEY>(defaultScalingKind, map, kind);
 }
 
+// do a lookup for REAL or COMPLEX
 template <char KEY, typename MAP>
 LLVMTypeID getFloatLikeTypeID(KindTy kind, MAP const &map) {
   return doLookup<LLVMTypeID, KEY>(defaultRealKind, map, kind);
