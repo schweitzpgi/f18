@@ -66,11 +66,13 @@ inline bool pureCall(mlir::Operation *op) {
 /// If `module` already contains FuncOp `name`, it is returned. Otherwise, a new
 /// FuncOp is created, and that new FuncOp is returned.
 mlir::FuncOp createFuncOp(mlir::Location loc, mlir::ModuleOp module,
-                          llvm::StringRef name, mlir::FunctionType type);
+                          llvm::StringRef name, mlir::FunctionType type,
+                          llvm::ArrayRef<mlir::NamedAttribute> attrs = {});
 
 /// Get or create a GlobalOp in a module.
 fir::GlobalOp createGlobalOp(mlir::Location loc, mlir::ModuleOp module,
-                             llvm::StringRef name, mlir::Type type);
+                             llvm::StringRef name, mlir::Type type,
+                             llvm::ArrayRef<mlir::NamedAttribute> attrs = {});
 
 } // namespace fir
 

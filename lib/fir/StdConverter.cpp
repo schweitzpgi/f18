@@ -25,8 +25,8 @@
 #include "mlir/Transforms/DialectConversion.h"
 #include "llvm/ADT/ArrayRef.h"
 
-// This module performs the conversion of FIR operations to MLIR standard and/or
-// LLVM-IR dialects.
+// This module performs the conversion of some FIR operations.
+// Convert some FIR types to standard dialect?
 
 namespace L = llvm;
 namespace M = mlir;
@@ -147,11 +147,15 @@ struct SelectTypeOpConversion : public FIROpConversion<SelectTypeOp> {
                                 OperandTy destOps, M::ModuleOp module,
                                 M::ConversionPatternRewriter &rewriter) {
     M::Type tydesc = fir::TypeDescType::get(ty);
-    M::Value *t = rewriter.create<GenTypeDescOp>(loc, M::TypeAttr::get(tydesc));
-    std::vector<M::Value *> actuals = {selector, t};
+    auto tyattr = M::TypeAttr::get(ty);
+    M::Value *t = rewriter.create<GenTypeDescOp>(loc, tydesc, tyattr);
+    M::Type selty = fir::BoxType::get(rewriter.getNoneType());
+    M::Value *csel = rewriter.create<ConvertOp>(loc, selty, selector);
+    M::Type tty = fir::ReferenceType::get(rewriter.getNoneType());
+    M::Value *ct = rewriter.create<ConvertOp>(loc, tty, t);
+    std::vector<M::Value *> actuals = {csel, ct};
     auto fty = rewriter.getI1Type();
-    std::vector<M::Type> argTy = {fir::BoxType::get(rewriter.getNoneType()),
-                                  tydesc};
+    std::vector<M::Type> argTy = {selty, tty};
     L::StringRef funName =
         exactTest ? "FIXME_exact_type_match" : "FIXME_isa_type_test";
     createFuncOp(rewriter.getUnknownLoc(), module, funName,
