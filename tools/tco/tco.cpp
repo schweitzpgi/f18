@@ -19,6 +19,7 @@
 #include "fir/Transforms/StdConverter.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/ErrorOr.h"
+#include "llvm/Support/InitLLVM.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/raw_ostream.h"
@@ -92,7 +93,11 @@ int compileFIR() {
   return 0;
 }
 
-int main(int argc, char *const argv[]) {
+int main(int argc, char **argv) {
+  llvm::InitLLVM y(argc, argv);
+  (void)y;
+  mlir::registerPassManagerCLOptions();
+  mlir::PassPipelineCLParser passPipe("", "Compiler passes to run");
   cl::ParseCommandLineOptions(argc, argv, "Tilikum Crossing Opt\n");
   return compileFIR();
 }
