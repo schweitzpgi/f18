@@ -44,6 +44,40 @@ std::string doModulesHost(L::ArrayRef<L::StringRef> mods,
   return result;
 }
 
+inline L::SmallVector<L::StringRef, 2>
+convertToStringRef(L::ArrayRef<std::string> from) {
+  L::SmallVector<L::StringRef, 2> to;
+  for (auto &f : from)
+    to.push_back(f);
+  return to;
+}
+
+inline L::Optional<L::StringRef>
+convertToStringRef(const L::Optional<std::string> &from) {
+  L::Optional<L::StringRef> to;
+  if (from.hasValue())
+    to = from.getValue();
+  return to;
+}
+
+std::string readName(L::StringRef uniq, std::size_t &i, std::size_t init,
+                     std::size_t end) {
+  for (i = init; i < end && uniq[i] >= 'a' && uniq[i] <= 'z'; ++i) {
+    // do nothing
+  }
+  return uniq.substr(init, i);
+}
+
+std::int64_t readInt(L::StringRef uniq, std::size_t &i, std::size_t init,
+                     std::size_t end) {
+  for (i = init; i < end && uniq[i] >= '0' && uniq[i] <= '9'; ++i) {
+    // do nothing
+  }
+  std::int64_t result;
+  uniq.substr(init, i).getAsInteger(10, result);
+  return result;
+}
+
 } // namespace
 
 L::StringRef fir::NameUniquer::toLower(L::StringRef name) {
@@ -149,6 +183,14 @@ std::string fir::NameUniquer::doTypeDescriptor(
   return result.str();
 }
 
+std::string fir::NameUniquer::doTypeDescriptor(
+    L::ArrayRef<std::string> modules, L::Optional<std::string> host,
+    L::StringRef name, L::ArrayRef<std::int64_t> kinds) {
+  auto rmodules = convertToStringRef(modules);
+  auto rhost = convertToStringRef(host);
+  return doTypeDescriptor(rmodules, rhost, name, kinds);
+}
+
 std::string fir::NameUniquer::doVariable(L::ArrayRef<L::StringRef> modules,
                                          L::StringRef name) {
   L::Twine result = prefix() + doModules(modules) + "E" + toLower(name);
@@ -156,7 +198,75 @@ std::string fir::NameUniquer::doVariable(L::ArrayRef<L::StringRef> modules,
 }
 
 std::pair<fir::NameUniquer::NameKind, fir::NameUniquer::DeconstructedName>
-fir::NameUniquer::deconstruct(L::StringRef uniquedName) {
-  assert(false && "not yet implemented");
-  return {};
+fir::NameUniquer::deconstruct(L::StringRef uniq) {
+  if (uniq.startswith("_Q")) {
+    L::SmallVector<std::string, 4> modules;
+    L::Optional<std::string> host;
+    std::string name;
+    L::SmallVector<std::int64_t, 8> kinds;
+    NameKind nk = NameKind::NOT_UNIQUED;
+    for (std::size_t i = 2, end = uniq.size(); i != end;) {
+      switch (uniq[i]) {
+      case 'B':
+        nk = NameKind::COMMON;
+        name = readName(uniq, i, i + 1, end);
+        break;
+      case 'C':
+        if (uniq[i + 1] == 'T') {
+          nk = NameKind::TYPE_DESC;
+          name = readName(uniq, i, i + 2, end);
+        } else {
+          nk = NameKind::INTRINSIC_TYPE_DESC;
+          name = readName(uniq, i, i + 1, end);
+        }
+        break;
+      case 'D':
+        nk = NameKind::DISPATCH_TABLE;
+        assert(uniq[i + 1] == 'T');
+        name = readName(uniq, i, i + 2, end);
+        break;
+      case 'E':
+        if (uniq[i + 1] == 'C') {
+          nk = NameKind::CONSTANT;
+          name = readName(uniq, i, i + 2, end);
+        } else {
+          nk = NameKind::VARIABLE;
+          name = readName(uniq, i, i + 1, end);
+        }
+        break;
+      case 'P':
+        nk = NameKind::PROCEDURE;
+        name = readName(uniq, i, i + 1, end);
+        break;
+      case 'Q':
+        nk = NameKind::GENERATED;
+        name = readName(uniq, i, i + 1, end);
+        break;
+      case 'T':
+        nk = NameKind::DERIVED_TYPE;
+        name = readName(uniq, i, i + 1, end);
+        break;
+
+      case 'M':
+      case 'S':
+        modules.push_back(readName(uniq, i, i + 1, end));
+        break;
+      case 'F':
+        host = readName(uniq, i, i + 1, end);
+        break;
+      case 'K':
+        if (uniq[i + 1] == 'N')
+          kinds.push_back(-readInt(uniq, i, i + 2, end));
+        else
+          kinds.push_back(readInt(uniq, i, i + 1, end));
+        break;
+
+      default:
+        assert(false && "unknown uniquing code");
+        break;
+      }
+    }
+    return {nk, DeconstructedName(modules, host, name, kinds)};
+  }
+  return {NameKind::NOT_UNIQUED, DeconstructedName(uniq)};
 }
