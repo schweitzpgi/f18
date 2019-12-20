@@ -69,9 +69,13 @@ public:
   static llvm::StringRef getOperationName() { return "fir.global"; }
   static llvm::StringRef getTypeAttrName() { return "type"; }
 
-  static void build(mlir::Builder *builder, mlir::OperationState *result,
+  static void build(mlir::Builder *builder, mlir::OperationState &result,
                     llvm::StringRef name, mlir::Type type,
                     llvm::ArrayRef<mlir::NamedAttribute> attrs);
+
+  static GlobalOp create(mlir::Location loc, llvm::StringRef name,
+                         mlir::Type type,
+                         llvm::ArrayRef<mlir::NamedAttribute> attrs = {});
 
   /// Operation hooks.
   static mlir::ParseResult parse(mlir::OpAsmParser &parser,
