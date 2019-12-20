@@ -228,8 +228,20 @@ class ExprLowering {
 
   M::Value *gen(Se::SymbolRef sym) {
     // FIXME: not all symbols are local
-    return createTemporary(
-        getLoc(), builder, symMap, converter.genType(sym), &*sym);
+    auto *addr{createTemporary(
+        getLoc(), builder, symMap, converter.genType(sym), &*sym)};
+    assert(addr && "failed generating symbol address");
+    // Get address from descriptor if symbol has one.
+    auto type{addr->getType()};
+    if (auto boxCharType{type.dyn_cast<fir::BoxCharType>()}) {
+      auto refType{fir::ReferenceType::get(boxCharType.getEleTy())};
+      auto lenType{mlir::IntegerType::get(64, builder.getContext())};
+      addr = builder.create<fir::UnboxCharOp>(getLoc(), refType, lenType, addr)
+                 .getResult(0);
+    } else if (type.isa<fir::BoxType>()) {
+      TODO();
+    }
+    return addr;
   }
   M::Value *gendef(Se::SymbolRef sym) { return gen(sym); }
 
