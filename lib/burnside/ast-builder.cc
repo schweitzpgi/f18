@@ -17,7 +17,7 @@
 #include <cassert>
 #include <utility>
 
-/// Build an light-weight AST to help with lowering to FIR.  The AST will
+/// Build a light-weight AST to help with lowering to FIR.  The AST will
 /// capture pointers back into the parse tree, so the parse tree data structure
 /// may <em>not</em> be changed between the construction of the AST and all of
 /// its uses.
@@ -29,6 +29,7 @@
 
 namespace Br = Fortran::burnside;
 namespace Co = Fortran::common;
+namespace L = llvm;
 namespace Pa = Fortran::parser;
 
 using namespace Fortran;
@@ -111,96 +112,96 @@ public:
   // Construct statements
   //
 
-  void Post(const Pa::Statement<parser::AssociateStmt> &s) {
+  void Post(const Pa::Statement<Pa::AssociateStmt> &s) {
     addEval(makeEvalDirect(s));
   }
-  void Post(const Pa::Statement<parser::EndAssociateStmt> &s) {
+  void Post(const Pa::Statement<Pa::EndAssociateStmt> &s) {
     addEval(makeEvalDirect(s));
   }
-  void Post(const Pa::Statement<parser::BlockStmt> &s) {
+  void Post(const Pa::Statement<Pa::BlockStmt> &s) {
     addEval(makeEvalDirect(s));
   }
-  void Post(const Pa::Statement<parser::EndBlockStmt> &s) {
+  void Post(const Pa::Statement<Pa::EndBlockStmt> &s) {
     addEval(makeEvalDirect(s));
   }
-  void Post(const Pa::Statement<parser::SelectCaseStmt> &s) {
+  void Post(const Pa::Statement<Pa::SelectCaseStmt> &s) {
     addEval(makeEvalDirect(s));
   }
-  void Post(const Pa::Statement<parser::CaseStmt> &s) {
+  void Post(const Pa::Statement<Pa::CaseStmt> &s) {
     addEval(makeEvalDirect(s));
   }
-  void Post(const Pa::Statement<parser::EndSelectStmt> &s) {
+  void Post(const Pa::Statement<Pa::EndSelectStmt> &s) {
     addEval(makeEvalDirect(s));
   }
-  void Post(const Pa::Statement<parser::ChangeTeamStmt> &s) {
+  void Post(const Pa::Statement<Pa::ChangeTeamStmt> &s) {
     addEval(makeEvalDirect(s));
   }
-  void Post(const Pa::Statement<parser::EndChangeTeamStmt> &s) {
+  void Post(const Pa::Statement<Pa::EndChangeTeamStmt> &s) {
     addEval(makeEvalDirect(s));
   }
-  void Post(const Pa::Statement<parser::CriticalStmt> &s) {
+  void Post(const Pa::Statement<Pa::CriticalStmt> &s) {
     addEval(makeEvalDirect(s));
   }
-  void Post(const Pa::Statement<parser::EndCriticalStmt> &s) {
+  void Post(const Pa::Statement<Pa::EndCriticalStmt> &s) {
     addEval(makeEvalDirect(s));
   }
-  void Post(const Pa::Statement<parser::NonLabelDoStmt> &s) {
+  void Post(const Pa::Statement<Pa::NonLabelDoStmt> &s) {
     addEval(makeEvalDirect(s));
   }
-  void Post(const Pa::Statement<parser::EndDoStmt> &s) {
+  void Post(const Pa::Statement<Pa::EndDoStmt> &s) {
     addEval(makeEvalDirect(s));
   }
-  void Post(const Pa::Statement<parser::IfThenStmt> &s) {
+  void Post(const Pa::Statement<Pa::IfThenStmt> &s) {
     addEval(makeEvalDirect(s));
   }
-  void Post(const Pa::Statement<parser::ElseIfStmt> &s) {
+  void Post(const Pa::Statement<Pa::ElseIfStmt> &s) {
     addEval(makeEvalDirect(s));
   }
-  void Post(const Pa::Statement<parser::ElseStmt> &s) {
+  void Post(const Pa::Statement<Pa::ElseStmt> &s) {
     addEval(makeEvalDirect(s));
   }
-  void Post(const Pa::Statement<parser::EndIfStmt> &s) {
+  void Post(const Pa::Statement<Pa::EndIfStmt> &s) {
     addEval(makeEvalDirect(s));
   }
-  void Post(const Pa::Statement<parser::SelectRankStmt> &s) {
+  void Post(const Pa::Statement<Pa::SelectRankStmt> &s) {
     addEval(makeEvalDirect(s));
   }
-  void Post(const Pa::Statement<parser::SelectRankCaseStmt> &s) {
+  void Post(const Pa::Statement<Pa::SelectRankCaseStmt> &s) {
     addEval(makeEvalDirect(s));
   }
-  void Post(const Pa::Statement<parser::SelectTypeStmt> &s) {
+  void Post(const Pa::Statement<Pa::SelectTypeStmt> &s) {
     addEval(makeEvalDirect(s));
   }
-  void Post(const Pa::Statement<parser::TypeGuardStmt> &s) {
+  void Post(const Pa::Statement<Pa::TypeGuardStmt> &s) {
     addEval(makeEvalDirect(s));
   }
-  void Post(const Pa::Statement<parser::WhereConstructStmt> &s) {
+  void Post(const Pa::Statement<Pa::WhereConstructStmt> &s) {
     addEval(makeEvalDirect(s));
   }
-  void Post(const Pa::Statement<parser::MaskedElsewhereStmt> &s) {
+  void Post(const Pa::Statement<Pa::MaskedElsewhereStmt> &s) {
     addEval(makeEvalDirect(s));
   }
-  void Post(const Pa::Statement<parser::ElsewhereStmt> &s) {
+  void Post(const Pa::Statement<Pa::ElsewhereStmt> &s) {
     addEval(makeEvalDirect(s));
   }
-  void Post(const Pa::Statement<parser::EndWhereStmt> &s) {
+  void Post(const Pa::Statement<Pa::EndWhereStmt> &s) {
     addEval(makeEvalDirect(s));
   }
-  void Post(const Pa::Statement<parser::ForallConstructStmt> &s) {
+  void Post(const Pa::Statement<Pa::ForallConstructStmt> &s) {
     addEval(makeEvalDirect(s));
   }
-  void Post(const Pa::Statement<parser::EndForallStmt> &s) {
+  void Post(const Pa::Statement<Pa::EndForallStmt> &s) {
     addEval(makeEvalDirect(s));
   }
   // Get rid of production wrapper
-  void Post(const Pa::UnlabeledStatement<parser::ForallAssignmentStmt> &s) {
+  void Post(const Pa::UnlabeledStatement<Pa::ForallAssignmentStmt> &s) {
     addEval(std::visit(
         [&](const auto &x) {
           return AST::Evaluation{x, s.source, {}, parents.back()};
         },
         s.statement.u));
   }
-  void Post(const Pa::Statement<parser::ForallAssignmentStmt> &s) {
+  void Post(const Pa::Statement<Pa::ForallAssignmentStmt> &s) {
     addEval(std::visit(
         [&](const auto &x) {
           return AST::Evaluation{x, s.source, s.label, parents.back()};
@@ -248,7 +249,7 @@ private:
   // the AST.
   AST::Evaluation makeEvalAction(const Pa::Statement<Pa::ActionStmt> &s) {
     return std::visit(
-        common::visitors{
+        Co::visitors{
             [&](const Pa::ContinueStmt &x) {
               return AST::Evaluation{x, s.source, s.label, parents.back()};
             },
@@ -265,7 +266,7 @@ private:
   AST::Evaluation makeEvalAction(
       const Pa::UnlabeledStatement<Pa::ActionStmt> &s) {
     return std::visit(
-        common::visitors{
+        Co::visitors{
             [&](const Pa::ContinueStmt &x) {
               return AST::Evaluation{x, s.source, {}, parents.back()};
             },
@@ -485,7 +486,7 @@ void annotateEvalListCFG(
       e.isTarget = true;
     }
     std::visit(
-        common::visitors{
+        Co::visitors{
             [&](const Pa::BackspaceStmt *s) { ioLabel(e, s, cstr); },
             [&](const Pa::CallStmt *s) { altRet(e, s, cstr); },
             [&](const Pa::CloseStmt *s) { ioLabel(e, s, cstr); },
@@ -602,7 +603,7 @@ inline void annotateFuncCFG(AST::FunctionLikeUnit &flu) {
   annotateEvalListCFG(flu.evals, nullptr);
 }
 
-const char *evalName(AST::Evaluation &e) {
+L::StringRef evalName(AST::Evaluation &e) {
   return std::visit(
       Co::visitors{
           [](const Pa::AllocateStmt *) { return "AllocateStmt"; },
@@ -703,11 +704,11 @@ const char *evalName(AST::Evaluation &e) {
 }
 
 void dumpEvalList(
-    llvm::raw_ostream &o, std::list<AST::Evaluation> &evals, int indent = 1) {
+    L::raw_ostream &o, std::list<AST::Evaluation> &evals, int indent = 1) {
   static const std::string white{"                                      ++"};
   std::string indentString{white.substr(0, indent * 2)};
   for (AST::Evaluation &e : evals) {
-    const char *name{evalName(e)};
+    L::StringRef name{evalName(e)};
     if (e.isConstruct()) {
       o << indentString << "<<" << name << ">>\n";
       dumpEvalList(o, *e.getConstructEvals(), indent + 1);
@@ -718,8 +719,8 @@ void dumpEvalList(
   }
 }
 
-void dumpFunctionLikeUnit(llvm::raw_ostream &o, AST::FunctionLikeUnit &flu) {
-  const char *unitKind{};
+void dumpFunctionLikeUnit(L::raw_ostream &o, AST::FunctionLikeUnit &flu) {
+  L::StringRef unitKind{};
   std::string name{};
   std::string header{};
   std::visit(Co::visitors{
@@ -822,7 +823,7 @@ AST::Program *Br::createAST(const Pa::Program &root) {
 
 void Br::annotateControl(AST::Program &ast) {
   for (auto &unit : ast.getUnits()) {
-    std::visit(common::visitors{
+    std::visit(Co::visitors{
                    [](AST::BlockDataUnit &) {},
                    [](AST::FunctionLikeUnit &f) {
                      annotateFuncCFG(f);
@@ -841,7 +842,7 @@ void Br::annotateControl(AST::Program &ast) {
 }
 
 /// Dump an AST.
-void Br::dumpAST(llvm::raw_ostream &o, AST::Program &ast) {
+void Br::dumpAST(L::raw_ostream &o, AST::Program &ast) {
   for (auto &unit : ast.getUnits()) {
     std::visit(
         Co::visitors{

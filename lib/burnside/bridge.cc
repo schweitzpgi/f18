@@ -47,6 +47,9 @@ using namespace Fortran::burnside;
 
 namespace {
 
+L::cl::opt<bool> ClDumpPreFir("fdebug-dump-pre-fir", L::cl::init(false),
+    L::cl::desc("dump the IR tree prior to FIR"));
+
 L::cl::opt<bool> ClDisableToDoAssert("disable-burnside-todo",
     L::cl::desc("disable burnside bridge asserts"), L::cl::init(false),
     L::cl::Hidden);
@@ -72,7 +75,7 @@ constexpr static bool isStopStmt(const Pa::StopStmt &stm) {
 #define TODO() \
   { \
     if (ClDisableToDoAssert) \
-      mlir::emitError(toLocation(), __FILE__) \
+      M::emitError(toLocation(), __FILE__) \
           << ":" << __LINE__ << " not implemented"; \
     else \
       assert(false && "not yet implemented"); \
@@ -621,39 +624,39 @@ class FirConverter : public AbstractConverter {
   void genFIR(const Pa::OpenMPConstruct &) { TODO(); }
   void genFIR(const Pa::OmpEndLoopDirective &) { TODO(); }
 
-  void genFIR(const parser::AssociateStmt &) { TODO(); }
-  void genFIR(const parser::EndAssociateStmt &) { TODO(); }
-  void genFIR(const parser::BlockStmt &) { TODO(); }
-  void genFIR(const parser::EndBlockStmt &) { TODO(); }
-  void genFIR(const parser::SelectCaseStmt &) { TODO(); }
-  void genFIR(const parser::CaseStmt &) { TODO(); }
-  void genFIR(const parser::EndSelectStmt &) { TODO(); }
-  void genFIR(const parser::ChangeTeamStmt &) { TODO(); }
-  void genFIR(const parser::EndChangeTeamStmt &) { TODO(); }
-  void genFIR(const parser::CriticalStmt &) { TODO(); }
-  void genFIR(const parser::EndCriticalStmt &) { TODO(); }
+  void genFIR(const Pa::AssociateStmt &) { TODO(); }
+  void genFIR(const Pa::EndAssociateStmt &) { TODO(); }
+  void genFIR(const Pa::BlockStmt &) { TODO(); }
+  void genFIR(const Pa::EndBlockStmt &) { TODO(); }
+  void genFIR(const Pa::SelectCaseStmt &) { TODO(); }
+  void genFIR(const Pa::CaseStmt &) { TODO(); }
+  void genFIR(const Pa::EndSelectStmt &) { TODO(); }
+  void genFIR(const Pa::ChangeTeamStmt &) { TODO(); }
+  void genFIR(const Pa::EndChangeTeamStmt &) { TODO(); }
+  void genFIR(const Pa::CriticalStmt &) { TODO(); }
+  void genFIR(const Pa::EndCriticalStmt &) { TODO(); }
 
   // Do loop is handled by EvalIterative(), EvalStructuredOp()
-  void genFIR(const parser::NonLabelDoStmt &) {}  // do nothing
-  void genFIR(const parser::EndDoStmt &) {}  // do nothing
+  void genFIR(const Pa::NonLabelDoStmt &) {}  // do nothing
+  void genFIR(const Pa::EndDoStmt &) {}  // do nothing
 
   // If-Then-Else is handled by EvalCondGoto(), EvalStructuredOp()
-  void genFIR(const parser::IfThenStmt &) {}  // do nothing
-  void genFIR(const parser::ElseIfStmt &) {}  // do nothing
-  void genFIR(const parser::ElseStmt &) {}  // do nothing
-  void genFIR(const parser::EndIfStmt &) {}  // do nothing
+  void genFIR(const Pa::IfThenStmt &) {}  // do nothing
+  void genFIR(const Pa::ElseIfStmt &) {}  // do nothing
+  void genFIR(const Pa::ElseStmt &) {}  // do nothing
+  void genFIR(const Pa::EndIfStmt &) {}  // do nothing
 
-  void genFIR(const parser::SelectRankStmt &) { TODO(); }
-  void genFIR(const parser::SelectRankCaseStmt &) { TODO(); }
-  void genFIR(const parser::SelectTypeStmt &) { TODO(); }
-  void genFIR(const parser::TypeGuardStmt &) { TODO(); }
+  void genFIR(const Pa::SelectRankStmt &) { TODO(); }
+  void genFIR(const Pa::SelectRankCaseStmt &) { TODO(); }
+  void genFIR(const Pa::SelectTypeStmt &) { TODO(); }
+  void genFIR(const Pa::TypeGuardStmt &) { TODO(); }
 
-  void genFIR(const parser::WhereConstructStmt &) { TODO(); }
-  void genFIR(const parser::MaskedElsewhereStmt &) { TODO(); }
-  void genFIR(const parser::ElsewhereStmt &) { TODO(); }
-  void genFIR(const parser::EndWhereStmt &) { TODO(); }
-  void genFIR(const parser::ForallConstructStmt &) { TODO(); }
-  void genFIR(const parser::EndForallStmt &) { TODO(); }
+  void genFIR(const Pa::WhereConstructStmt &) { TODO(); }
+  void genFIR(const Pa::MaskedElsewhereStmt &) { TODO(); }
+  void genFIR(const Pa::ElsewhereStmt &) { TODO(); }
+  void genFIR(const Pa::EndWhereStmt &) { TODO(); }
+  void genFIR(const Pa::ForallConstructStmt &) { TODO(); }
+  void genFIR(const Pa::EndForallStmt &) { TODO(); }
 
   //
   // Statements that do not have control-flow semantics
@@ -1090,7 +1093,7 @@ public:
   void run(AST::Program &ast) {
     // build pruned control
     for (auto &u : ast.getUnits()) {
-      std::visit(common::visitors{
+      std::visit(Co::visitors{
                      [&](AST::FunctionLikeUnit &f) { pruneFunc(f); },
                      [&](AST::ModuleLikeUnit &m) { pruneMod(m); },
                      [](AST::BlockDataUnit &) { /* do nothing */ },
@@ -1100,7 +1103,7 @@ public:
 
     // do translation
     for (auto &u : ast.getUnits()) {
-      std::visit(common::visitors{
+      std::visit(Co::visitors{
                      [&](AST::FunctionLikeUnit &f) { lowerFunc(f, {}); },
                      [&](AST::ModuleLikeUnit &m) { lowerMod(m); },
                      [&](AST::BlockDataUnit &) { TODO(); },
@@ -1134,10 +1137,10 @@ public:
   M::Type genType(SymbolRef sym) override final {
     return translateSymbolToFIRType(&mlirContext, defaults, sym);
   }
-  M::Type genType(common::TypeCategory tc, int kind) override final {
+  M::Type genType(Co::TypeCategory tc, int kind) override final {
     return getFIRType(&mlirContext, defaults, tc, kind);
   }
-  M::Type genType(common::TypeCategory tc) override final {
+  M::Type genType(Co::TypeCategory tc) override final {
     return getFIRType(&mlirContext, defaults, tc);
   }
 
@@ -1172,8 +1175,8 @@ void Br::BurnsideBridge::lower(
     const Pa::Program &prg, fir::NameUniquer &uniquer) {
   AST::Program *ast{Br::createAST(prg)};
   Br::annotateControl(*ast);
-  if (getDumpPreFIR()) {
-    Br::dumpAST(llvm::errs(), *ast);
+  if (ClDumpPreFir) {
+    Br::dumpAST(L::errs(), *ast);
   }
   FirConverter converter{*this, uniquer};
   converter.run(*ast);
