@@ -1,4 +1,4 @@
-//===- MemToReg.cpp - Generalized mem to reg pass for MLIR dialects     ---===//
+//===-- lib/fir/Transforms/MemToReg.cpp -------------------------*- C++ -*-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -105,7 +105,7 @@ struct AllocaInfo {
 };
 
 struct RenamePassData {
-  using ValVector = std::vector<M::Value *>;
+  using ValVector = std::vector<M::Value>;
 
   RenamePassData(M::Block *b, M::Block *p, const ValVector &v)
       : BB(b), Pred(p), Values(v) {}
@@ -232,7 +232,7 @@ struct MemToReg : public M::FunctionPass<MemToReg<LOAD, STORE, ALLOCA, UNDEF>> {
       }
 
       // Otherwise, we *can* safely rewrite this load.
-      M::Value *replVal = onlyStore.getOperand(0);
+      M::Value replVal = onlyStore.getOperand(0);
       // If the replacement value is the load, this must occur in unreachable
       // code.
       if (replVal == LI.getResult())
@@ -302,7 +302,7 @@ struct MemToReg : public M::FunctionPass<MemToReg<LOAD, STORE, ALLOCA, UNDEF>> {
         // Otherwise, there was a store before this load, the load takes its
         // value. Note, if the load was marked as nonnull we don't want to lose
         // that information when we erase it. So we preserve it with an assume.
-        M::Value *replVal = std::prev(I)->second->getOperand(0);
+        M::Value replVal = std::prev(I)->second->getOperand(0);
 
         // If the replacement value is the load, this must occur in unreachable
         // code.
@@ -318,7 +318,7 @@ struct MemToReg : public M::FunctionPass<MemToReg<LOAD, STORE, ALLOCA, UNDEF>> {
 
     // Remove the (now dead) stores and alloca.
     while (!AI.use_empty()) {
-      auto *ae = AI.getResult();
+      auto ae = AI.getResult();
       for (auto ai = ae->user_begin(), E = ae->user_end(); ai != E; ai++)
         if (STORE si = M::dyn_cast<STORE>(*ai)) {
           si.erase();
@@ -411,8 +411,8 @@ struct MemToReg : public M::FunctionPass<MemToReg<LOAD, STORE, ALLOCA, UNDEF>> {
   }
 
   template <typename A>
-  void initOperands(std::vector<M::Value *> &opers, M::Location &&loc,
-                    M::Block *dest, unsigned size, unsigned ai, M::Value *val,
+  void initOperands(std::vector<M::Value> &opers, M::Location &&loc,
+                    M::Block *dest, unsigned size, unsigned ai, M::Value val,
                     A &&oldOpers) {
     unsigned i = 0;
     for (auto v : oldOpers)
@@ -429,27 +429,27 @@ struct MemToReg : public M::FunctionPass<MemToReg<LOAD, STORE, ALLOCA, UNDEF>> {
     opers[ai] = val;
   }
 
-  static void eraseIfNoUse(M::Value *val) {
+  static void eraseIfNoUse(M::Value val) {
     if (val->use_begin() == val->use_end()) {
       val->getDefiningOp()->erase();
     }
   }
 
   /// Set the incoming value on the branch side for the `ai`th block argument
-  void setParam(M::Block *blk, unsigned ai, M::Value *val, M::Block *target,
+  void setParam(M::Block *blk, unsigned ai, M::Value val, M::Block *target,
                 unsigned size) {
     auto *term = blk->getTerminator();
     if (auto br = M::dyn_cast<M::BranchOp>(term)) {
       if (br.getNumOperands() <= ai) {
         // construct a new BranchOp to replace term
-        std::vector<M::Value *> opers(size);
+        std::vector<M::Value> opers(size);
         auto *dest = br.getDest();
         builder->setInsertionPoint(term);
         initOperands(opers, br.getLoc(), dest, size, ai, val, br.getOperands());
         builder->create<M::BranchOp>(br.getLoc(), dest, opers);
         br.erase();
       } else {
-        auto *oldParam = br.getOperand(ai);
+        auto oldParam = br.getOperand(ai);
         br.setOperand(ai, val);
         eraseIfNoUse(oldParam);
       }
@@ -457,40 +457,40 @@ struct MemToReg : public M::FunctionPass<MemToReg<LOAD, STORE, ALLOCA, UNDEF>> {
       if (target == cond.getTrueDest()) {
         if (cond.getNumTrueOperands() <= ai) {
           // construct a new CondBranchOp to replace term
-          std::vector<M::Value *> opers(size);
+          std::vector<M::Value> opers(size);
           auto *dest = cond.getTrueDest();
           builder->setInsertionPoint(term);
           initOperands(opers, cond.getLoc(), dest, size, ai, val,
                        cond.getTrueOperands());
-          auto *c = cond.getCondition();
+          auto c = cond.getCondition();
           auto *othDest = cond.getFalseDest();
-          std::vector<M::Value *> othOpers(cond.false_operand_begin(),
-                                           cond.false_operand_end());
+          std::vector<M::Value> othOpers(cond.false_operand_begin(),
+                                         cond.false_operand_end());
           builder->create<M::CondBranchOp>(cond.getLoc(), c, dest, opers,
                                            othDest, othOpers);
           cond.erase();
         } else {
-          auto *oldParam = cond.getTrueOperand(ai);
+          auto oldParam = cond.getTrueOperand(ai);
           cond.setTrueOperand(ai, val);
           eraseIfNoUse(oldParam);
         }
       } else {
         if (cond.getNumFalseOperands() <= ai) {
           // construct a new CondBranchOp to replace term
-          std::vector<M::Value *> opers(size);
+          std::vector<M::Value> opers(size);
           auto *dest = cond.getFalseDest();
           builder->setInsertionPoint(term);
           initOperands(opers, cond.getLoc(), dest, size, ai, val,
                        cond.getFalseOperands());
-          auto *c = cond.getCondition();
+          auto c = cond.getCondition();
           auto *othDest = cond.getTrueDest();
-          std::vector<M::Value *> othOpers(cond.true_operand_begin(),
-                                           cond.true_operand_end());
+          std::vector<M::Value> othOpers(cond.true_operand_begin(),
+                                         cond.true_operand_end());
           builder->create<M::CondBranchOp>(cond.getLoc(), c, othDest, othOpers,
                                            dest, opers);
           cond.erase();
         } else {
-          auto *oldParam = cond.getFalseOperand(ai);
+          auto oldParam = cond.getFalseOperand(ai);
           cond.setFalseOperand(ai, val);
           eraseIfNoUse(oldParam);
         }
@@ -502,7 +502,7 @@ struct MemToReg : public M::FunctionPass<MemToReg<LOAD, STORE, ALLOCA, UNDEF>> {
 
   inline static void addValue(RenamePassData::ValVector &vector,
                               RenamePassData::ValVector::size_type size,
-                              M::Value *value) {
+                              M::Value value) {
     if (vector.size() < size + 1)
       vector.resize(size + 1);
     vector[size] = value;
