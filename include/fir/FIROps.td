@@ -1879,7 +1879,21 @@ def fir_ConvertOp : fir_OneResultOp<"convert", [NoSideEffect]>,
   }];
 }
 
-def fir_GenTypeDescOp : fir_OneResultOp<"gentypedesc", [NoSideEffect]> {
+def FortranTypeAttr : Attr<And<[CPred<"$_self.isa<TypeAttr>()">,
+    Or<[CPred<"$_self.cast<TypeAttr>().getValue().isa<fir::CharacterType>()">,
+        CPred<"$_self.cast<TypeAttr>().getValue().isa<fir::CplxType>()">,
+        CPred<"$_self.cast<TypeAttr>().getValue().isa<fir::IntType>()">,
+        CPred<"$_self.cast<TypeAttr>().getValue().isa<fir::LogicalType>()">,
+        CPred<"$_self.cast<TypeAttr>().getValue().isa<fir::RealType>()">,
+        CPred<"$_self.cast<TypeAttr>().getValue().isa<fir::RecordType>()">]>]>,
+    "Fortran surface type"> {
+  let storageType = [{ TypeAttr }];
+  let returnType = "Type";
+  let convertFromStorage = "$_self.getValue().cast<Type>()";
+}
+
+def fir_GenTypeDescOp : fir_OneResultOp<"gentypedesc", [NoSideEffect]>,
+  Arguments<(ins FortranTypeAttr:$in_type)> {
   let summary = "generate a type descriptor for a given type";
 
   let description = [{
@@ -1893,30 +1907,36 @@ def fir_GenTypeDescOp : fir_OneResultOp<"gentypedesc", [NoSideEffect]> {
     if (parser.parseType(intype))
       return M::failure();
     result.addAttribute("in_type", M::TypeAttr::get(intype));
-    M::Type restype;
-    if (parser.parseColonType(restype) ||
-        parser.addTypeToList(restype, result.types))
+    M::Type restype = TypeDescType::get(intype);
+    if (parser.addTypeToList(restype, result.types))
       return M::failure();
     return M::success();
   }];
 
-  let builders = [OpBuilder<
-    "Builder *, OperationState &result, mlir::TypeAttr res",
-    [{
-      result.addAttribute("in_type", res);
-      result.addTypes(res.getValue());
-    }]
-  >];
+  let builders = [
+    OpBuilder<"Builder *, OperationState &result, mlir::TypeAttr inty">
+  ];
 
   let printer = [{
     p << getOperationName() << ' ' << getAttr("in_type");
-    p << " : " << getType();
     p.printOptionalAttrDict(getAttrs(), {"in_type"});
+  }];
+
+  let verifier = [{
+    M::Type resultTy = getType();
+    if (auto tdesc = resultTy.dyn_cast<TypeDescType>()) {
+      if (tdesc.getOfTy() != getInType())
+        return emitOpError("wrapped type mismatched");
+    } else {
+      return emitOpError("must be !fir.tdesc type");
+    }
+    return M::success();
   }];
 
   let extraClassDeclaration = [{
     mlir::Type getInType() {
-      return getAttrOfType<mlir::TypeAttr>("in_type").getType();
+      // get the type that the type descriptor describes
+      return getAttrOfType<mlir::TypeAttr>("in_type").getValue();
     }
   }];
 }

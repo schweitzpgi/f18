@@ -16,9 +16,13 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-unused-parameter -Wno-error")
 set(LIBS
   FIR
   MLIRAffineOps
+  MLIRIR
   MLIRLLVMIR
   MLIRLoopOps
+  MLIRPass
   MLIRStandardOps
+  MLIRStandardToLLVM
+  MLIRTransforms
 )
 
 add_llvm_library(FirTcoLib tco.cpp)
@@ -33,10 +37,8 @@ set(EXE_LIBS
   MLIREDSC
   MLIRLinalg
   MLIRParser
-  MLIRPass
   MLIRStandardToLLVM
   MLIRSupport
-  MLIRTransforms
   MLIRVectorOps
   MLIRVectorToLLVM
 )
