@@ -81,7 +81,7 @@ func @instructions() {
   %27 = fir.call @box4() : () -> !fir.box<!fir.type<derived3{f:f32}>>
   %28 = fir.dispatch "method"(%27) : (!fir.box<!fir.type<derived3{f:f32}>>) -> i32
   %29 = fir.convert %28 : (i32) -> i64
-  %30 = fir.gentypedesc !fir.type<x> : !fir.tdesc<!fir.type<x>>
+  %30 = fir.gentypedesc !fir.type<x>
   fir.call @user_tdesc(%30) : (!fir.tdesc<!fir.type<x>>) -> ()
   %31 = fir.no_reassoc %29 : i64
   fir.call @user_i64(%31) : (i64) -> ()
@@ -184,7 +184,7 @@ func @bar_select_type(%arg : !fir.box<!fir.type<name(param1:i32){fld:!fir.char<1
   %1 = constant 2 : i32
   %2 = constant 3 : i32
   %3 = constant 4 : i32
-  fir.select_type %arg : !fir.box<!fir.type<name(param1:i32){fld:!fir.char<1>}>> [ #fir.instance<i32>,^bb1(%0:i32), #fir.instance<i64>,^bb2(%2:i32), #fir.subsumed<i16>,^bb3(%2:i32), #fir.instance<i8>,^bb4(%1:i32), unit,^bb5 ]
+  fir.select_type %arg : !fir.box<!fir.type<name(param1:i32){fld:!fir.char<1>}>> [ #fir.instance<!fir.int<4>>,^bb1(%0:i32), #fir.instance<!fir.int<8>>,^bb2(%2:i32), #fir.subsumed<!fir.int<2>>,^bb3(%2:i32), #fir.instance<!fir.int<1>>,^bb4(%1:i32), unit,^bb5 ]
 ^bb1(%a : i32) :
   return %a : i32
 ^bb2(%b : i32) :

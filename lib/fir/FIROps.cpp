@@ -327,16 +327,39 @@ void DispatchTableOp::appendTableEntry(M::Operation *op) {
   front().front().push_back(op);
 }
 
+// GenTypeDescOp
+
+#if 0
+void GenTypeDescOp::build(Builder *, OperationState &result, M::Type resty,
+                          M::TypeAttr inty) {
+  result.addAttribute("in_type", inty);
+  result.addTypes(resty);
+}
+#endif
+
+void GenTypeDescOp::build(Builder *, OperationState &result, M::TypeAttr inty) {
+  result.addAttribute("in_type", inty);
+  result.addTypes(TypeDescType::get(inty.getValue()));
+}
+
 // GlobalOp
 
-void GlobalOp::build(M::Builder *builder, M::OperationState *result,
+GlobalOp GlobalOp::create(M::Location location, L::StringRef name, M::Type type,
+                          L::ArrayRef<M::NamedAttribute> attrs) {
+  M::OperationState state(location, "global");
+  M::Builder builder(location->getContext());
+  GlobalOp::build(&builder, state, name, type, attrs);
+  return cast<GlobalOp>(Operation::create(state));
+}
+
+void GlobalOp::build(M::Builder *builder, M::OperationState &result,
                      L::StringRef name, M::Type type,
                      L::ArrayRef<M::NamedAttribute> attrs) {
-  result->addAttribute(getTypeAttrName(), M::TypeAttr::get(type));
-  result->addAttribute(M::SymbolTable::getSymbolAttrName(),
-                       builder->getStringAttr(name));
+  result.addAttribute(getTypeAttrName(), M::TypeAttr::get(type));
+  result.addAttribute(M::SymbolTable::getSymbolAttrName(),
+                      builder->getStringAttr(name));
   for (const auto &pair : attrs)
-    result->addAttribute(pair.first, pair.second);
+    result.addAttribute(pair.first, pair.second);
 }
 
 M::ParseResult GlobalOp::parse(M::OpAsmParser &parser,
@@ -417,6 +440,11 @@ M::ParseResult LoadOp::getElementOf(M::Type &ele, M::Type ref) {
 }
 
 // LoopOp
+
+void LoopOp::build(mlir::Builder *builder, mlir::OperationState &result,
+                   int64_t lowerBound, int64_t upperBound, int64_t step) {
+  assert(false && "not implemented");
+}
 
 void LoopOp::build(M::Builder *builder, M::OperationState &result, M::Value *lb,
                    M::Value *ub, L::ArrayRef<M::Value *> step) {
@@ -591,12 +619,20 @@ bool isReferenceLike(M::Type type) {
 }
 
 M::FuncOp createFuncOp(M::Location loc, M::ModuleOp module, StringRef name,
-                       M::FunctionType type) {
+                       M::FunctionType type,
+                       L::ArrayRef<M::NamedAttribute> attrs) {
   if (auto f = module.lookupSymbol<M::FuncOp>(name))
     return f;
-  auto f = M::FuncOp::create(loc, name, type);
-  module.push_back(f);
-  return f;
+  M::OpBuilder modBuilder(module.getBodyRegion());
+  return modBuilder.create<M::FuncOp>(loc, name, type, attrs);
+}
+
+GlobalOp createGlobalOp(M::Location loc, M::ModuleOp module, StringRef name,
+                        M::Type type, L::ArrayRef<M::NamedAttribute> attrs) {
+  if (auto g = module.lookupSymbol<GlobalOp>(name))
+    return g;
+  M::OpBuilder modBuilder(module.getBodyRegion());
+  return modBuilder.create<GlobalOp>(loc, name, type, attrs);
 }
 
 // Tablegen operators

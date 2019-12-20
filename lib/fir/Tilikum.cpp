@@ -229,6 +229,13 @@ public:
     return M::LLVM::LLVMType::getStructTy(llvmDialect, members);
   }
 
+  // complex<T>  --> llvm<"{t,t}">
+  M::LLVM::LLVMType convertComplexType(M::ComplexType complex) {
+    auto eleTy = unwrap(convertType(complex.getElementType()));
+    L::SmallVector<M::LLVM::LLVMType, 2> tuple{eleTy, eleTy};
+    return M::LLVM::LLVMType::getStructTy(llvmDialect, tuple);
+  }
+
   // fir.tdesc<any>  -->  llvm<"i8*">
   // FIXME: for now use a void*, however pointer identity is not sufficient for
   // the f18 object v. class distinction
@@ -274,6 +281,8 @@ public:
       return convertTypeDescType(tdesc.getContext());
     if (auto tuple = t.dyn_cast<M::TupleType>())
       return convertTupleType(tuple);
+    if (auto cmplx = t.dyn_cast<M::ComplexType>())
+      return convertComplexType(cmplx);
     if (auto none = t.dyn_cast<M::NoneType>())
       return M::LLVM::LLVMType::getStructTy(llvmDialect, {});
     return LLVMTypeConverter::convertType(t);
@@ -366,6 +375,18 @@ protected:
   FIRToLLVMTypeConverter &lowering;
 };
 
+/// Create an LLVM dialect global
+void createGlobal(M::Location loc, M::ModuleOp mod, L::StringRef name,
+                  M::LLVM::LLVMType type,
+                  M::ConversionPatternRewriter &rewriter) {
+  if (mod.lookupSymbol<M::LLVM::GlobalOp>(name))
+    return;
+  M::OpBuilder modBuilder(mod.getBodyRegion());
+  modBuilder.create<M::LLVM::GlobalOp>(loc, type, /*isConstant=*/true,
+                                       M::LLVM::Linkage::Weak, name,
+                                       M::Attribute{});
+}
+
 struct AddrOfOpConversion : public FIROpConversion<fir::AddrOfOp> {
   using FIROpConversion::FIROpConversion;
 
@@ -455,7 +476,7 @@ M::LLVM::LLVMFuncOp getFree(FreeMemOp op,
   auto module = op.getParentOfType<M::ModuleOp>();
   if (auto freeFunc = module.lookupSymbol<M::LLVM::LLVMFuncOp>("free"))
     return freeFunc;
-  M::OpBuilder moduleBuilder(op.getParentOfType<M::ModuleOp>().getBodyRegion());
+  M::OpBuilder moduleBuilder(module.getBodyRegion());
   auto voidType = M::LLVM::LLVMType::getVoidTy(dialect);
   return moduleBuilder.create<M::LLVM::LLVMFuncOp>(
       rewriter.getUnknownLoc(), "free",
@@ -1322,6 +1343,7 @@ struct GenDimsOpConversion : public FIROpConversion<GenDimsOp> {
   }
 };
 
+/// lower a type descriptor to a global constant
 struct GenTypeDescOpConversion : public FIROpConversion<GenTypeDescOp> {
   using FIROpConversion::FIROpConversion;
 
@@ -1329,10 +1351,28 @@ struct GenTypeDescOpConversion : public FIROpConversion<GenTypeDescOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto gentypedesc = M::cast<GenTypeDescOp>(op);
-    auto ty = unwrap(convertType(gentypedesc.getInType())).getPointerTo();
-    std::string name = "fixme"; // FIXME: get the uniqued name
-    rewriter.replaceOpWithNewOp<M::LLVM::AddressOfOp>(gentypedesc, ty, name);
+    auto loc = gentypedesc.getLoc();
+    auto inTy = gentypedesc.getInType();
+    auto name = consName(rewriter, inTy);
+    auto gty = unwrap(convertType(inTy));
+    auto pty = gty.getPointerTo();
+    auto module = gentypedesc.getParentOfType<M::ModuleOp>();
+    createGlobal(loc, module, name, gty, rewriter);
+    rewriter.replaceOpWithNewOp<M::LLVM::AddressOfOp>(gentypedesc, pty, name);
     return matchSuccess();
+  }
+
+  std::string consName(M::ConversionPatternRewriter &rewriter,
+                       M::Type type) const {
+    if (auto d = type.dyn_cast<RecordType>()) {
+      auto name = d.getName();
+      auto pair = NameUniquer::deconstruct(name);
+      return lowering.uniquer.doTypeDescriptor(
+          pair.second.modules, pair.second.host, pair.second.name,
+          pair.second.kinds);
+    }
+    assert(false);
+    return {};
   }
 };
 
@@ -1613,8 +1653,8 @@ struct UnboxCharOpConversion : public FIROpConversion<UnboxCharOp> {
 M::LLVM::LoadOp genLoadWithIndex(M::Location loc, M::Value *tuple,
                                  M::LLVM::LLVMType ty,
                                  M::ConversionPatternRewriter &rewriter,
-                                 M::MLIRContext *ctx, M::LLVM::LLVMType oty,
-                                 M::LLVM::ConstantOp c0, int x) {
+                                 M::LLVM::LLVMType oty, M::LLVM::ConstantOp c0,
+                                 int x) {
   auto ax = rewriter.getI32IntegerAttr(x);
   auto cx = rewriter.create<M::LLVM::ConstantOp>(loc, oty, ax);
   auto xty = ty.getStructElementType(x);
@@ -1637,13 +1677,13 @@ struct UnboxOpConversion : public FIROpConversion<UnboxOp> {
     auto oty = lowering.offsetType();
     auto c0 = rewriter.create<M::LLVM::ConstantOp>(
         loc, oty, rewriter.getI32IntegerAttr(0));
-    auto ptr = genLoadWithIndex(loc, tuple, ty, rewriter, ctx, oty, c0, 0);
-    auto len = genLoadWithIndex(loc, tuple, ty, rewriter, ctx, oty, c0, 1);
-    auto ver = genLoadWithIndex(loc, tuple, ty, rewriter, ctx, oty, c0, 2);
-    auto rank = genLoadWithIndex(loc, tuple, ty, rewriter, ctx, oty, c0, 3);
-    auto type = genLoadWithIndex(loc, tuple, ty, rewriter, ctx, oty, c0, 4);
-    auto attr = genLoadWithIndex(loc, tuple, ty, rewriter, ctx, oty, c0, 5);
-    auto xtra = genLoadWithIndex(loc, tuple, ty, rewriter, ctx, oty, c0, 6);
+    auto ptr = genLoadWithIndex(loc, tuple, ty, rewriter, oty, c0, 0);
+    auto len = genLoadWithIndex(loc, tuple, ty, rewriter, oty, c0, 1);
+    auto ver = genLoadWithIndex(loc, tuple, ty, rewriter, oty, c0, 2);
+    auto rank = genLoadWithIndex(loc, tuple, ty, rewriter, oty, c0, 3);
+    auto type = genLoadWithIndex(loc, tuple, ty, rewriter, oty, c0, 4);
+    auto attr = genLoadWithIndex(loc, tuple, ty, rewriter, oty, c0, 5);
+    auto xtra = genLoadWithIndex(loc, tuple, ty, rewriter, oty, c0, 6);
     // FIXME: add dims, etc.
     std::vector<M::Value *> repls = {ptr, len, ver, rank, type, attr, xtra};
     unbox.replaceAllUsesWith(repls);
@@ -1678,7 +1718,7 @@ struct UndefOpConversion : public FIROpConversion<UndefOp> {
   using FIROpConversion::FIROpConversion;
 
   M::PatternMatchResult
-  matchAndRewrite(M::Operation *op, OperandTy operands,
+  matchAndRewrite(M::Operation *op, OperandTy,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto undef = M::cast<UndefOp>(op);
     rewriter.replaceOpWithNewOp<M::LLVM::UndefOp>(undef,
