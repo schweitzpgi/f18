@@ -1670,7 +1670,6 @@ struct UnboxOpConversion : public FIROpConversion<UnboxOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto unbox = M::cast<UnboxOp>(op);
-    auto *ctx = unbox.getContext();
     auto loc = unbox.getLoc();
     auto *tuple = operands[0];
     auto ty = unwrap(tuple->getType());
