@@ -144,7 +144,7 @@ if( CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR )
 
   include_directories("${LLVM_BINARY_DIR}/include" "${LLVM_MAIN_INCLUDE_DIR}")
   link_directories("${LLVM_LIBRARY_DIR}")
-  set(MLIR_INCLUDE_DIRS "")
+  set(MLIR_BINARY_DIR ${LLVM_BINARY_DIR})
 
   set( CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin )
   set( CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib${LLVM_LIBDIR_SUFFIX} )
@@ -219,9 +219,8 @@ Please install Python or specify the PYTHON_EXECUTABLE CMake variable.")
   set(BACKEND_PACKAGE_STRING "LLVM ${LLVM_PACKAGE_VERSION}")
 else()
   set(BACKEND_PACKAGE_STRING "${PACKAGE_STRING}")
-  set(MLIR_BINARY_DIR ${LLVM_BINARY_DIR}/tools/mlir)
-  set(MLIR_SOURCE_DIR ${LLVM_SOURCE_DIR}/../mlir)
-  set(MLIR_INCLUDE_DIRS "${MLIR_BINARY_DIR}/include ${MLIR_SOURCE_DIR}/include")
+  set(MLIR_BINARY_DIR ${LLVM_BINARY_DIR}/projects/mlir)
+  set(MLIR_SOURCE_DIR ${LLVM_SOURCE_DIR}/projects/mlir)
 endif()
 
 # Make sure that our source directory is on the current cmake module path so that
@@ -250,14 +249,25 @@ endif()
 set(FLANG_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 set(FLANG_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR})
 
-include_directories(BEFORE
-  ${FLANG_BINARY_DIR}/include
-  ${FLANG_SOURCE_DIR}/include
-  ${MLIR_INCLUDE_DIRS}
-  )
+if(MLIR_SOURCE_DIR)
+  include_directories(BEFORE
+    ${FLANG_BINARY_DIR}/include
+    ${FLANG_SOURCE_DIR}/include
+    ${MLIR_BINARY_DIR}/include
+    ${MLIR_SOURCE_DIR}/include
+    )
+  set(MLIR_MAIN_SRC_DIR ${MLIR_SOURCE_DIR})
+  set(MLIR_INCLUDE_DIR ${MLIR_SOURCE_DIR}/include)
+else()
+  include_directories(BEFORE
+    ${FLANG_BINARY_DIR}/include
+    ${FLANG_SOURCE_DIR}/include
+    ${MLIR_BINARY_DIR}/include
+    )
+  set(MLIR_MAIN_SRC_DIR ${MLIR_BINARY_DIR})
+  set(MLIR_INCLUDE_DIR ${MLIR_BINARY_DIR}/include)
+endif()
 
-set(MLIR_MAIN_SRC_DIR ${MLIR_SOURCE_DIR})
-set(MLIR_INCLUDE_DIR ${MLIR_SOURCE_DIR}/include)
 set(MLIR_TABLEGEN_EXE mlir-tblgen)
 
 set(FLANG_C_INCLUDE_DIRS "" CACHE STRING
