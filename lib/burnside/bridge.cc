@@ -773,9 +773,8 @@ class FirConverter : public AbstractConverter {
 
   void genFIR(const Pa::AssignmentStmt &stmt) {
     assert(stmt.typedAssignment && "assignment analysis failed");
-    // Warning: v->u must become v.u after next f18 rebase
     if (const auto *assignment{std::get_if<Ev::Assignment::IntrinsicAssignment>(
-            &stmt.typedAssignment->v->u)}) {
+            &stmt.typedAssignment->v.u)}) {
       const Se::Symbol *sym{Ev::UnwrapWholeSymbolDataRef(assignment->lhs)};
       if (sym && Se::IsAllocatable(*sym)) {
         // Assignment of allocatable are more complex, the lhs
