@@ -1,16 +1,10 @@
-// Copyright (c) 2019, NVIDIA CORPORATION.  All rights reserved.
+//===-- lib/burnside/bridge.cc ----------------------------------*- C++ -*-===//
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+//===----------------------------------------------------------------------===//
 
 #include "bridge.h"
 #include "ast-builder.h"
@@ -93,18 +87,18 @@ class FirConverter : public AbstractConverter {
   // Helper function members
   //
 
-  M::Value *createFIRAddr(M::Location loc, const Se::SomeExpr *expr) {
+  M::Value createFIRAddr(M::Location loc, const Se::SomeExpr *expr) {
     return createSomeAddress(loc, *this, *expr, localSymbols, intrinsics);
   }
 
-  M::Value *createFIRExpr(M::Location loc, const Se::SomeExpr *expr) {
+  M::Value createFIRExpr(M::Location loc, const Se::SomeExpr *expr) {
     return createSomeExpression(loc, *this, *expr, localSymbols, intrinsics);
   }
-  M::Value *createLogicalExprAsI1(M::Location loc, const Se::SomeExpr *expr) {
+  M::Value createLogicalExprAsI1(M::Location loc, const Se::SomeExpr *expr) {
     return createI1LogicalExpression(
         loc, *this, *expr, localSymbols, intrinsics);
   }
-  M::Value *createTemporary(M::Location loc, const Se::Symbol &sym) {
+  M::Value createTemporary(M::Location loc, const Se::Symbol &sym) {
     return Br::createTemporary(loc, *builder, localSymbols, genType(sym), &sym);
   }
 
@@ -262,8 +256,8 @@ class FirConverter : public AbstractConverter {
   /// Generate the cleanup block before the procedure exits
   void genFIRFunctionReturn(const Se::Symbol &functionSymbol) {
     const auto &details{functionSymbol.get<Se::SubprogramDetails>()};
-    M::Value *resultRef{localSymbols.lookupSymbol(details.result())};
-    M::Value *r{builder->create<fir::LoadOp>(toLocation(), resultRef)};
+    M::Value resultRef{localSymbols.lookupSymbol(details.result())};
+    M::Value r{builder->create<fir::LoadOp>(toLocation(), resultRef)};
     builder->create<M::ReturnOp>(toLocation(), r);
   }
   template<typename A> void genFIRProcedureExit(const A *) {
@@ -287,18 +281,18 @@ class FirConverter : public AbstractConverter {
     auto targets{findTargetsOf(eval)};
     auto *expr{getEvaluationCondition(eval)};
     assert(expr && "condition expression missing");
-    auto *cond{createLogicalExprAsI1(toLocation(), expr)};
+    auto cond{createLogicalExprAsI1(toLocation(), expr)};
     genFIRCondBranch(cond, targets[0], targets[1]);
   }
 
   void genFIRCondBranch(
-      M::Value *cond, AST::Evaluation *trueDest, AST::Evaluation *falseDest) {
+      M::Value cond, AST::Evaluation *trueDest, AST::Evaluation *falseDest) {
     using namespace std::placeholders;
     localEdgeQ.emplace_back(std::bind(
-        [](M::OpBuilder *builder, M::Block *block, M::Value *cnd,
+        [](M::OpBuilder *builder, M::Block *block, M::Value cnd,
             AST::Evaluation *trueDest, AST::Evaluation *falseDest,
             M::Location location, const LabelMapType &map) {
-          L::SmallVector<M::Value *, 2> blk;
+          L::SmallVector<M::Value, 2> blk;
           builder->setInsertionPointToEnd(block);
           auto tdp{map.find(trueDest)};
           auto fdp{map.find(falseDest)};
@@ -354,13 +348,13 @@ class FirConverter : public AbstractConverter {
   }
   template<typename A>
   void genWhereCondition(fir::WhereOp &where, const A *stmt) {
-    auto *cond{createLogicalExprAsI1(
+    auto cond{createLogicalExprAsI1(
         toLocation(), Se::GetExpr(std::get<Pa::ScalarLogicalExpr>(stmt->t)))};
     where = builder->create<fir::WhereOp>(toLocation(), cond, true);
     switchInsertionPointToWhere(where);
   }
 
-  M::Value *genFIRLoopIndex(const Pa::ScalarExpr &x) {
+  M::Value genFIRLoopIndex(const Pa::ScalarExpr &x) {
     return builder->create<fir::ConvertOp>(toLocation(),
         M::IndexType::get(&mlirContext), genExprValue(*Se::GetExpr(x)));
   }
@@ -387,9 +381,9 @@ class FirConverter : public AbstractConverter {
               Co::visitors{
                   [&](const Pa::LoopControl::Bounds &x) {
                     // create the fir.loop op
-                    M::Value *lo = genFIRLoopIndex(x.lower);
-                    M::Value *hi = genFIRLoopIndex(x.upper);
-                    L::SmallVector<M::Value *, 1> step;
+                    M::Value lo = genFIRLoopIndex(x.lower);
+                    M::Value hi = genFIRLoopIndex(x.upper);
+                    L::SmallVector<M::Value, 1> step;
                     if (x.step.has_value()) {
                       step.emplace_back(genExprValue(*Se::GetExpr(*x.step)));
                     }
@@ -410,8 +404,7 @@ class FirConverter : public AbstractConverter {
                   [&](const Pa::LoopControl::Concurrent &x) {
                     // FIXME: can project a multi-dimensional space
                     doLoop = builder->create<fir::LoopOp>(toLocation(),
-                        (M::Value *)nullptr, (M::Value *)nullptr,
-                        L::ArrayRef<M::Value *>{});
+                        M::Value{}, M::Value{}, L::ArrayRef<M::Value>{});
                     builder->setInsertionPointToStart(doLoop.getBody());
                   },
               },
@@ -515,11 +508,11 @@ class FirConverter : public AbstractConverter {
     // FIXME: mangle name
     M::FuncOp func{getFunc(funName, funTy)};
     (void)func;  // FIXME
-    std::vector<M::Value *> actuals;
+    std::vector<M::Value> actuals;
     for (auto &aa : std::get<std::list<Pa::ActualArgSpec>>(stmt.v.t)) {
       auto &kw = std::get<std::optional<Pa::Keyword>>(aa.t);
       auto &arg = std::get<Pa::ActualArg>(aa.t);
-      M::Value *fe{nullptr};
+      M::Value fe;
       std::visit(Co::visitors{
                      [&](const Co::Indirection<Pa::Expr> &e) {
                        // FIXME: needs to match argument, assumes trivial by-ref
@@ -546,14 +539,14 @@ class FirConverter : public AbstractConverter {
   void genFIR(const Pa::WhereStmt &) { TODO(); }
   void genFIR(const Pa::ComputedGotoStmt &stmt) {
     auto *exp{Se::GetExpr(std::get<Pa::ScalarIntExpr>(stmt.t))};
-    auto *e1{genExprValue(*exp)};
+    auto e1{genExprValue(*exp)};
     (void)e1;
     TODO();
   }
   void genFIR(const Pa::ForallStmt &) { TODO(); }
   void genFIR(const Pa::ArithmeticIfStmt &stmt) {
     auto *exp{Se::GetExpr(std::get<Pa::Expr>(stmt.t))};
-    auto *e1{genExprValue(*exp)};
+    auto e1{genExprValue(*exp)};
     (void)e1;
     TODO();
   }
@@ -684,8 +677,8 @@ class FirConverter : public AbstractConverter {
     // Helper to get address and length from an Expr that is a character
     // variable designator
     auto getAddrAndLength{[&](const SomeExpr &charDesignatorExpr)
-                              -> std::pair<mlir::Value *, mlir::Value *> {
-      auto *addr{genExprAddr(charDesignatorExpr)};
+                              -> std::pair<mlir::Value, mlir::Value> {
+      M::Value addr = genExprAddr(charDesignatorExpr);
       const auto &charExpr{
           std::get<Ev::Expr<Ev::SomeCharacter>>(charDesignatorExpr.u)};
       // FIXME LEN() should also succeed on character(*) and return a
@@ -693,7 +686,7 @@ class FirConverter : public AbstractConverter {
       // is rebased with master f18 that contains PR871.
       std::optional<Ev::Expr<Ev::SubscriptInteger>> lenExpr{charExpr.LEN()};
       assert(lenExpr && "could not get expression to compute character length");
-      auto *len{genExprValue(Ev::AsGenericExpr(std::move(*lenExpr)))};
+      M::Value len = genExprValue(Ev::AsGenericExpr(std::move(*lenExpr)));
       return {addr, len};
     }};
 
@@ -730,7 +723,7 @@ class FirConverter : public AbstractConverter {
         toLocation(), indexTy, builder->getIntegerAttr(indexTy, 0))};
     auto one{builder->create<M::ConstantOp>(
         toLocation(), indexTy, builder->getIntegerAttr(indexTy, 1))};
-    L::SmallVector<M::Value *, 1> step;
+    L::SmallVector<M::Value, 1> step;
     step.emplace_back(one);
     // Copy the minimum of the lhs and rhs lengths
     auto cmpLen{builder->create<M::CmpIOp>(toLocation(), M::CmpIPredicate::slt,
@@ -896,7 +889,7 @@ class FirConverter : public AbstractConverter {
   // call FAIL IMAGE in runtime
   void genFIR(const Pa::FailImageStmt &stmt) {
     auto callee{genRuntimeFunction(FIRT_FAIL_IMAGE, 0)};
-    L::SmallVector<M::Value *, 1> operands;  // FAIL IMAGE has no args
+    L::SmallVector<M::Value, 1> operands;  // FAIL IMAGE has no args
     builder->create<M::CallOp>(toLocation(), callee, operands);
   }
 
@@ -906,7 +899,7 @@ class FirConverter : public AbstractConverter {
         genRuntimeFunction(isStopStmt(stm) ? FIRT_STOP : FIRT_ERROR_STOP,
             defaults.GetDefaultKind(IntegerCat))};
     // 2 args: stop-code-opt, quiet-opt
-    L::SmallVector<M::Value *, 8> operands;
+    L::SmallVector<M::Value, 8> operands;
     builder->create<M::CallOp>(toLocation(), callee, operands);
   }
 
@@ -1123,7 +1116,7 @@ class FirConverter : public AbstractConverter {
 
   // TODO: should these be moved to convert-expr?
   template<M::CmpIPredicate ICMPOPC>
-  M::Value *genCompare(M::Value *lhs, M::Value *rhs) {
+  M::Value genCompare(M::Value lhs, M::Value rhs) {
     auto lty{lhs->getType()};
     assert(lty == rhs->getType());
     if (lty.isIntOrIndex()) {
@@ -1139,16 +1132,16 @@ class FirConverter : public AbstractConverter {
     M::emitError(toLocation(), "cannot generate operation on this type");
     return {};
   }
-  M::Value *genGE(M::Value *lhs, M::Value *rhs) {
+  M::Value genGE(M::Value lhs, M::Value rhs) {
     return genCompare<M::CmpIPredicate::sge>(lhs, rhs);
   }
-  M::Value *genLE(M::Value *lhs, M::Value *rhs) {
+  M::Value genLE(M::Value lhs, M::Value rhs) {
     return genCompare<M::CmpIPredicate::sle>(lhs, rhs);
   }
-  M::Value *genEQ(M::Value *lhs, M::Value *rhs) {
+  M::Value genEQ(M::Value lhs, M::Value rhs) {
     return genCompare<M::CmpIPredicate::eq>(lhs, rhs);
   }
-  M::Value *genAND(M::Value *lhs, M::Value *rhs) {
+  M::Value genAND(M::Value lhs, M::Value rhs) {
     return builder->create<M::AndOp>(lhs->getLoc(), lhs, rhs);
   }
 
@@ -1211,11 +1204,11 @@ public:
   //
   // AbstractConverter overrides
 
-  M::Value *genExprAddr(
+  M::Value genExprAddr(
       const SomeExpr &expr, M::Location *loc = nullptr) override final {
     return createFIRAddr(loc ? *loc : toLocation(), &expr);
   }
-  M::Value *genExprValue(
+  M::Value genExprValue(
       const SomeExpr &expr, M::Location *loc = nullptr) override final {
     return createFIRExpr(loc ? *loc : toLocation(), &expr);
   }
