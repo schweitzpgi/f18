@@ -1,20 +1,15 @@
-// Copyright (c) 2019, NVIDIA CORPORATION.  All rights reserved.
+//===-- FIROps.td - FIR operation definitions --------------*- tablegen -*-===//
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-
-//
-// Definition of the FIR dialect operations
-//
+//===----------------------------------------------------------------------===//
+///
+/// \file
+/// Definition of the FIR dialect operations
+///
+//===----------------------------------------------------------------------===//
 
 #ifdef FIR_DIALECT_FIR_OPS
 #else
@@ -126,7 +121,7 @@ class fir_SimpleOp<string mnemonic, list<OpTrait> traits>
 
 def fir_AllocateOpBuilder : OpBuilder<
   "Builder *builder, OperationState &result, Type inType,"
-  "ArrayRef<Value *> sizes = {}, ArrayRef<NamedAttribute> attributes = {}",
+  "ArrayRef<Value> sizes = {}, ArrayRef<NamedAttribute> attributes = {}",
   [{
     result.addTypes(getRefTy(inType));
     result.addAttribute("in_type", M::TypeAttr::get(inType));
@@ -137,7 +132,7 @@ def fir_AllocateOpBuilder : OpBuilder<
 
 def fir_NamedAllocateOpBuilder : OpBuilder<
   "Builder *builder, OperationState &result, Type inType, StringRef name,"
-  "ArrayRef<Value *> sizes = {}, ArrayRef<NamedAttribute> attributes = {}",
+  "ArrayRef<Value> sizes = {}, ArrayRef<NamedAttribute> attributes = {}",
   [{
     result.addTypes(getRefTy(inType));
     result.addAttribute("in_type", M::TypeAttr::get(inType));
@@ -149,7 +144,7 @@ def fir_NamedAllocateOpBuilder : OpBuilder<
 
 def fir_OneResultOpBuilder : OpBuilder<
   "Builder *, OperationState &result, Type resultType,"
-  "ArrayRef<Value *> operands, ArrayRef<NamedAttribute> attributes = {}",
+  "ArrayRef<Value> operands, ArrayRef<NamedAttribute> attributes = {}",
   [{
     if (resultType)
       result.addTypes(resultType);
@@ -294,7 +289,7 @@ def fir_LoadOp : fir_OneResultOp<"load", []>,
   }];
 
   let builders = [OpBuilder<
-    "Builder *builder, OperationState &result, Value *refVal",
+    "Builder *builder, OperationState &result, Value refVal",
     [{
       if (!refVal) {
         mlir::emitError(result.location, "LoadOp has null argument");
@@ -464,9 +459,9 @@ class fir_SwitchTerminatorOp<string mnemonic, list<OpTrait> traits = []> :
     fir_Op<mnemonic, !listconcat(traits, [Terminator])>,
     Arguments<(ins Variadic<AnyType>:$args)>, Results<(outs)> {
   let builders = [OpBuilder<
-    "Builder *, OperationState &result, Value *selector,"
-    "ArrayRef<Value *> properOperands, ArrayRef<Block *> destinations,"
-    "ArrayRef<ArrayRef<Value *>> operands = {},"
+    "Builder *, OperationState &result, Value selector,"
+    "ArrayRef<Value> properOperands, ArrayRef<Block *> destinations,"
+    "ArrayRef<ArrayRef<Value>> operands = {},"
     "ArrayRef<NamedAttribute> attributes = {}",
     [{
       result.addOperands(selector);
@@ -481,14 +476,14 @@ class fir_SwitchTerminatorOp<string mnemonic, list<OpTrait> traits = []> :
   >];
 
   string extraSwitchClassDeclaration = [{
-    using Conditions = mlir::Value *;
+    using Conditions = mlir::Value;
     constexpr static auto AttrName = "cases";
 
     // The number of destination conditions that may be tested
     unsigned getNumConditions() { return getNumDest(); }
 
     // The selector is the value being tested to determine the destination
-    mlir::Value *getSelector() { return getOperand(0); }
+    mlir::Value getSelector() { return getOperand(0); }
 
     // The number of blocks that may be branched to
     unsigned getNumDest() { return getOperation()->getNumSuccessors(); }
@@ -505,11 +500,11 @@ class fir_IntegralSwitchTerminatorOp<string mnemonic,
 
     llvm::SmallVector<M::Attribute, 4> ivalues;
     llvm::SmallVector<M::Block *, 4> dests;
-    llvm::SmallVector<llvm::SmallVector<M::Value *, 4>, 4> destArgs;
+    llvm::SmallVector<llvm::SmallVector<M::Value, 4>, 4> destArgs;
     while (true) {
       M::Attribute ivalue; // Integer or Unit
       M::Block *dest;
-      llvm::SmallVector<M::Value *, 4> destArg;
+      llvm::SmallVector<M::Value, 4> destArg;
       llvm::SmallVector<M::NamedAttribute, 1> temp;
       if (parser.parseAttribute(ivalue, "i", temp) ||
           parser.parseComma() ||
@@ -616,11 +611,11 @@ def fir_SelectCaseOp : fir_SwitchTerminatorOp<"select_case"> {
     llvm::SmallVector<M::Attribute, 4> attrs;
     llvm::SmallVector<M::OpAsmParser::OperandType, 4> opers;
     llvm::SmallVector<M::Block *, 4> dests;
-    llvm::SmallVector<llvm::SmallVector<M::Value *, 4>, 4> destArgs;
+    llvm::SmallVector<llvm::SmallVector<M::Value, 4>, 4> destArgs;
     while (true) {
       M::Attribute attr;
       M::Block *dest;
-      llvm::SmallVector<M::Value *, 4> destArg;
+      llvm::SmallVector<M::Value, 4> destArg;
       llvm::SmallVector<M::NamedAttribute, 1> temp;
       if (parser.parseAttribute(attr, "a", temp) ||
           isValidCaseAttr(attr) ||
@@ -700,7 +695,7 @@ def fir_SelectCaseOp : fir_SwitchTerminatorOp<"select_case"> {
 
   let extraClassDeclaration = extraSwitchClassDeclaration#[{
 
-    mlir::Value* getCaseArg(unsigned dest, unsigned ele) {
+    mlir::Value getCaseArg(unsigned dest, unsigned ele) {
       assert(ele < 2);
       assert(dest < getNumConditions());
       auto cases = getAttrOfType<mlir::ArrayAttr>(AttrName).getValue();
@@ -730,11 +725,11 @@ def fir_SelectTypeOp : fir_SwitchTerminatorOp<"select_type"> {
 
     llvm::SmallVector<M::Attribute, 4> attrs;
     llvm::SmallVector<M::Block *, 4> dests;
-    llvm::SmallVector<llvm::SmallVector<M::Value *, 4>, 4> destArgs;
+    llvm::SmallVector<llvm::SmallVector<M::Value, 4>, 4> destArgs;
     while (true) {
       M::Attribute attr;
       M::Block *dest;
-      llvm::SmallVector<M::Value *, 4> destArg;
+      llvm::SmallVector<M::Value, 4> destArg;
       llvm::SmallVector<M::NamedAttribute, 1> temp;
       if (parser.parseAttribute(attr, "a", temp) ||
           parser.parseComma() ||
@@ -980,7 +975,7 @@ def fir_EmboxProcOp : fir_Op<"emboxproc", [NoSideEffect]>,
 
   let printer = [{
     p << getOperationName() << ' ' << getAttr("funcname");
-    auto *h = host();
+    auto h = host();
     if (h) {
       p << ", ";
       p.printOperand(h);
@@ -1216,7 +1211,7 @@ def fir_CoordinateOp : fir_Op<"coordinate_of", [NoSideEffect]>,
 
   let verifier = [{
     // Recovering a LEN type parameter only makes sense from a boxed value
-    for (auto *co : coor())
+    for (auto co : coor())
       if (auto *s = co->getDefiningOp())
         if (dyn_cast_or_null<LenParamIndexOp>(s)) {
           if (getNumOperands() != 2)
@@ -1276,7 +1271,7 @@ def fir_FieldIndexOp : fir_OneResultOp<"field_index", [NoSideEffect]>,
 
   let builders = [OpBuilder<
     "Builder *builder, OperationState &result, StringRef fieldName,"
-    "Type recTy, ArrayRef<Value*> operands = {}",
+    "Type recTy, ArrayRef<Value> operands = {}",
     [{
       result.addAttribute(fieldAttrName(), builder->getStringAttr(fieldName));
       result.addAttribute(typeAttrName(), TypeAttr::get(recTy));
@@ -1320,7 +1315,7 @@ def fir_FieldIndexOp : fir_OneResultOp<"field_index", [NoSideEffect]>,
       p << '(';
       p.printOperands(lenparams());
       auto sep = ") : ";
-      for (auto *op : lenparams()) {
+      for (auto op : lenparams()) {
         p << sep;
         if (op)
           p.printType(op->getType());
@@ -1475,8 +1470,8 @@ def fir_LoopOp : fir_Op<"loop", [ImplicitFirTerminator]> {
     OpBuilder<"mlir::Builder *builder, mlir::OperationState &result,"
               "int64_t lowerBound, int64_t upperBound, int64_t step = 1">,
     OpBuilder<"mlir::Builder *builder, mlir::OperationState &result,"
-              "mlir::Value *lowerBound, mlir::Value *upperBound,"
-              "llvm::ArrayRef<mlir::Value*> step">
+              "mlir::Value lowerBound, mlir::Value upperBound,"
+              "llvm::ArrayRef<mlir::Value> step">
   ];
   let parser = [{ return parseLoopOp(parser, result); }];
 
@@ -1516,17 +1511,17 @@ def fir_LoopOp : fir_Op<"loop", [ImplicitFirTerminator]> {
 
   let extraClassDeclaration = [{
     mlir::Block *getBody() { return &region().front(); }
-    mlir::Value *getInductionVar() { return getBody()->getArgument(0); }
+    mlir::Value getInductionVar() { return getBody()->getArgument(0); }
     mlir::OpBuilder getBodyBuilder() {
       return mlir::OpBuilder(getBody(), std::prev(getBody()->end()));
     }
-    void setLowerBound(mlir::Value *bound) {
+    void setLowerBound(mlir::Value bound) {
       getOperation()->setOperand(0, bound);
     }
-    void setUpperBound(mlir::Value *bound) {
+    void setUpperBound(mlir::Value bound) {
       getOperation()->setOperand(1, bound);
      }
-    void setStep(mlir::Value *step) {
+    void setStep(mlir::Value step) {
       getOperation()->setOperand(2, step);
     }
     static char const* getStepKeyword() { return "step"; }
@@ -1544,7 +1539,7 @@ def fir_WhereOp : fir_Op<"where", [ImplicitFirTerminator]> {
   let skipDefaultBuilders = 1;
   let builders = [
     OpBuilder<"Builder *builder, OperationState &result, "
-              "Value *cond, bool withOtherRegion">
+              "Value cond, bool withOtherRegion">
   ];
   let parser = [{ return parseWhereOp(parser, result); }];
 
@@ -1750,7 +1745,7 @@ def fir_CmpfOp : fir_Op<"cmpf",
 
   let builders = [OpBuilder<
     "Builder *builder, OperationState &result, CmpFPredicate predicate,"
-    "Value *lhs, Value *rhs", [{
+    "Value lhs, Value rhs", [{
       fir::buildCmpFOp(builder, result, predicate, lhs, rhs);
   }]>];
 
@@ -1798,7 +1793,7 @@ def fir_CmpcOp : fir_Op<"cmpc",
 
   let builders = [OpBuilder<
     "Builder *builder, OperationState &result, CmpFPredicate predicate,"
-    "Value *lhs, Value *rhs", [{
+    "Value lhs, Value rhs", [{
       fir::buildCmpCOp(builder, result, predicate, lhs, rhs);
   }]>];
 

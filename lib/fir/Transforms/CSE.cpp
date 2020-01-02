@@ -1,23 +1,15 @@
-//===- CSE.cpp - Common Sub-expression Elimination ------------------------===//
+//===-- lib/fir/Transforms/CSE.cpp ------------------------------*- C++ -*-===//
 //
-// Copyright 2019 The MLIR Authors.
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//   http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-// =============================================================================
-//
-// This transformation pass performs a simple common sub-expression elimination
-// algorithm on operations within a function.
-//
+//===----------------------------------------------------------------------===//
+///
+/// \file
+/// This transformation pass performs a simple common sub-expression elimination
+/// algorithm on operations within a function.
+///
 //===----------------------------------------------------------------------===//
 
 #include "fir/FIROpsSupport.h"
@@ -61,7 +53,9 @@ struct SimpleOperationInfo : public llvm::DenseMapInfo<Operation *> {
     //   - Operands
     unsigned hashOps;
     if (op->isCommutative()) {
-      std::vector<void *> vec(op->operand_begin(), op->operand_end());
+      std::vector<void *> vec;
+      for (auto i = op->operand_begin(), e = op->operand_end(); i != e; ++i)
+        vec.push_back((*i).getAsOpaquePointer());
       llvm::sort(vec.begin(), vec.end());
       hashOps = llvm::hash_combine_range(vec.begin(), vec.end());
     } else {
@@ -94,9 +88,9 @@ struct SimpleOperationInfo : public llvm::DenseMapInfo<Operation *> {
       return false;
     // Compare operands.
     if (lhs->isCommutative()) {
-      SmallVector<Value *, 8> lops(lhs->operand_begin(), lhs->operand_end());
+      SmallVector<Value, 8> lops(lhs->operand_begin(), lhs->operand_end());
       llvm::sort(lops.begin(), lops.end());
-      SmallVector<Value *, 8> rops(rhs->operand_begin(), rhs->operand_end());
+      SmallVector<Value, 8> rops(rhs->operand_begin(), rhs->operand_end());
       llvm::sort(rops.begin(), rops.end());
       if (!std::equal(lops.begin(), lops.end(), rops.begin()))
         return false;
