@@ -1,16 +1,10 @@
-// Copyright (c) 2019, NVIDIA CORPORATION.  All rights reserved.
+//===-- lib/burnside/convert-expr.h -----------------------------*- C++ -*-===//
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+//===----------------------------------------------------------------------===//
 
 #ifndef FORTRAN_BURNSIDE_CONVERT_EXPR_H_
 #define FORTRAN_BURNSIDE_CONVERT_EXPR_H_
@@ -34,10 +28,12 @@ namespace Fortran {
 namespace common {
 class IntrinsicTypeDefaultKinds;
 }  //  common
+
 namespace evaluate {
 template<typename> class Expr;
 struct SomeType;
 }  // evaluate
+
 namespace semantics {
 class Symbol;
 }  // semantics
@@ -47,21 +43,21 @@ namespace burnside {
 class AbstractConverter;
 class SymMap;
 
-mlir::Value *createSomeExpression(mlir::Location loc,
+mlir::Value createSomeExpression(mlir::Location loc,
     AbstractConverter &converter,
     const evaluate::Expr<evaluate::SomeType> &expr, SymMap &symMap,
     const IntrinsicLibrary &intrinsics);
 
-mlir::Value *createI1LogicalExpression(mlir::Location loc,
+mlir::Value createI1LogicalExpression(mlir::Location loc,
     AbstractConverter &converter,
     const evaluate::Expr<evaluate::SomeType> &expr, SymMap &symMap,
     const IntrinsicLibrary &intrinsics);
 
-mlir::Value *createSomeAddress(mlir::Location loc, AbstractConverter &converter,
+mlir::Value createSomeAddress(mlir::Location loc, AbstractConverter &converter,
     const evaluate::Expr<evaluate::SomeType> &expr, SymMap &symMap,
     const IntrinsicLibrary &intrinsics);
 
-mlir::Value *createTemporary(mlir::Location loc, mlir::OpBuilder &builder,
+mlir::Value createTemporary(mlir::Location loc, mlir::OpBuilder &builder,
     SymMap &symMap, mlir::Type type, const semantics::Symbol *symbol);
 
 }  // burnside

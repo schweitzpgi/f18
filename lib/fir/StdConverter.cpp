@@ -1,16 +1,10 @@
-// Copyright (c) 2019, NVIDIA CORPORATION.  All rights reserved.
+//===-- lib/fir/StdConverter.cpp --------------------------------*- C++ -*-===//
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+//===----------------------------------------------------------------------===//
 
 #include "fir/Transforms/StdConverter.h"
 #include "fir/Attribute.h"
@@ -40,8 +34,8 @@ static L::cl::opt<bool>
 
 namespace {
 
-using SmallVecResult = L::SmallVector<M::Value *, 4>;
-using OperandTy = L::ArrayRef<M::Value *>;
+using SmallVecResult = L::SmallVector<M::Value, 4>;
+using OperandTy = L::ArrayRef<M::Value>;
 using AttributeTy = L::ArrayRef<M::NamedAttribute>;
 
 /// FIR to standard type converter
@@ -143,17 +137,17 @@ struct SelectTypeOpConversion : public FIROpConversion<SelectTypeOp> {
   }
 
   static void genTypeLadderStep(M::Location loc, bool exactTest,
-                                M::Value *selector, M::Type ty, M::Block *dest,
+                                M::Value selector, M::Type ty, M::Block *dest,
                                 OperandTy destOps, M::ModuleOp module,
                                 M::ConversionPatternRewriter &rewriter) {
     M::Type tydesc = fir::TypeDescType::get(ty);
     auto tyattr = M::TypeAttr::get(ty);
-    M::Value *t = rewriter.create<GenTypeDescOp>(loc, tydesc, tyattr);
+    M::Value t = rewriter.create<GenTypeDescOp>(loc, tydesc, tyattr);
     M::Type selty = fir::BoxType::get(rewriter.getNoneType());
-    M::Value *csel = rewriter.create<ConvertOp>(loc, selty, selector);
+    M::Value csel = rewriter.create<ConvertOp>(loc, selty, selector);
     M::Type tty = fir::ReferenceType::get(rewriter.getNoneType());
-    M::Value *ct = rewriter.create<ConvertOp>(loc, tty, t);
-    std::vector<M::Value *> actuals = {csel, ct};
+    M::Value ct = rewriter.create<ConvertOp>(loc, tty, t);
+    std::vector<M::Value> actuals = {csel, ct};
     auto fty = rewriter.getI1Type();
     std::vector<M::Type> argTy = {selty, tty};
     L::StringRef funName =
