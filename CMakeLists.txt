@@ -219,8 +219,8 @@ Please install Python or specify the PYTHON_EXECUTABLE CMake variable.")
   set(BACKEND_PACKAGE_STRING "LLVM ${LLVM_PACKAGE_VERSION}")
 else()
   set(BACKEND_PACKAGE_STRING "${PACKAGE_STRING}")
-  set(MLIR_BINARY_DIR ${LLVM_BINARY_DIR}/projects/mlir)
-  set(MLIR_SOURCE_DIR ${LLVM_SOURCE_DIR}/projects/mlir)
+  set(MLIR_BINARY_DIR ${LLVM_BINARY_DIR}/tools/mlir)
+  set(MLIR_SOURCE_DIR ${LLVM_SOURCE_DIR}/../mlir)
 endif()
 
 # Make sure that our source directory is on the current cmake module path so that
