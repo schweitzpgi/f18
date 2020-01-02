@@ -1,16 +1,10 @@
-// Copyright (c) 2019, NVIDIA CORPORATION.  All rights reserved.
+//===-- lib/fir/FIROps.cpp --------------------------------------*- C++ -*-===//
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+//===----------------------------------------------------------------------===//
 
 #include "fir/FIROps.h"
 #include "fir/Attribute.h"
@@ -123,7 +117,7 @@ M::ParseResult parseCallOp(M::OpAsmParser &parser, M::OperationState &result) {
   } else {
     auto funcArgs =
         L::ArrayRef<M::OpAsmParser::OperandType>(operands).drop_front();
-    L::SmallVector<M::Value *, 8> resultArgs(
+    L::SmallVector<M::Value, 8> resultArgs(
         result.operands.begin() + (result.operands.empty() ? 0 : 1),
         result.operands.end());
     if (parser.resolveOperand(operands[0], funcType, result.operands) ||
@@ -160,7 +154,7 @@ fir::CmpFPredicate CmpfOp::getPredicateByName(llvm::StringRef name) {
 }
 
 void buildCmpFOp(Builder *builder, OperationState &result,
-                 CmpFPredicate predicate, Value *lhs, Value *rhs) {
+                 CmpFPredicate predicate, Value lhs, Value rhs) {
   result.addOperands({lhs, rhs});
   result.types.push_back(builder->getI1Type());
   result.addAttribute(
@@ -253,7 +247,7 @@ M::ParseResult parseCmpfOp(M::OpAsmParser &parser, M::OperationState &result) {
 // CmpcOp
 
 void buildCmpCOp(Builder *builder, OperationState &result,
-                 CmpFPredicate predicate, Value *lhs, Value *rhs) {
+                 CmpFPredicate predicate, Value lhs, Value rhs) {
   result.addOperands({lhs, rhs});
   result.types.push_back(builder->getI1Type());
   result.addAttribute(
@@ -446,8 +440,8 @@ void LoopOp::build(mlir::Builder *builder, mlir::OperationState &result,
   assert(false && "not implemented");
 }
 
-void LoopOp::build(M::Builder *builder, M::OperationState &result, M::Value *lb,
-                   M::Value *ub, L::ArrayRef<M::Value *> step) {
+void LoopOp::build(M::Builder *builder, M::OperationState &result, M::Value lb,
+                   M::Value ub, L::ArrayRef<M::Value> step) {
   if (step.empty())
     result.addOperands({lb, ub});
   else
@@ -495,8 +489,8 @@ M::ParseResult parseLoopOp(M::OpAsmParser &parser, M::OperationState &result) {
   return M::success();
 }
 
-fir::LoopOp getForInductionVarOwner(M::Value *val) {
-  auto *ivArg = dyn_cast<M::BlockArgument>(val);
+fir::LoopOp getForInductionVarOwner(M::Value val) {
+  auto ivArg = val.dyn_cast<M::BlockArgument>();
   if (!ivArg)
     return fir::LoopOp();
   assert(ivArg->getOwner() && "unlinked block argument");
@@ -519,7 +513,7 @@ M::Type StoreOp::elementType(M::Type refType) {
 // WhereOp
 
 void WhereOp::build(M::Builder *builder, M::OperationState &result,
-                    M::Value *cond, bool withElseRegion) {
+                    M::Value cond, bool withElseRegion) {
   result.addOperands(cond);
   M::Region *thenRegion = result.addRegion();
   M::Region *elseRegion = result.addRegion();
