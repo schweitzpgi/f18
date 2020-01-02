@@ -1,16 +1,10 @@
-// Copyright (c) 2019, NVIDIA CORPORATION.  All rights reserved.
+//===-- lib/burnside/io.cc --------------------------------------*- C++ -*-===//
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+//===----------------------------------------------------------------------===//
 
 #include "io.h"
 #include "bridge.h"
@@ -118,22 +112,22 @@ void lowerPrintStatement(
 
   // Initiate io
   M::Type externalUnitType{M::IntegerType::get(32, mlirContext)};
-  M::Value *defaultUnit{builder.create<M::ConstantOp>(
+  M::Value defaultUnit{builder.create<M::ConstantOp>(
       loc, builder.getIntegerAttr(externalUnitType, 1))};
-  llvm::SmallVector<M::Value *, 1> beginArgs{defaultUnit};
-  M::Value *cookie{
+  llvm::SmallVector<M::Value, 1> beginArgs{defaultUnit};
+  M::Value cookie{
       builder.create<M::CallOp>(loc, beginFunc, beginArgs).getResult(0)};
 
   // Call data transfer runtime function
-  for (M::Value *arg : args) {
-    llvm::SmallVector<M::Value *, 1> operands{cookie, arg};
+  for (M::Value arg : args) {
+    llvm::SmallVector<M::Value, 1> operands{cookie, arg};
     M::FuncOp outputFunc{getOutputRuntimeFunction(builder, arg->getType())};
     builder.create<M::CallOp>(loc, outputFunc, operands);
   }
 
   // Terminate IO
   M::FuncOp endIOFunc{getIORuntimeFunction<IOAction::EndIO>(builder)};
-  llvm::SmallVector<M::Value *, 1> endArgs{cookie};
+  llvm::SmallVector<M::Value, 1> endArgs{cookie};
   builder.create<M::CallOp>(loc, endIOFunc, endArgs);
 }
 
@@ -165,7 +159,7 @@ void Br::genOpenStatement(AbstractConverter &, const Pa::OpenStmt &) {
 
 void Br::genPrintStatement(
     Br::AbstractConverter &converter, const Pa::PrintStmt &stmt) {
-  llvm::SmallVector<M::Value *, 4> args;
+  llvm::SmallVector<M::Value, 4> args;
   for (auto &item : std::get<std::list<Pa::OutputItem>>(stmt.t)) {
     if (auto *pe{std::get_if<Pa::Expr>(&item.u)}) {
       auto loc{converter.genLocation(pe->source)};
