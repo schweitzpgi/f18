@@ -1,16 +1,10 @@
-// Copyright (c) 2019, NVIDIA CORPORATION.  All rights reserved.
+//===-- lib/burnside/runtime.h ----------------------------------*- C++ -*-===//
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+//===----------------------------------------------------------------------===//
 
 #ifndef FORTRAN_BURNSIDE_RUNTIME_H_
 #define FORTRAN_BURNSIDE_RUNTIME_H_
@@ -120,11 +114,11 @@ private:
 // This is currently here because this was designed to provide
 // maps over runtime description without the burden of having to
 // instantiate these maps dynamically and to keep them somewhere.
-template<typename Value> class StaticMultimapView {
+template<typename V> class StaticMultimapView {
 public:
-  using Key = typename Value::Key;
+  using Key = typename V::Key;
   struct Range {
-    using const_iterator = const Value *;
+    using const_iterator = const V *;
     constexpr const_iterator begin() const { return startPtr; }
     constexpr const_iterator end() const { return endPtr; }
     constexpr bool empty() const {
@@ -133,13 +127,13 @@ public:
     constexpr std::size_t size() const {
       return empty() ? 0 : static_cast<std::size_t>(endPtr - startPtr);
     }
-    const Value *startPtr{nullptr};
-    const Value *endPtr{nullptr};
+    const V *startPtr{nullptr};
+    const V *endPtr{nullptr};
   };
   using const_iterator = typename Range::const_iterator;
 
   template<std::size_t N>
-  constexpr StaticMultimapView(const Value (&array)[N])
+  constexpr StaticMultimapView(const V (&array)[N])
     : range{&array[0], &array[0] + N} {}
   template<typename Key> constexpr bool verify() {
     // TODO: sorted
@@ -154,7 +148,7 @@ public:
   // std::equal_range will be constexpr in C++20 only.
   constexpr Range getRange(const Key &key) const {
     bool matched{false};
-    const Value *start{nullptr}, *end{nullptr};
+    const V *start{nullptr}, *end{nullptr};
     for (const auto &desc : range) {
       if (desc.key == key) {
         if (!matched) {
