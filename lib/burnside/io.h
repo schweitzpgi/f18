@@ -1,16 +1,10 @@
-// Copyright (c) 2019, NVIDIA CORPORATION.  All rights reserved.
+//===-- lib/burnside/io.h ---------------------------------------*- C++ -*-===//
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+//===----------------------------------------------------------------------===//
 
 #ifndef FORTRAN_BURNSIDE_IO_H_
 #define FORTRAN_BURNSIDE_IO_H_
@@ -40,7 +34,7 @@ struct WriteStmt;
 /// design.
 /// FIXME This interface is also not final. Should it be based on parser::..
 /// nodes and lower expressions as needed or should it get every expression
-/// already lowered as mlir::Value* ? (currently second options, not sure it
+/// already lowered as mlir::Value? (currently second options, not sure it
 /// will provide enough information for complex IO statements).
 namespace burnside {
 
