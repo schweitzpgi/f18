@@ -69,12 +69,15 @@ public:
 
   /// Convert some FIR types to MLIR standard dialect types
   M::Type convertType(M::Type t) override {
+#if 0
+    // To lower types, we have to convert everything that uses these types...
     if (auto cplx = t.dyn_cast<CplxType>())
       return M::ComplexType::get(kindToRealType(kindMap, cplx.getFKind()));
     if (auto integer = t.dyn_cast<IntType>())
       return M::IntegerType::get(integer.getFKind() * 8, integer.getContext());
     if (auto real = t.dyn_cast<RealType>())
       return kindToRealType(kindMap, real.getFKind());
+#endif
     return t;
   }
 
