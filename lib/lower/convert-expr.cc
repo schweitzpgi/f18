@@ -280,7 +280,31 @@ class ExprLowering {
   M::Value genval(Ev::NullPointer const &) { TODO(); }
   M::Value genval(Ev::StructureConstructor const &) { TODO(); }
   M::Value genval(Ev::ImpliedDoIndex const &) { TODO(); }
-  M::Value genval(Ev::DescriptorInquiry const &) { TODO(); }
+  M::Value genval(Ev::DescriptorInquiry const &desc) {
+    auto descRef{symMap.lookupSymbol(desc.base().GetLastSymbol())};
+    assert(descRef && "no mlir::Value associated to Symbol");
+    auto descType{descRef->getType()};
+    M::Value res{};
+    switch (desc.field()) {
+    case Ev::DescriptorInquiry::Field::Len:
+      if (auto boxCharType{descType.dyn_cast<fir::BoxCharType>()}) {
+        auto refType{fir::ReferenceType::get(boxCharType.getEleTy())};
+        auto lenType{mlir::IntegerType::get(64, builder.getContext())};
+        res = builder
+                  .create<fir::UnboxCharOp>(getLoc(), refType, lenType, descRef)
+                  .getResult(1);
+      } else if (descType.isa<fir::BoxType>()) {
+        TODO();
+      } else {
+        assert(false && "not a descriptor");
+      }
+      break;
+    default:
+      TODO();
+    }
+    return res;
+  }
+
   template <int KIND>
   M::Value genval(Ev::TypeParamInquiry<KIND> const &) {
     TODO();
@@ -382,12 +406,10 @@ class ExprLowering {
   /// MIN and MAX operations
   template <Co::TypeCategory TC, int KIND>
   M::Value genval(Ev::Extremum<Ev::Type<TC, KIND>> const &op) {
-    if constexpr (TC == IntegerCat) {
-      return createBinaryFIRTCall<TC, KIND>(
-          op, op.ordering == Ev::Ordering::Greater ? FIRT_MAX : FIRT_MIN);
-    } else {
-      TODO();
-    }
+    std::string name{op.ordering == Ev::Ordering::Greater ? "max" : "min"};
+    M::Type type{converter.genType(TC, KIND)};
+    L::SmallVector<M::Value, 2> operands{genval(op.left()), genval(op.right())};
+    return intrinsics.genval(getLoc(), builder, name, type, operands);
   }
 
   template <int KIND>
@@ -555,7 +577,35 @@ class ExprLowering {
   M::Value gen(Ev::ComplexPart const &) { TODO(); }
   M::Value gendef(Ev::ComplexPart const &cp) { return gen(cp); }
   M::Value genval(Ev::ComplexPart const &) { TODO(); }
-  M::Value gen(const Ev::Substring &) { TODO(); }
+
+  M::Value gen(const Ev::Substring &s) {
+    // Get base address
+    auto baseAddr{std::visit(
+        Co::visitors{
+            [&](const Ev::DataRef &x) { return gen(x); },
+            [&](const Ev::StaticDataObject::Pointer &) -> M::Value { TODO(); },
+        },
+        s.parent())};
+    // Get a SequenceType to compute address with fir::CoordinateOp
+    auto charRefType{baseAddr.getType()};
+    auto arrayRefType{getSequenceRefType(charRefType)};
+    auto arrayView{
+        builder.create<fir::ConvertOp>(getLoc(), arrayRefType, baseAddr)};
+    // Compute lower bound
+    auto indexType{M::IndexType::get(builder.getContext())};
+    auto lowerBoundExpr{s.lower()};
+    auto lowerBoundValue{builder.create<fir::ConvertOp>(
+        getLoc(), indexType, genval(lowerBoundExpr))};
+    // FIR CoordinateOp is zero based but Fortran substring are one based.
+    auto one{builder.create<M::ConstantOp>(
+        getLoc(), indexType, builder.getIntegerAttr(indexType, 1))};
+    auto offsetIndex{
+        builder.create<M::SubIOp>(getLoc(), lowerBoundValue, one).getResult()};
+    // Get address from offset and base address
+    return builder.create<fir::CoordinateOp>(getLoc(), charRefType, arrayView,
+                                             offsetIndex);
+  }
+
   M::Value gendef(const Ev::Substring &ss) { return gen(ss); }
   M::Value genval(const Ev::Substring &) { TODO(); }
   M::Value genval(const Ev::Triplet &trip) { TODO(); }
