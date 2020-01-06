@@ -115,6 +115,13 @@ mlir::FunctionType translateSymbolToFIRFunctionType(
 
 mlir::Type convertReal(mlir::MLIRContext *ctxt, int KIND);
 
+// Given a ReferenceType of a base type, returns the ReferenceType to
+// the SequenceType of this base type.
+// The created SequenceType has one dimension of unknown extent.
+// This is useful to do pointer arithmetic using fir::CoordinateOp that requires
+// a memory reference to a sequence type.
+mlir::Type getSequenceRefType(mlir::Type referenceType);
+
 } // namespace lower
 } // namespace Fortran
 
