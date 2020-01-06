@@ -488,3 +488,11 @@ M::FunctionType Br::translateSymbolToFIRFunctionType(
 M::Type Br::convertReal(M::MLIRContext *context, int kind) {
   return genFIRType<RealCat>(context, kind);
 }
+
+M::Type Br::getSequenceRefType(M::Type refType) {
+  auto type{refType.dyn_cast<fir::ReferenceType>()};
+  assert(type && "expected a reference type");
+  auto elementType{type.getEleTy()};
+  fir::SequenceType::Shape shape{-1};
+  return fir::ReferenceType::get(fir::SequenceType::get(shape, elementType));
+}
