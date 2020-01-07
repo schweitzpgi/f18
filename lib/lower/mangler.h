@@ -27,7 +27,8 @@ class StringRef;
 
 namespace Fortran {
 namespace common {
-template<typename> class Reference;
+template <typename>
+class Reference;
 }
 
 namespace semantics {
@@ -44,8 +45,8 @@ std::string mangleName(fir::NameUniquer &uniquer, const SymbolRef symbol);
 
 std::string demangleName(llvm::StringRef name);
 
-}  // mangle
-}  // lower
-}  // Fortran
+} // namespace mangle
+} // namespace lower
+} // namespace Fortran
 
-#endif  // FORTRAN_LOWER_MANGLER_H_
+#endif // FORTRAN_LOWER_MANGLER_H_
