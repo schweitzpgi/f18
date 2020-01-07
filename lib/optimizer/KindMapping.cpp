@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "fir/KindMapping.h"
+#include "optimizer/KindMapping.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "llvm/ADT/Optional.h"
 #include "llvm/Support/CommandLine.h"

@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef DIALECT_FIR_FIRTYPE_H
-#define DIALECT_FIR_FIRTYPE_H
+#ifndef OPTIMIZER_FIRTYPE_H
+#define OPTIMIZER_FIRTYPE_H
 
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Types.h"
@@ -324,4 +324,4 @@ void printFirType(FIROpsDialect *, mlir::Type ty, mlir::DialectAsmPrinter &p);
 
 } // namespace fir
 
-#endif // DIALECT_FIR_FIRTYPE_H
+#endif // OPTIMIZER_FIRTYPE_H

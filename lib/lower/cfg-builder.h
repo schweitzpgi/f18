@@ -60,7 +60,7 @@ class CfgBuilder {
                      },
                      [](auto) { /* do nothing */ },
                  },
-          e.u);
+                 e.u);
       if (e.subs) {
         cacheAssigns(*e.subs);
       }
@@ -88,15 +88,24 @@ class CfgBuilder {
         return false;
       }
       switch (e.cfg) {
-      case AST::CFGAnnotation::None: break;
-      case AST::CFGAnnotation::CondGoto: break;
-      case AST::CFGAnnotation::Iterative: break;
-      case AST::CFGAnnotation::FirStructuredOp: break;
-      case AST::CFGAnnotation::IndGoto: return false;
-      case AST::CFGAnnotation::IoSwitch: return false;
-      case AST::CFGAnnotation::Switch: return false;
-      case AST::CFGAnnotation::Return: return false;
-      case AST::CFGAnnotation::Terminate: return false;
+      case AST::CFGAnnotation::None:
+        break;
+      case AST::CFGAnnotation::CondGoto:
+        break;
+      case AST::CFGAnnotation::Iterative:
+        break;
+      case AST::CFGAnnotation::FirStructuredOp:
+        break;
+      case AST::CFGAnnotation::IndGoto:
+        return false;
+      case AST::CFGAnnotation::IoSwitch:
+        return false;
+      case AST::CFGAnnotation::Switch:
+        return false;
+      case AST::CFGAnnotation::Return:
+        return false;
+      case AST::CFGAnnotation::Terminate:
+        return false;
       case AST::CFGAnnotation::Goto:
         if (!std::holds_alternative<const Pa::EndDoStmt *>(e.u)) {
           return false;
@@ -136,7 +145,7 @@ class CfgBuilder {
       cfgEdgeSetPool.emplace_back(std::move(sink));
       auto rc{cfgMap.try_emplace(src, &cfgEdgeSetPool.back())};
       assert(rc.second && "insert failed unexpectedly");
-      (void)rc;  // for release build
+      (void)rc; // for release build
       return;
     }
     for (auto *s : *iter->second)
@@ -153,7 +162,8 @@ class CfgBuilder {
   }
 
   /// Find the next ELSE IF, ELSE or END IF statement in the list
-  template<typename A> A nextFalseTarget(A iter, const A &endi) {
+  template <typename A>
+  A nextFalseTarget(A iter, const A &endi) {
     for (; iter != endi; ++iter)
       if (std::visit(Co::visitors{
                          [&](const Pa::ElseIfStmt *) { return true; },
@@ -161,7 +171,7 @@ class CfgBuilder {
                          [&](const Pa::EndIfStmt *) { return true; },
                          [](auto) { return false; },
                      },
-              iter->u)) {
+                     iter->u)) {
         break;
       }
     return iter;
@@ -170,9 +180,9 @@ class CfgBuilder {
   /// Add branches for this IF block like construct.
   /// Branch to the "true block", the "false block", and from the end of the
   /// true block to the end of the construct.
-  template<typename A>
+  template <typename A>
   void doNextIfBlock(std::list<AST::Evaluation> &evals, AST::Evaluation &e,
-      const A &iter, const A &endif) {
+                     const A &iter, const A &endif) {
     A i{iter};
     A j{nextFalseTarget(++i, endif)};
     auto *cstr = std::get<AST::Evaluation *>(e.parent);
@@ -244,24 +254,24 @@ class CfgBuilder {
                        [](const Pa::MaskedElsewhereStmt *) { TODO(); },
                        [](auto) { assert(false && "unhandled CGOTO case"); },
                    },
-            e.u);
+                   e.u);
         break;
       case AST::CFGAnnotation::IndGoto:
-        std::visit(
-            Co::visitors{
-                [&](const Pa::AssignedGotoStmt *stmt) {
-                  auto *sym = std::get<Pa::Name>(stmt->t).symbol;
-                  if (assignedGotoMap.find(sym) != assignedGotoMap.end())
-                    for (auto *x : assignedGotoMap[sym]) {
-                      addSourceToSink(&e, x);
-                    }
-                  for (auto &l : std::get<std::list<Pa::Label>>(stmt->t)) {
-                    addSourceToSink(&e, l);
-                  }
-                },
-                [](auto) { assert(false && "unhandled IGOTO case"); },
-            },
-            e.u);
+        std::visit(Co::visitors{
+                       [&](const Pa::AssignedGotoStmt *stmt) {
+                         auto *sym = std::get<Pa::Name>(stmt->t).symbol;
+                         if (assignedGotoMap.find(sym) != assignedGotoMap.end())
+                           for (auto *x : assignedGotoMap[sym]) {
+                             addSourceToSink(&e, x);
+                           }
+                         for (auto &l :
+                              std::get<std::list<Pa::Label>>(stmt->t)) {
+                           addSourceToSink(&e, l);
+                         }
+                       },
+                       [](auto) { assert(false && "unhandled IGOTO case"); },
+                   },
+                   e.u);
         break;
       case AST::CFGAnnotation::IoSwitch:
         std::visit(
@@ -290,7 +300,7 @@ class CfgBuilder {
                        [](const Pa::SelectTypeStmt *) { TODO(); },
                        [](auto) { assert(false && "unhandled switch case"); },
                    },
-            e.u);
+                   e.u);
         break;
       case AST::CFGAnnotation::Iterative:
         std::visit(Co::visitors{
@@ -301,7 +311,7 @@ class CfgBuilder {
                        [](const Pa::ForallConstructStmt *) { TODO(); },
                        [](auto) { assert(false && "unhandled loop case"); },
                    },
-            e.u);
+                   e.u);
         break;
       case AST::CFGAnnotation::FirStructuredOp:
         // do not visit the subs
@@ -334,7 +344,7 @@ class CfgBuilder {
 
 public:
   CfgBuilder(CFGMapType &m, std::list<CFGSinkListType> &p)
-    : cfgMap{m}, cfgEdgeSetPool{p} {}
+      : cfgMap{m}, cfgEdgeSetPool{p} {}
 
   void run(AST::FunctionLikeUnit &func) {
     resetPotentialTargets(func.evals);
@@ -345,4 +355,4 @@ public:
   }
 };
 
-#endif  // FORTRAN_LOWER_BRIDGE_CFG_BUILDER_H_
+#endif // FORTRAN_LOWER_BRIDGE_CFG_BUILDER_H_

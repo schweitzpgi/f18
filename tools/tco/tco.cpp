@@ -11,18 +11,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "fir/FIRDialect.h"
-#include "fir/InternalNames.h"
-#include "fir/KindMapping.h"
-#include "fir/Tilikum/Tilikum.h"
-#include "fir/Transforms/Passes.h"
-#include "fir/Transforms/StdConverter.h"
-#include "llvm/Support/CommandLine.h"
-#include "llvm/Support/ErrorOr.h"
-#include "llvm/Support/InitLLVM.h"
-#include "llvm/Support/MemoryBuffer.h"
-#include "llvm/Support/SourceMgr.h"
-#include "llvm/Support/raw_ostream.h"
 #include "mlir/Conversion/LoopToStandard/ConvertLoopToStandard.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/Module.h"
@@ -30,14 +18,27 @@
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/Passes.h"
+#include "optimizer/CodeGen/CodeGen.h"
+#include "optimizer/FIRDialect.h"
+#include "optimizer/InternalNames.h"
+#include "optimizer/KindMapping.h"
+#include "optimizer/Transforms/Passes.h"
+#include "optimizer/Transforms/StdConverter.h"
+#include "llvm/Support/CommandLine.h"
+#include "llvm/Support/ErrorOr.h"
+#include "llvm/Support/InitLLVM.h"
+#include "llvm/Support/MemoryBuffer.h"
+#include "llvm/Support/SourceMgr.h"
+#include "llvm/Support/raw_ostream.h"
 
 using namespace llvm;
 
-static cl::opt<std::string> ClInput(
-    cl::Positional, cl::Required, cl::desc("<input file>"));
+static cl::opt<std::string> ClInput(cl::Positional, cl::Required,
+                                    cl::desc("<input file>"));
 
 static cl::opt<std::string> ClOutput("o", cl::desc("Specify output filename"),
-    cl::value_desc("filename"), cl::init("a.ll"));
+                                     cl::value_desc("filename"),
+                                     cl::init("a.ll"));
 
 // compile a .fir file
 int compileFIR() {
