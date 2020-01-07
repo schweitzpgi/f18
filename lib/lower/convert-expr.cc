@@ -598,7 +598,7 @@ class ExprLowering {
     auto *base{reverseComponents(cmpt, list)};
     L::SmallVector<M::Value, 2> coorArgs;
     auto obj{gen(*base)};
-    const Se::Symbol *sym{nullptr};
+    auto *sym = &cmpt.GetFirstSymbol();
     M::Type ty{converter.genType(*sym)};
     for (auto *field : list) {
       sym = &field->GetLastSymbol();
