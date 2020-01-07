@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef FORTRAN_BURNSIDE_MANGLER_H_
-#define FORTRAN_BURNSIDE_MANGLER_H_
+#ifndef FORTRAN_LOWER_MANGLER_H_
+#define FORTRAN_LOWER_MANGLER_H_
 
 #include <string>
 
@@ -34,7 +34,7 @@ namespace semantics {
 class Symbol;
 }
 
-namespace burnside {
+namespace lower {
 using SymbolRef = common::Reference<const semantics::Symbol>;
 
 namespace mangle {
@@ -45,7 +45,7 @@ std::string mangleName(fir::NameUniquer &uniquer, const SymbolRef symbol);
 std::string demangleName(llvm::StringRef name);
 
 }  // mangle
-}  // burnside
+}  // lower
 }  // Fortran
 
-#endif  // FORTRAN_BURNSIDE_MANGLER_H_
+#endif  // FORTRAN_LOWER_MANGLER_H_
