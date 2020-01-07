@@ -177,6 +177,10 @@ class TypeBuilder {
   }
   int defaultKind(Co::TypeCategory TC) { return defaults.GetDefaultKind(TC); }
 
+  M::InFlightDiagnostic emitError(const llvm::Twine &message) {
+    return M::emitError(M::UnknownLoc::get(context), message);
+  }
+
 public:
   explicit TypeBuilder(M::MLIRContext *context,
                        Co::IntrinsicTypeDefaultKinds const &defaults)
@@ -331,7 +335,7 @@ public:
     if (symbol->detailsIf<Se::SubprogramDetails>()) {
       return genFunctionType(symbol);
     }
-    M::Type returnTy{};
+    M::Type returnTy;
     if (auto *type{symbol->GetType()}) {
       if (auto *tySpec{type->AsIntrinsic()}) {
         int kind = toConstant(tySpec->kind());
@@ -351,18 +355,20 @@ public:
         case LogicalCat:
           returnTy = genFIRType<LogicalCat>(context, kind);
           break;
-        case DerivedCat:
-          TODO();
-          break;
+        default:
+          emitError("unhandled intrinsic type; should not reach here");
+          return {};
         }
       } else if (auto *tySpec{type->AsDerived()}) {
         (void)tySpec; // FIXME
         TODO();
       } else {
-        assert(false && "type spec not found");
+        emitError("symbol's type must have a type spec");
+        return {};
       }
     } else {
-      assert(false && "symbol has no type");
+      emitError("symbol must have a type");
+      return {};
     }
     if (symbol->IsObjectArray()) {
       // FIXME: add bounds info
