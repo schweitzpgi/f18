@@ -20,8 +20,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef FIR_ANALYSIS_IDF_H
-#define FIR_ANALYSIS_IDF_H
+#ifndef OPTIMIZER_ANALYSIS_IDF_H
+#define OPTIMIZER_ANALYSIS_IDF_H
 
 #include "mlir/Analysis/Dominance.h"
 #include "mlir/IR/Block.h"
@@ -94,4 +94,5 @@ private:
 typedef IDFCalculator<mlir::Block, false> ForwardIDFCalculator;
 
 } // namespace fir
-#endif
+
+#endif // OPTIMIZER_ANALYSIS_IDF_H
