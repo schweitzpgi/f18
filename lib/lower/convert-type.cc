@@ -181,6 +181,14 @@ class TypeBuilder {
     return M::emitError(M::UnknownLoc::get(context), message);
   }
 
+  M::InFlightDiagnostic emitWarning(const llvm::Twine &message) {
+    return M::emitWarning(M::UnknownLoc::get(context), message);
+  }
+
+  llvm::StringRef toStrRef(const Pa::CharBlock &cb) {
+    return {cb.begin(), cb.size()};
+  }
+
 public:
   explicit TypeBuilder(M::MLIRContext *context,
                        Co::IntrinsicTypeDefaultKinds const &defaults)
@@ -356,12 +364,35 @@ public:
           returnTy = genFIRType<LogicalCat>(context, kind);
           break;
         default:
-          emitError("unhandled intrinsic type; should not reach here");
+          emitError("symbol has unknown intrinsic type");
           return {};
         }
       } else if (auto *tySpec{type->AsDerived()}) {
-        (void)tySpec; // FIXME
-        TODO();
+        std::vector<std::pair<std::string, M::Type>> ps;
+        std::vector<std::pair<std::string, M::Type>> cs;
+        auto &symbol = tySpec->typeSymbol();
+        // FIXME: don't want to recurse forever here, but this won't happen
+        // since we don't know the components at this time
+        auto rec = fir::RecordType::get(context, toStrRef(symbol.name()));
+        auto &details = symbol.get<Se::DerivedTypeDetails>();
+        for (auto &param : details.paramDecls()) {
+          auto &p{*param};
+          ps.push_back(std::pair{p.name().ToString(), gen(p)});
+        }
+#if 0
+        // this functionality is missing in the front-end
+        for (auto &comp : details.componentDecls()) {
+          auto &c{*comp};
+          cs.push_back(std::pair{c.name().ToString(), gen(c)});
+        }
+#else
+        emitWarning("the front-end returns symbols of derived type that have "
+                    "components that are simple names and not symbols, so "
+                    "cannot construct type " +
+                    toStrRef(symbol.name()));
+#endif
+        rec.finalize(ps, cs);
+        returnTy = rec;
       } else {
         emitError("symbol's type must have a type spec");
         return {};
