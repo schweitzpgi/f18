@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef FORTRAN_BURNSIDE_MIXIN_H_
-#define FORTRAN_BURNSIDE_MIXIN_H_
+#ifndef FORTRAN_LOWER_MIXIN_H_
+#define FORTRAN_LOWER_MIXIN_H_
 
 // Mixin classes are "partial" classes (not used standalone) that can be used to
 // add a repetitive (ad hoc) interface (and implementation) to a class.  It's
@@ -28,7 +28,7 @@
 #include <type_traits>
 #include <variant>
 
-namespace Fortran::burnside {
+namespace Fortran::lower {
 
 // implementation of a (moveable) sum type (variant)
 template<typename... Ts> struct SumTypeMixin {
@@ -67,6 +67,6 @@ template<typename... Ts> struct SumTypeCopyMixin {
     return *this; \
   }
 
-} // namespace burnside
+} // namespace lower
 
-#endif  // FORTRAN_BURNSIDE_MIXIN_H_
+#endif  // FORTRAN_LOWER_MIXIN_H_

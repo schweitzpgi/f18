@@ -1,4 +1,4 @@
-//===-- lib/burnside/io.cc --------------------------------------*- C++ -*-===//
+//===-- lib/lower/io.cc -----------------------------------------*- C++ -*-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -16,12 +16,12 @@
 #include "mlir/IR/Builders.h"
 #include <cassert>
 
-namespace Br = Fortran::burnside;
+namespace Br = Fortran::lower;
 namespace M = mlir;
 namespace Pa = Fortran::parser;
 
 using namespace Fortran;
-using namespace Fortran::burnside;
+using namespace Fortran::lower;
 
 namespace {
 
