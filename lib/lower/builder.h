@@ -1,4 +1,4 @@
-//===-- lib/burnside/builder.h ----------------------------------*- C++ -*-===//
+//===-- lib/lower/builder.h -------------------------------------*- C++ -*-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,8 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef FORTRAN_BURNSIDE_BUILDER_H_
-#define FORTRAN_BURNSIDE_BUILDER_H_
+#ifndef FORTRAN_LOWER_BUILDER_H_
+#define FORTRAN_LOWER_BUILDER_H_
 
 #include "../semantics/symbol.h"
 #include "llvm/ADT/DenseMap.h"
@@ -29,7 +29,7 @@ namespace evaluate {
 struct ProcedureDesignator;
 }
 
-namespace burnside {
+namespace lower {
 
 /// Miscellaneous helper routines for building MLIR
 ///
@@ -91,7 +91,7 @@ mlir::FuncOp createFunction(AbstractConverter &converter, llvm::StringRef name,
 mlir::FuncOp createFunction(
     mlir::ModuleOp module, llvm::StringRef name, mlir::FunctionType funcTy);
 
-}  // burnside
+}  // lower
 }  // Fortran
 
-#endif  // FORTRAN_BURNSIDE_BUILDER_H_
+#endif  // FORTRAN_LOWER_BUILDER_H_

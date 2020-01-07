@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef FORTRAN_BURNSIDE_BRIDGE_CFG_BUILDER_H_
-#define FORTRAN_BURNSIDE_BRIDGE_CFG_BUILDER_H_
+#ifndef FORTRAN_LOWER_BRIDGE_CFG_BUILDER_H_
+#define FORTRAN_LOWER_BRIDGE_CFG_BUILDER_H_
 
 /// Traverse the AST and complete the CFG by drawing the arcs, pruning unused
 /// potential targets, making implied jumps explicit, etc.
@@ -345,4 +345,4 @@ public:
   }
 };
 
-#endif  // FORTRAN_BURNSIDE_BRIDGE_CFG_BUILDER_H_
+#endif  // FORTRAN_LOWER_BRIDGE_CFG_BUILDER_H_

@@ -1,4 +1,4 @@
-//===-- lib/burnside/convert-expr.h -----------------------------*- C++ -*-===//
+//===-- lib/lower/convert-expr.h --------------------------------*- C++ -*-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,8 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef FORTRAN_BURNSIDE_CONVERT_EXPR_H_
-#define FORTRAN_BURNSIDE_CONVERT_EXPR_H_
+#ifndef FORTRAN_LOWER_CONVERT_EXPR_H_
+#define FORTRAN_LOWER_CONVERT_EXPR_H_
 
 #include "intrinsics.h"
 
@@ -38,7 +38,7 @@ namespace semantics {
 class Symbol;
 }  // semantics
 
-namespace burnside {
+namespace lower {
 
 class AbstractConverter;
 class SymMap;
@@ -60,7 +60,7 @@ mlir::Value createSomeAddress(mlir::Location loc, AbstractConverter &converter,
 mlir::Value createTemporary(mlir::Location loc, mlir::OpBuilder &builder,
     SymMap &symMap, mlir::Type type, const semantics::Symbol *symbol);
 
-}  // burnside
+}  // lower
 }  // Fortran
 
-#endif  // FORTRAN_BURNSIDE_CONVERT_EXPR_H_
+#endif  // FORTRAN_LOWER_CONVERT_EXPR_H_
