@@ -10,10 +10,10 @@
 #define FORTRAN_LOWER_BUILDER_H_
 
 #include "../semantics/symbol.h"
-#include "llvm/ADT/DenseMap.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Function.h"
 #include "mlir/IR/Module.h"
+#include "llvm/ADT/DenseMap.h"
 #include <string>
 
 namespace llvm {
@@ -84,14 +84,14 @@ mlir::FuncOp getNamedFunction(mlir::ModuleOp, llvm::StringRef name);
 
 /// Create a new FuncOp
 mlir::FuncOp createFunction(AbstractConverter &converter, llvm::StringRef name,
-    mlir::FunctionType funcTy);
+                            mlir::FunctionType funcTy);
 
 /// Create a new FuncOp
 /// The function is created with no Location information
-mlir::FuncOp createFunction(
-    mlir::ModuleOp module, llvm::StringRef name, mlir::FunctionType funcTy);
+mlir::FuncOp createFunction(mlir::ModuleOp module, llvm::StringRef name,
+                            mlir::FunctionType funcTy);
 
-}  // lower
-}  // Fortran
+} // namespace lower
+} // namespace Fortran
 
-#endif  // FORTRAN_LOWER_BUILDER_H_
+#endif // FORTRAN_LOWER_BUILDER_H_
