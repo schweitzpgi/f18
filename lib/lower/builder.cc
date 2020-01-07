@@ -9,10 +9,10 @@
 #include "builder.h"
 #include "bridge.h"
 #include "convert-type.h"
-#include "fir/FIROpsSupport.h"
-#include "llvm/ADT/StringRef.h"
 #include "mlir/IR/Module.h"
 #include "mlir/IR/Value.h"
+#include "optimizer/FIROpsSupport.h"
+#include "llvm/ADT/StringRef.h"
 
 namespace B = Fortran::lower;
 namespace Ev = Fortran::evaluate;
@@ -23,15 +23,15 @@ using namespace Fortran;
 using namespace Fortran::lower;
 
 M::FuncOp B::createFunction(B::AbstractConverter &converter,
-    llvm::StringRef name, M::FunctionType funcTy) {
-  return fir::createFuncOp(
-      converter.getCurrentLocation(), converter.getModuleOp(), name, funcTy);
+                            llvm::StringRef name, M::FunctionType funcTy) {
+  return fir::createFuncOp(converter.getCurrentLocation(),
+                           converter.getModuleOp(), name, funcTy);
 }
 
-M::FuncOp B::createFunction(
-    M::ModuleOp module, llvm::StringRef name, M::FunctionType funcTy) {
-  return fir::createFuncOp(
-      M::UnknownLoc::get(module.getContext()), module, name, funcTy);
+M::FuncOp B::createFunction(M::ModuleOp module, llvm::StringRef name,
+                            M::FunctionType funcTy) {
+  return fir::createFuncOp(M::UnknownLoc::get(module.getContext()), module,
+                           name, funcTy);
 }
 
 M::FuncOp B::getNamedFunction(M::ModuleOp module, llvm::StringRef name) {

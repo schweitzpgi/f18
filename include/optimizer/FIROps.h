@@ -6,8 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef FIR_FIROPS_H
-#define FIR_FIROPS_H
+#ifndef OPTIMIZER_FIROPS_H
+#define OPTIMIZER_FIROPS_H
 
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/OpImplementation.h"
@@ -124,7 +124,7 @@ ParseResult parseCmpfOp(OpAsmParser &parser, OperationState &result);
 ParseResult parseCmpcOp(OpAsmParser &parser, OperationState &result);
 
 #define GET_OP_CLASSES
-#include "fir/FIROps.h.inc"
+#include "optimizer/FIROps.h.inc"
 
 LoopOp getForInductionVarOwner(mlir::Value val);
 
@@ -132,4 +132,4 @@ bool isReferenceLike(mlir::Type type);
 
 } // namespace fir
 
-#endif // FIR_FIROPS_H
+#endif // OPTIMIZER_FIROPS_H
