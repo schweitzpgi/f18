@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef FIR_INTERNAL_NAMES_H
-#define FIR_INTERNAL_NAMES_H
+#ifndef OPTIMIZER_INTERNAL_NAMES_H
+#define OPTIMIZER_INTERNAL_NAMES_H
 
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/Optional.h"
@@ -133,4 +133,4 @@ private:
 
 } // namespace fir
 
-#endif // FIR_INTERNAL_NAMES_H
+#endif // OPTIMIZER_INTERNAL_NAMES_H

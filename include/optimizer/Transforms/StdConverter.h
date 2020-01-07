@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef FIR_STD_CONVERTER_H
-#define FIR_STD_CONVERTER_H
+#ifndef OPTIMIZER_TRANSFORMS_STDCONVERTER_H
+#define OPTIMIZER_TRANSFORMS_STDCONVERTER_H
 
 #include <memory>
 
@@ -30,4 +30,4 @@ std::unique_ptr<mlir::Pass> createFIRToStdPass(KindMapping &);
 
 } // namespace fir
 
-#endif // FIR_STD_CONVERSION_H
+#endif // OPTIMIZER_TRANSFORMS_STDCONVERTER_H

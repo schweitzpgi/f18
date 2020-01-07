@@ -1,4 +1,4 @@
-//===-- lib/fir/FIRDialect.cpp ----------------------------------*- C++ -*-===//
+//===-- lib/optimizer/FIRDialect.cpp ----------------------------*- C++ -*-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,13 +6,13 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "fir/FIRDialect.h"
-#include "fir/Attribute.h"
-#include "fir/FIROps.h"
-#include "fir/FIRType.h"
+#include "optimizer/FIRDialect.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/IR/StandardTypes.h"
 #include "mlir/Transforms/SideEffectsInterface.h"
+#include "optimizer/Attribute.h"
+#include "optimizer/FIROps.h"
+#include "optimizer/FIRType.h"
 
 namespace M = mlir;
 
@@ -51,7 +51,7 @@ fir::FIROpsDialect::FIROpsDialect(M::MLIRContext *ctx)
                 PointIntervalAttr, SubclassAttr, UpperBoundAttr>();
   addOperations<GlobalOp, DispatchTableOp,
 #define GET_OP_LIST
-#include "fir/FIROps.cpp.inc"
+#include "optimizer/FIROps.cpp.inc"
                 >();
 }
 

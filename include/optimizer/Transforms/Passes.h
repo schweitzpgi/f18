@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef FIR_TRANSFORMS_PASSES_H
-#define FIR_TRANSFORMS_PASSES_H
+#ifndef OPTIMIZER_TRANSFORMS_PASSES_H
+#define OPTIMIZER_TRANSFORMS_PASSES_H
 
 #include <memory>
 
@@ -45,4 +45,4 @@ std::unique_ptr<mlir::OpPassBase<mlir::FuncOp>> createMemToRegPass();
 
 } // namespace fir
 
-#endif // FIR_TRANSFORMS_PASSES_H
+#endif // OPTIMIZER_TRANSFORMS_PASSES_H
