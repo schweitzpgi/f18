@@ -1,4 +1,4 @@
-//===-- lib/burnside/io.h ---------------------------------------*- C++ -*-===//
+//===-- lib/lower/io.h ------------------------------------------*- C++ -*-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,8 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef FORTRAN_BURNSIDE_IO_H_
-#define FORTRAN_BURNSIDE_IO_H_
+#ifndef FORTRAN_LOWER_IO_H_
+#define FORTRAN_LOWER_IO_H_
 
 namespace mlir {
 class OpBuilder;
@@ -36,7 +36,7 @@ struct WriteStmt;
 /// nodes and lower expressions as needed or should it get every expression
 /// already lowered as mlir::Value? (currently second options, not sure it
 /// will provide enough information for complex IO statements).
-namespace burnside {
+namespace lower {
 
 class AbstractConverter;
 class BridgeImpl;
@@ -55,4 +55,4 @@ void genWriteStatement(AbstractConverter &, const parser::WriteStmt &);
 }
 }
 
-#endif  // FORTRAN_BURNSIDE_IO_H_
+#endif  // FORTRAN_LOWER_IO_H_
