@@ -1,4 +1,4 @@
-//===-- lib/burnside/convert-expr.cc ----------------------------*- C++ -*-===//
+//===-- lib/lower/convert-expr.cc -------------------------------*- C++ -*-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -37,7 +37,7 @@
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/Passes.h"
 
-namespace Br = Fortran::burnside;
+namespace Br = Fortran::lower;
 namespace Co = Fortran::common;
 namespace Ev = Fortran::evaluate;
 namespace L = llvm;
@@ -46,7 +46,7 @@ namespace Pa = Fortran::parser;
 namespace Se = Fortran::semantics;
 
 using namespace Fortran;
-using namespace Fortran::burnside;
+using namespace Fortran::lower;
 
 namespace {
 
