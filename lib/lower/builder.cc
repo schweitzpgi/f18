@@ -1,4 +1,4 @@
-//===-- lib/burnside/builder.cc ---------------------------------*- C++ -*-===//
+//===-- lib/lower/builder.cc ------------------------------------*- C++ -*-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -14,13 +14,13 @@
 #include "mlir/IR/Module.h"
 #include "mlir/IR/Value.h"
 
-namespace B = Fortran::burnside;
+namespace B = Fortran::lower;
 namespace Ev = Fortran::evaluate;
 namespace M = mlir;
 namespace Se = Fortran::semantics;
 
 using namespace Fortran;
-using namespace Fortran::burnside;
+using namespace Fortran::lower;
 
 M::FuncOp B::createFunction(B::AbstractConverter &converter,
     llvm::StringRef name, M::FunctionType funcTy) {

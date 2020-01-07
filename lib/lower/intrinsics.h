@@ -1,4 +1,4 @@
-//===-- lib/burnside/intrinsics.h -------------------------------*- C++ -*-===//
+//===-- lib/lower/intrinsics.h ----------------------------------*- C++ -*-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,8 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef FORTRAN_BURNSIDE_INTRINSICS_H_
-#define FORTRAN_BURNSIDE_INTRINSICS_H_
+#ifndef FORTRAN_LOWER_INTRINSICS_H_
+#define FORTRAN_LOWER_INTRINSICS_H_
 
 #include "llvm/ADT/StringRef.h"
 #include "mlir/Dialect/StandardOps/Ops.h"
@@ -15,7 +15,7 @@
 
 /// [Coding style](https://llvm.org/docs/CodingStandards.html)
 
-namespace Fortran::burnside {
+namespace Fortran::lower {
 
 /// IntrinsicLibrary generates FIR+MLIR operations that implement Fortran
 /// generic intrinsic function calls. It operates purely on FIR+MLIR types so
@@ -65,4 +65,4 @@ private:
 
 }
 
-#endif  // FORTRAN_BURNSIDE_INTRINSICS_H_
+#endif  // FORTRAN_LOWER_INTRINSICS_H_
