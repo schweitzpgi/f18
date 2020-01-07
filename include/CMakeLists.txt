@@ -1,2 +1,2 @@
-add_subdirectory(fir)
 add_subdirectory(flang)
+add_subdirectory(optimizer)

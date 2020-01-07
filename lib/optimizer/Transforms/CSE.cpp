@@ -1,4 +1,4 @@
-//===-- lib/fir/Transforms/CSE.cpp ------------------------------*- C++ -*-===//
+//===-- lib/optimizer/Transforms/CSE.cpp ------------------------*- C++ -*-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -12,8 +12,6 @@
 ///
 //===----------------------------------------------------------------------===//
 
-#include "fir/FIROpsSupport.h"
-#include "fir/Transforms/Passes.h"
 #include "mlir/Analysis/Dominance.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Builders.h"
@@ -22,6 +20,8 @@
 #include "mlir/Support/Functional.h"
 #include "mlir/Transforms/Passes.h"
 #include "mlir/Transforms/Utils.h"
+#include "optimizer/FIROpsSupport.h"
+#include "optimizer/Transforms/Passes.h"
 #include "llvm/ADT/DenseMapInfo.h"
 #include "llvm/ADT/Hashing.h"
 #include "llvm/ADT/ScopedHashTable.h"

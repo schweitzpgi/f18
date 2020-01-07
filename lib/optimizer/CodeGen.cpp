@@ -1,4 +1,4 @@
-//===-- lib/fir/Tilikum.cpp -------------------------------------*- C++ -*-===//
+//===-- lib/optimizer/CodeGen.cpp -------------------------------*- C++ -*-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,13 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "fir/Tilikum/Tilikum.h"
-#include "fir/Attribute.h"
-#include "fir/FIRDialect.h"
-#include "fir/FIROps.h"
-#include "fir/FIRType.h"
-#include "fir/InternalNames.h"
-#include "fir/KindMapping.h"
+#include "optimizer/CodeGen/CodeGen.h"
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVM.h"
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVMPass.h"
 #include "mlir/Dialect/AffineOps/AffineOps.h"
@@ -22,6 +16,12 @@
 #include "mlir/Pass/Pass.h"
 #include "mlir/Target/LLVMIR.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include "optimizer/Attribute.h"
+#include "optimizer/FIRDialect.h"
+#include "optimizer/FIROps.h"
+#include "optimizer/FIRType.h"
+#include "optimizer/InternalNames.h"
+#include "optimizer/KindMapping.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/Config/abi-breaking.h"
 #include "llvm/IR/IRBuilder.h"

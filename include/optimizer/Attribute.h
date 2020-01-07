@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef DIALECT_FIR_FIRATTRIBUTE_H
-#define DIALECT_FIR_FIRATTRIBUTE_H
+#ifndef OPTIMIZER_FIRATTRIBUTE_H
+#define OPTIMIZER_FIRATTRIBUTE_H
 
 #include "mlir/IR/Attributes.h"
 
@@ -139,4 +139,4 @@ void printFirAttribute(FIROpsDialect *dialect, mlir::Attribute attr,
 
 } // namespace fir
 
-#endif // DIALECT_FIR_FIRATTRIBUTE_H
+#endif // OPTIMIZER_FIRATTRIBUTE_H

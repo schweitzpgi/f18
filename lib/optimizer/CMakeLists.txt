@@ -18,6 +18,7 @@ add_subdirectory(Transforms)
 
 add_llvm_library(FIR
   Attribute.cpp
+  CodeGen.cpp
   FIRDialect.cpp
   FIROps.cpp
   FIRType.cpp
@@ -25,7 +26,6 @@ add_llvm_library(FIR
   IteratedDominanceFrontier.cpp
   KindMapping.cpp
   StdConverter.cpp
-  Tilikum.cpp
 )
 
 add_dependencies(FIR FIROpsIncGen)

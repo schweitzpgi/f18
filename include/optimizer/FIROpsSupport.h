@@ -12,11 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef FIR_FIROPS_SUPPORT_H
-#define FIR_FIROPS_SUPPORT_H
+#ifndef OPTIMIZER_FIROPS_SUPPORT_H
+#define OPTIMIZER_FIROPS_SUPPORT_H
 
-#include "fir/FIROps.h"
 #include "mlir/Dialect/StandardOps/Ops.h"
+#include "optimizer/FIROps.h"
 
 namespace fir {
 
@@ -76,4 +76,4 @@ fir::GlobalOp createGlobalOp(mlir::Location loc, mlir::ModuleOp module,
 
 } // namespace fir
 
-#endif // FIR_FIROPS_SUPPORT_H
+#endif // OPTIMIZER_FIROPS_SUPPORT_H
