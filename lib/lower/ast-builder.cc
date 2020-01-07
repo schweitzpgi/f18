@@ -50,8 +50,12 @@ public:
   /// Get the result
   AST::Program *result() { return pgm; }
 
-  template<typename A> constexpr bool Pre(const A &) { return true; }
-  template<typename A> constexpr void Post(const A &) {}
+  template <typename A>
+  constexpr bool Pre(const A &) {
+    return true;
+  }
+  template <typename A>
+  constexpr void Post(const A &) {}
 
   // Module like
 
@@ -257,14 +261,14 @@ private:
               return AST::Evaluation{x, s.source, s.label, parents.back()};
             },
             [&](const auto &x) {
-              return AST::Evaluation{
-                  x.value(), s.source, s.label, parents.back()};
+              return AST::Evaluation{x.value(), s.source, s.label,
+                                     parents.back()};
             },
         },
         s.statement.u);
   }
-  AST::Evaluation makeEvalAction(
-      const Pa::UnlabeledStatement<Pa::ActionStmt> &s) {
+  AST::Evaluation
+  makeEvalAction(const Pa::UnlabeledStatement<Pa::ActionStmt> &s) {
     return std::visit(
         Co::visitors{
             [&](const Pa::ContinueStmt &x) {
@@ -280,20 +284,21 @@ private:
         s.statement.u);
   }
 
-  template<typename A>
+  template <typename A>
   AST::Evaluation makeEvalIndirect(const Pa::Statement<Co::Indirection<A>> &s) {
-    return AST::Evaluation{
-        s.statement.value(), s.source, s.label, parents.back()};
+    return AST::Evaluation{s.statement.value(), s.source, s.label,
+                           parents.back()};
   }
 
-  template<typename A>
+  template <typename A>
   AST::Evaluation makeEvalDirect(const Pa::Statement<A> &s) {
     return AST::Evaluation{s.statement, s.source, s.label, parents.back()};
   }
 
   // When we enter a function-like structure, we want to build a new unit and
   // set the builder's cursors to point to it.
-  template<typename A> bool enterFunc(const A &f) {
+  template <typename A>
+  bool enterFunc(const A &f) {
     auto &unit = addFunc(AST::FunctionLikeUnit{f, parents.back()});
     funclist = &unit.funcs;
     pushEval(&unit.evals);
@@ -309,7 +314,8 @@ private:
 
   // When we enter a construct structure, we want to build a new construct and
   // set the builder's evaluation cursor to point to it.
-  template<typename A> bool enterConstruct(const A &c) {
+  template <typename A>
+  bool enterConstruct(const A &c) {
     auto &con = addEval(AST::Evaluation{c, parents.back()});
     con.subs = new std::list<AST::Evaluation>();
     pushEval(con.subs);
@@ -324,7 +330,8 @@ private:
 
   // When we enter a module structure, we want to build a new module and
   // set the builder's function cursor to point to it.
-  template<typename A> bool enterModule(const A &f) {
+  template <typename A>
+  bool enterModule(const A &f) {
     auto &unit = addUnit(AST::ModuleLikeUnit{f, parents.back()});
     funclist = &unit.funcs;
     parents.emplace_back(&unit);
@@ -336,12 +343,14 @@ private:
     parents.pop_back();
   }
 
-  template<typename A> A &addUnit(const A &unit) {
+  template <typename A>
+  A &addUnit(const A &unit) {
     pgm->getUnits().emplace_back(unit);
     return std::get<A>(pgm->getUnits().back());
   }
 
-  template<typename A> A &addFunc(const A &func) {
+  template <typename A>
+  A &addFunc(const A &func) {
     if (funclist) {
       funclist->emplace_back(func);
       return funclist->back();
@@ -376,9 +385,10 @@ private:
   std::vector<AST::ParentType> parents;
 };
 
-template<typename A> constexpr bool hasErrLabel(const A &stmt) {
+template <typename A>
+constexpr bool hasErrLabel(const A &stmt) {
   if constexpr (std::is_same_v<A, Pa::ReadStmt> ||
-      std::is_same_v<A, Pa::WriteStmt>) {
+                std::is_same_v<A, Pa::WriteStmt>) {
     for (const auto &control : stmt.controls) {
       if (std::holds_alternative<Pa::ErrLabel>(control.u)) {
         return true;
@@ -386,10 +396,12 @@ template<typename A> constexpr bool hasErrLabel(const A &stmt) {
     }
   }
   if constexpr (std::is_same_v<A, Pa::WaitStmt> ||
-      std::is_same_v<A, Pa::OpenStmt> || std::is_same_v<A, Pa::CloseStmt> ||
-      std::is_same_v<A, Pa::BackspaceStmt> ||
-      std::is_same_v<A, Pa::EndfileStmt> || std::is_same_v<A, Pa::RewindStmt> ||
-      std::is_same_v<A, Pa::FlushStmt>) {
+                std::is_same_v<A, Pa::OpenStmt> ||
+                std::is_same_v<A, Pa::CloseStmt> ||
+                std::is_same_v<A, Pa::BackspaceStmt> ||
+                std::is_same_v<A, Pa::EndfileStmt> ||
+                std::is_same_v<A, Pa::RewindStmt> ||
+                std::is_same_v<A, Pa::FlushStmt>) {
     for (const auto &spec : stmt.v) {
       if (std::holds_alternative<Pa::ErrLabel>(spec.u)) {
         return true;
@@ -406,9 +418,10 @@ template<typename A> constexpr bool hasErrLabel(const A &stmt) {
   return false;
 }
 
-template<typename A> constexpr bool hasEorLabel(const A &stmt) {
+template <typename A>
+constexpr bool hasEorLabel(const A &stmt) {
   if constexpr (std::is_same_v<A, Pa::ReadStmt> ||
-      std::is_same_v<A, Pa::WriteStmt>) {
+                std::is_same_v<A, Pa::WriteStmt>) {
     for (const auto &control : stmt.controls) {
       if (std::holds_alternative<Pa::EorLabel>(control.u)) {
         return true;
@@ -425,9 +438,10 @@ template<typename A> constexpr bool hasEorLabel(const A &stmt) {
   return false;
 }
 
-template<typename A> constexpr bool hasEndLabel(const A &stmt) {
+template <typename A>
+constexpr bool hasEndLabel(const A &stmt) {
   if constexpr (std::is_same_v<A, Pa::ReadStmt> ||
-      std::is_same_v<A, Pa::WriteStmt>) {
+                std::is_same_v<A, Pa::WriteStmt>) {
     for (const auto &control : stmt.controls) {
       if (std::holds_alternative<Pa::EndLabel>(control.u)) {
         return true;
@@ -457,22 +471,22 @@ bool hasAltReturns(const Pa::CallStmt &callStmt) {
 
 /// Determine if `callStmt` has alternate returns and if so set `e` to be the
 /// origin of a switch-like control flow
-void altRet(
-    AST::Evaluation &e, const Pa::CallStmt *callStmt, AST::Evaluation *cstr) {
+void altRet(AST::Evaluation &e, const Pa::CallStmt *callStmt,
+            AST::Evaluation *cstr) {
   if (hasAltReturns(*callStmt)) {
     e.setCFG(AST::CFGAnnotation::Switch, cstr);
   }
 }
 
-template<typename A>
+template <typename A>
 void ioLabel(AST::Evaluation &e, const A *s, AST::Evaluation *cstr) {
   if (hasErrLabel(*s) || hasEorLabel(*s) || hasEndLabel(*s)) {
     e.setCFG(AST::CFGAnnotation::IoSwitch, cstr);
   }
 }
 
-void annotateEvalListCFG(
-    std::list<AST::Evaluation> &evals, AST::Evaluation *cstr) {
+void annotateEvalListCFG(std::list<AST::Evaluation> &evals,
+                         AST::Evaluation *cstr) {
   bool nextIsTarget = false;
   for (auto &e : evals) {
     e.isTarget = nextIsTarget;
@@ -703,8 +717,8 @@ L::StringRef evalName(AST::Evaluation &e) {
       e.u);
 }
 
-void dumpEvalList(
-    L::raw_ostream &o, std::list<AST::Evaluation> &evals, int indent = 1) {
+void dumpEvalList(L::raw_ostream &o, std::list<AST::Evaluation> &evals,
+                  int indent = 1) {
   static const std::string white{"                                      ++"};
   std::string indentString{white.substr(0, indent * 2)};
   for (AST::Evaluation &e : evals) {
@@ -753,7 +767,7 @@ void dumpFunctionLikeUnit(L::raw_ostream &o, AST::FunctionLikeUnit &flu) {
                    }
                  },
              },
-      flu.funStmts.front());
+             flu.funStmts.front());
   o << unitKind << ' ' << name;
   if (header.size()) {
     o << ": " << header;
@@ -763,11 +777,11 @@ void dumpFunctionLikeUnit(L::raw_ostream &o, AST::FunctionLikeUnit &flu) {
   o << "End" << unitKind << ' ' << name << "\n\n";
 }
 
-}  // namespace
+} // namespace
 
-Br::AST::FunctionLikeUnit::FunctionLikeUnit(
-    const Pa::MainProgram &f, const AST::ParentType &parent)
-  : ProgramUnit{&f, parent} {
+Br::AST::FunctionLikeUnit::FunctionLikeUnit(const Pa::MainProgram &f,
+                                            const AST::ParentType &parent)
+    : ProgramUnit{&f, parent} {
   auto &ps{std::get<std::optional<Pa::Statement<Pa::ProgramStmt>>>(f.t)};
   if (ps.has_value()) {
     const Pa::Statement<Pa::ProgramStmt> &s{ps.value()};
@@ -776,44 +790,44 @@ Br::AST::FunctionLikeUnit::FunctionLikeUnit(
   funStmts.push_back(&std::get<Pa::Statement<Pa::EndProgramStmt>>(f.t));
 }
 
-Br::AST::FunctionLikeUnit::FunctionLikeUnit(
-    const Pa::FunctionSubprogram &f, const AST::ParentType &parent)
-  : ProgramUnit{&f, parent} {
+Br::AST::FunctionLikeUnit::FunctionLikeUnit(const Pa::FunctionSubprogram &f,
+                                            const AST::ParentType &parent)
+    : ProgramUnit{&f, parent} {
   funStmts.push_back(&std::get<Pa::Statement<Pa::FunctionStmt>>(f.t));
   funStmts.push_back(&std::get<Pa::Statement<Pa::EndFunctionStmt>>(f.t));
 }
 
-Br::AST::FunctionLikeUnit::FunctionLikeUnit(
-    const Pa::SubroutineSubprogram &f, const AST::ParentType &parent)
-  : ProgramUnit{&f, parent} {
+Br::AST::FunctionLikeUnit::FunctionLikeUnit(const Pa::SubroutineSubprogram &f,
+                                            const AST::ParentType &parent)
+    : ProgramUnit{&f, parent} {
   funStmts.push_back(&std::get<Pa::Statement<Pa::SubroutineStmt>>(f.t));
   funStmts.push_back(&std::get<Pa::Statement<Pa::EndSubroutineStmt>>(f.t));
 }
 
 Br::AST::FunctionLikeUnit::FunctionLikeUnit(
     const Pa::SeparateModuleSubprogram &f, const AST::ParentType &parent)
-  : ProgramUnit{&f, parent} {
+    : ProgramUnit{&f, parent} {
   funStmts.push_back(&std::get<Pa::Statement<Pa::MpSubprogramStmt>>(f.t));
   funStmts.push_back(&std::get<Pa::Statement<Pa::EndMpSubprogramStmt>>(f.t));
 }
 
-Br::AST::ModuleLikeUnit::ModuleLikeUnit(
-    const Pa::Module &m, const AST::ParentType &parent)
-  : ProgramUnit{&m, parent} {
+Br::AST::ModuleLikeUnit::ModuleLikeUnit(const Pa::Module &m,
+                                        const AST::ParentType &parent)
+    : ProgramUnit{&m, parent} {
   modStmts.push_back(&std::get<Pa::Statement<Pa::ModuleStmt>>(m.t));
   modStmts.push_back(&std::get<Pa::Statement<Pa::EndModuleStmt>>(m.t));
 }
 
-Br::AST::ModuleLikeUnit::ModuleLikeUnit(
-    const Pa::Submodule &m, const AST::ParentType &parent)
-  : ProgramUnit{&m, parent} {
+Br::AST::ModuleLikeUnit::ModuleLikeUnit(const Pa::Submodule &m,
+                                        const AST::ParentType &parent)
+    : ProgramUnit{&m, parent} {
   modStmts.push_back(&std::get<Pa::Statement<Pa::SubmoduleStmt>>(m.t));
   modStmts.push_back(&std::get<Pa::Statement<Pa::EndSubmoduleStmt>>(m.t));
 }
 
-Br::AST::BlockDataUnit::BlockDataUnit(
-    const Pa::BlockData &db, const AST::ParentType &parent)
-  : ProgramUnit{&db, parent} {}
+Br::AST::BlockDataUnit::BlockDataUnit(const Pa::BlockData &db,
+                                      const AST::ParentType &parent)
+    : ProgramUnit{&db, parent} {}
 
 AST::Program *Br::createAST(const Pa::Program &root) {
   ASTBuilder walker;
@@ -837,7 +851,7 @@ void Br::annotateControl(AST::Program &ast) {
                      }
                    },
                },
-        unit);
+               unit);
   }
 }
 

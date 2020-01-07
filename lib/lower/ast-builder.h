@@ -53,21 +53,22 @@ struct CGJump {
 };
 
 /// is `A` a construct (or directive)?
-template<typename A> constexpr static bool isConstruct() {
+template <typename A>
+constexpr static bool isConstruct() {
   return std::is_same_v<A, parser::AssociateConstruct> ||
-      std::is_same_v<A, parser::BlockConstruct> ||
-      std::is_same_v<A, parser::CaseConstruct> ||
-      std::is_same_v<A, parser::ChangeTeamConstruct> ||
-      std::is_same_v<A, parser::CriticalConstruct> ||
-      std::is_same_v<A, parser::DoConstruct> ||
-      std::is_same_v<A, parser::IfConstruct> ||
-      std::is_same_v<A, parser::SelectRankConstruct> ||
-      std::is_same_v<A, parser::SelectTypeConstruct> ||
-      std::is_same_v<A, parser::WhereConstruct> ||
-      std::is_same_v<A, parser::ForallConstruct> ||
-      std::is_same_v<A, parser::CompilerDirective> ||
-      std::is_same_v<A, parser::OpenMPConstruct> ||
-      std::is_same_v<A, parser::OmpEndLoopDirective>;
+         std::is_same_v<A, parser::BlockConstruct> ||
+         std::is_same_v<A, parser::CaseConstruct> ||
+         std::is_same_v<A, parser::ChangeTeamConstruct> ||
+         std::is_same_v<A, parser::CriticalConstruct> ||
+         std::is_same_v<A, parser::DoConstruct> ||
+         std::is_same_v<A, parser::IfConstruct> ||
+         std::is_same_v<A, parser::SelectRankConstruct> ||
+         std::is_same_v<A, parser::SelectTypeConstruct> ||
+         std::is_same_v<A, parser::WhereConstruct> ||
+         std::is_same_v<A, parser::ForallConstruct> ||
+         std::is_same_v<A, parser::CompilerDirective> ||
+         std::is_same_v<A, parser::OpenMPConstruct> ||
+         std::is_same_v<A, parser::OmpEndLoopDirective>;
 }
 
 /// Function-like units can contains lists of evaluations.  These can be
@@ -130,37 +131,40 @@ struct Evaluation {
   Evaluation(const Evaluation &) = default;
 
   /// General ctor
-  template<typename A>
+  template <typename A>
   Evaluation(const A &a, const parser::CharBlock &pos,
-      const std::optional<parser::Label> &lab, const ParentType &p)
-    : u{&a}, parent{p}, pos{pos}, lab{lab} {}
+             const std::optional<parser::Label> &lab, const ParentType &p)
+      : u{&a}, parent{p}, pos{pos}, lab{lab} {}
 
   /// Compiler-generated jump
   Evaluation(const CGJump &jump, const ParentType &p)
-    : u{jump}, parent{p}, cfg{CFGAnnotation::Goto} {}
+      : u{jump}, parent{p}, cfg{CFGAnnotation::Goto} {}
 
   /// Construct ctor
-  template<typename A>
+  template <typename A>
   Evaluation(const A &a, const ParentType &parent) : u{&a}, parent{parent} {
     static_assert(AST::isConstruct<A>(), "must be a construct");
   }
 
   /// is `A` executable (an action statement or compiler generated)?
-  template<typename A> constexpr static bool isAction(const A &a) {
+  template <typename A>
+  constexpr static bool isAction(const A &a) {
     return !AST::isConstruct<A>() && !isOther(a);
   }
 
   /// is `A` a compiler-generated evaluation?
-  template<typename A> constexpr static bool isGenerated(const A &) {
+  template <typename A>
+  constexpr static bool isGenerated(const A &) {
     return std::is_same_v<A, CGJump>;
   }
 
   /// is `A` not an executable statement?
-  template<typename A> constexpr static bool isOther(const A &) {
+  template <typename A>
+  constexpr static bool isOther(const A &) {
     return std::is_same_v<A, parser::FormatStmt> ||
-        std::is_same_v<A, parser::EntryStmt> ||
-        std::is_same_v<A, parser::DataStmt> ||
-        std::is_same_v<A, parser::NamelistStmt>;
+           std::is_same_v<A, parser::EntryStmt> ||
+           std::is_same_v<A, parser::DataStmt> ||
+           std::is_same_v<A, parser::NamelistStmt>;
   }
 
   constexpr bool isActionStmt() const {
@@ -168,7 +172,7 @@ struct Evaluation {
                           [](auto *p) { return isAction(*p); },
                           [](auto &r) { return isGenerated(r); },
                       },
-        u);
+                      u);
   }
 
   constexpr bool isStmt() const {
@@ -176,7 +180,7 @@ struct Evaluation {
                           [](auto *p) { return isAction(*p) || isOther(*p); },
                           [](auto &r) { return isGenerated(r); },
                       },
-        u);
+                      u);
   }
   constexpr bool isConstruct() const { return !isStmt(); }
 
@@ -211,22 +215,23 @@ struct Evaluation {
   ParentType parent;
   parser::CharBlock pos;
   std::optional<parser::Label> lab;
-  std::list<Evaluation> *subs{nullptr};  // construct sub-statements
+  std::list<Evaluation> *subs{nullptr}; // construct sub-statements
   CFGAnnotation cfg{CFGAnnotation::None};
-  bool isTarget{false};  // this evaluation is a control target
-  bool containsBranches{false};  // construct contains branches
+  bool isTarget{false};         // this evaluation is a control target
+  bool containsBranches{false}; // construct contains branches
 };
 
 /// A program is a list of program units.
 /// These units can be function like, module like, or block data
 struct ProgramUnit {
-  template<typename A>
+  template <typename A>
   ProgramUnit(A *ptr, const ParentType &parent) : p{ptr}, parent{parent} {}
 
   std::variant<const parser::MainProgram *, const parser::FunctionSubprogram *,
-      const parser::SubroutineSubprogram *, const parser::Module *,
-      const parser::Submodule *, const parser::SeparateModuleSubprogram *,
-      const parser::BlockData *>
+               const parser::SubroutineSubprogram *, const parser::Module *,
+               const parser::Submodule *,
+               const parser::SeparateModuleSubprogram *,
+               const parser::BlockData *>
       p;
   ParentType parent;
 };
@@ -237,21 +242,21 @@ struct FunctionLikeUnit : public ProgramUnit {
   // wrapper statements for function-like syntactic structures
   using FunctionStatement =
       std::variant<const parser::Statement<parser::ProgramStmt> *,
-          const parser::Statement<parser::EndProgramStmt> *,
-          const parser::Statement<parser::FunctionStmt> *,
-          const parser::Statement<parser::EndFunctionStmt> *,
-          const parser::Statement<parser::SubroutineStmt> *,
-          const parser::Statement<parser::EndSubroutineStmt> *,
-          const parser::Statement<parser::MpSubprogramStmt> *,
-          const parser::Statement<parser::EndMpSubprogramStmt> *>;
+                   const parser::Statement<parser::EndProgramStmt> *,
+                   const parser::Statement<parser::FunctionStmt> *,
+                   const parser::Statement<parser::EndFunctionStmt> *,
+                   const parser::Statement<parser::SubroutineStmt> *,
+                   const parser::Statement<parser::EndSubroutineStmt> *,
+                   const parser::Statement<parser::MpSubprogramStmt> *,
+                   const parser::Statement<parser::EndMpSubprogramStmt> *>;
 
   FunctionLikeUnit(const parser::MainProgram &f, const ParentType &parent);
-  FunctionLikeUnit(
-      const parser::FunctionSubprogram &f, const ParentType &parent);
-  FunctionLikeUnit(
-      const parser::SubroutineSubprogram &f, const ParentType &parent);
-  FunctionLikeUnit(
-      const parser::SeparateModuleSubprogram &f, const ParentType &parent);
+  FunctionLikeUnit(const parser::FunctionSubprogram &f,
+                   const ParentType &parent);
+  FunctionLikeUnit(const parser::SubroutineSubprogram &f,
+                   const ParentType &parent);
+  FunctionLikeUnit(const parser::SeparateModuleSubprogram &f,
+                   const ParentType &parent);
 
   bool isMainProgram() {
     return std::get_if<const parser::Statement<parser::EndProgramStmt> *>(
@@ -267,13 +272,14 @@ struct FunctionLikeUnit : public ProgramUnit {
     return isA<parser::MpSubprogramStmt>();
   }
 
-  const semantics::Scope *scope{nullptr};  // scope from front-end
+  const semantics::Scope *scope{nullptr}; // scope from front-end
   std::list<FunctionStatement> funStmts;  // begin/end pair
-  std::list<Evaluation> evals;  // statements
-  std::list<FunctionLikeUnit> funcs;  // internal procedures
+  std::list<Evaluation> evals;            // statements
+  std::list<FunctionLikeUnit> funcs;      // internal procedures
 
 private:
-  template<typename A> const A *isA() {
+  template <typename A>
+  const A *isA() {
     if (auto p = std::get_if<const parser::Statement<A> *>(&funStmts.front())) {
       return &(*p)->statement;
     }
@@ -287,9 +293,9 @@ struct ModuleLikeUnit : public ProgramUnit {
   // wrapper statements for module-like syntactic structures
   using ModuleStatement =
       std::variant<const parser::Statement<parser::ModuleStmt> *,
-          const parser::Statement<parser::EndModuleStmt> *,
-          const parser::Statement<parser::SubmoduleStmt> *,
-          const parser::Statement<parser::EndSubmoduleStmt> *>;
+                   const parser::Statement<parser::EndModuleStmt> *,
+                   const parser::Statement<parser::SubmoduleStmt> *,
+                   const parser::Statement<parser::EndSubmoduleStmt> *>;
 
   ModuleLikeUnit(const parser::Module &m, const ParentType &parent);
   ModuleLikeUnit(const parser::Submodule &m, const ParentType &parent);
@@ -314,7 +320,7 @@ private:
   std::list<Units> units;
 };
 
-}  // namespace AST
+} // namespace AST
 
 /// Create an AST from the parse tree
 AST::Program *createAST(const parser::Program &root);
@@ -327,6 +333,6 @@ void annotateControl(AST::Program &ast);
 
 void dumpAST(llvm::raw_ostream &o, AST::Program &ast);
 
-}  // namespace lower
+} // namespace Fortran::lower
 
-#endif  // FORTRAN_LOWER_AST_BUILDER_H_
+#endif // FORTRAN_LOWER_AST_BUILDER_H_

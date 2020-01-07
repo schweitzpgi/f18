@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef FIR_TILIKUM_TILIKUM_H
-#define FIR_TILIKUM_TILIKUM_H
+#ifndef OPTIMIZER_CODEGEN_CODEGEN_H
+#define OPTIMIZER_CODEGEN_CODEGEN_H
 
 #include <memory>
 
@@ -32,9 +32,8 @@ struct NameUniquer;
 std::unique_ptr<mlir::Pass> createFIRToLLVMPass(NameUniquer &uniquer);
 
 /// Convert the LLVM IR dialect to LLVM-IR proper
-std::unique_ptr<mlir::Pass>
-createLLVMDialectToLLVMPass(llvm::StringRef output);
+std::unique_ptr<mlir::Pass> createLLVMDialectToLLVMPass(llvm::StringRef output);
 
 } // namespace fir
 
-#endif // FIR_TILIKUM_TILIKUM_H
+#endif // OPTIMIZER_CODEGEN_CODEGEN_H

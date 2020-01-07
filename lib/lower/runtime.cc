@@ -14,25 +14,31 @@
 
 #include "runtime.h"
 #include "builder.h"
-#include "fir/FIRType.h"
+#include "mlir/IR/StandardTypes.h"
+#include "mlir/IR/Types.h"
+#include "optimizer/FIRType.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
-#include "mlir/IR/StandardTypes.h"
-#include "mlir/IR/Types.h"
 #include <cassert>
 
 namespace Fortran::lower {
-mlir::Type RuntimeStaticDescription::getMLIRType(
-    TypeCode t, mlir::MLIRContext *context) {
+mlir::Type RuntimeStaticDescription::getMLIRType(TypeCode t,
+                                                 mlir::MLIRContext *context) {
   switch (t) {
-  case TypeCode::i32: return mlir::IntegerType::get(32, context);
-  case TypeCode::i64: return mlir::IntegerType::get(64, context);
-  case TypeCode::f32: return mlir::FloatType::getF32(context);
-  case TypeCode::f64: return mlir::FloatType::getF64(context);
+  case TypeCode::i32:
+    return mlir::IntegerType::get(32, context);
+  case TypeCode::i64:
+    return mlir::IntegerType::get(64, context);
+  case TypeCode::f32:
+    return mlir::FloatType::getF32(context);
+  case TypeCode::f64:
+    return mlir::FloatType::getF64(context);
   // TODO need to access mapping between fe/target
-  case TypeCode::c32: return fir::CplxType::get(context, 4);
-  case TypeCode::c64: return fir::CplxType::get(context, 8);
+  case TypeCode::c32:
+    return fir::CplxType::get(context, 4);
+  case TypeCode::c64:
+    return fir::CplxType::get(context, 8);
   // ! IOCookie is experimental only so far
   case TypeCode::IOCookie:
     return fir::ReferenceType::get(mlir::IntegerType::get(64, context));
@@ -55,8 +61,8 @@ mlir::FunctionType RuntimeStaticDescription::getMLIRFunctionType(
   }
 }
 
-mlir::FuncOp RuntimeStaticDescription::getFuncOp(
-    mlir::OpBuilder &builder) const {
+mlir::FuncOp
+RuntimeStaticDescription::getFuncOp(mlir::OpBuilder &builder) const {
   mlir::ModuleOp module{getModule(&builder)};
   mlir::FunctionType funTy{getMLIRFunctionType(module.getContext())};
   auto function{getNamedFunction(module, symbol)};
@@ -68,7 +74,7 @@ mlir::FuncOp RuntimeStaticDescription::getFuncOp(
   }
   return function;
 }
-}
+} // namespace Fortran::lower
 
 // TODO remove dependencies to stub rt below
 
@@ -78,17 +84,17 @@ using namespace Fortran::lower;
 
 namespace {
 
-using FuncPointer = llvm::SmallVector<mlir::Type, 4> (*)(
-    mlir::MLIRContext *, int kind);
+using FuncPointer = llvm::SmallVector<mlir::Type, 4> (*)(mlir::MLIRContext *,
+                                                         int kind);
 
 // FIXME: these are wrong and just serving as temporary placeholders
 using Cplx = mlir::IntegerType;
 using Intopt = mlir::IntegerType;
 using TypeDesc = mlir::IntegerType;
 
-template<typename A, typename... B>
-void consType(
-    llvm::SmallVector<mlir::Type, 4> &types, mlir::MLIRContext *ctx, int kind) {
+template <typename A, typename... B>
+void consType(llvm::SmallVector<mlir::Type, 4> &types, mlir::MLIRContext *ctx,
+              int kind) {
   if constexpr (std::is_same_v<A, mlir::IntegerType>) {
     types.emplace_back(A::get(kind, ctx));
   } else if constexpr (std::is_same_v<A, mlir::ComplexType>) {
@@ -103,7 +109,7 @@ void consType(
   }
 }
 
-template<typename... A>
+template <typename... A>
 llvm::SmallVector<mlir::Type, 4> consType(mlir::MLIRContext *ctx, int kind) {
   llvm::SmallVector<mlir::Type, 4> types;
   if constexpr (sizeof...(A) > 0) {
@@ -132,15 +138,16 @@ FuncPointer RuntimeEntryResultType[FIRT_LAST_ENTRY_CODE] = {
 };
 #undef UNPACK_TYPES
 
-}  // namespace
+} // namespace
 
 llvm::StringRef Br::getRuntimeEntryName(RuntimeEntryCode code) {
   assert(code < FIRT_LAST_ENTRY_CODE);
   return {RuntimeEntryNames[code]};
 }
 
-mlir::FunctionType Br::getRuntimeEntryType(
-    RuntimeEntryCode code, mlir::MLIRContext &mlirContext, int kind) {
+mlir::FunctionType Br::getRuntimeEntryType(RuntimeEntryCode code,
+                                           mlir::MLIRContext &mlirContext,
+                                           int kind) {
   assert(code < FIRT_LAST_ENTRY_CODE);
   return mlir::FunctionType::get(
       RuntimeEntryInputType[code](&mlirContext, kind),
@@ -148,7 +155,8 @@ mlir::FunctionType Br::getRuntimeEntryType(
 }
 
 mlir::FunctionType Br::getRuntimeEntryType(RuntimeEntryCode code,
-    mlir::MLIRContext &mlirContext, int inpKind, int resKind) {
+                                           mlir::MLIRContext &mlirContext,
+                                           int inpKind, int resKind) {
   assert(code < FIRT_LAST_ENTRY_CODE);
   return mlir::FunctionType::get(
       RuntimeEntryInputType[code](&mlirContext, inpKind),

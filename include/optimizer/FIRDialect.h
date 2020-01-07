@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef DIALECT_FIR_FIRDIALECT_H
-#define DIALECT_FIR_FIRDIALECT_H
+#ifndef OPTIMIZER_FIRDIALECT_H
+#define OPTIMIZER_FIRDIALECT_H
 
 #include "mlir/IR/Dialect.h"
 
@@ -52,4 +52,4 @@ public:
 
 } // namespace fir
 
-#endif // DIALECT_FIR_FIRDIALECT_H
+#endif // OPTIMIZER_FIRDIALECT_H
