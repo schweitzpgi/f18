@@ -1,4 +1,4 @@
-//===-- lib/fir/StdConverter.cpp --------------------------------*- C++ -*-===//
+//===-- lib/optimizer/StdConverter.cpp --------------------------*- C++ -*-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,17 +6,17 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "fir/Transforms/StdConverter.h"
-#include "fir/Attribute.h"
-#include "fir/FIRDialect.h"
-#include "fir/FIROpsSupport.h"
-#include "fir/FIRType.h"
-#include "fir/KindMapping.h"
+#include "optimizer/Transforms/StdConverter.h"
 #include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
 #include "mlir/Dialect/StandardOps/Ops.h"
 #include "mlir/IR/StandardTypes.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include "optimizer/Attribute.h"
+#include "optimizer/FIRDialect.h"
+#include "optimizer/FIROpsSupport.h"
+#include "optimizer/FIRType.h"
+#include "optimizer/KindMapping.h"
 #include "llvm/ADT/ArrayRef.h"
 
 // This module performs the conversion of some FIR operations.

@@ -20,7 +20,7 @@ class FunctionType;
 class MLIRContext;
 class OpBuilder;
 class FuncOp;
-}
+} // namespace mlir
 
 namespace Fortran::lower {
 
@@ -43,12 +43,14 @@ namespace Fortran::lower {
 /// This is the class where the constexpr data is "allocated". In fact
 /// the data is stored "in" the type. Objects of this type are not meant to
 /// be ever constructed.
-template<typename T, T... v> struct StaticVectorStorage {
+template <typename T, T... v>
+struct StaticVectorStorage {
   static constexpr T values[]{v...};
   static constexpr const T *start{&values[0]};
   static constexpr const T *end{start + sizeof...(v)};
 };
-template<typename T> struct StaticVectorStorage<T> {
+template <typename T>
+struct StaticVectorStorage<T> {
   static constexpr const T *start{nullptr}, *end{nullptr};
 };
 
@@ -57,8 +59,10 @@ template<typename T> struct StaticVectorStorage<T> {
 /// StaticVector are views over the StaticVectorStorage type that was built
 /// while instantiating the create method. They do not duplicate the values from
 /// these read-only storages.
-template<typename T> struct StaticVector {
-  template<T... v> static constexpr StaticVector create() {
+template <typename T>
+struct StaticVector {
+  template <T... v>
+  static constexpr StaticVector create() {
     using storage = StaticVectorStorage<T, v...>;
     return StaticVector{storage::start, storage::end};
   }
@@ -83,13 +87,13 @@ public:
   /// descriptions. They follow mlir standard types naming. MLIR types cannot
   /// directly be used because they can only be dynamically built.
   enum TypeCode { i32, i64, f32, f64, c32, c64, IOCookie };
-  using MaybeTypeCode = std::optional<TypeCode>;  // for results
-  using TypeCodeVector = StaticVector<TypeCode>;  // for arguments
+  using MaybeTypeCode = std::optional<TypeCode>; // for results
+  using TypeCodeVector = StaticVector<TypeCode>; // for arguments
   static constexpr MaybeTypeCode voidTy{MaybeTypeCode{std::nullopt}};
 
-  constexpr RuntimeStaticDescription(
-      const char *s, MaybeTypeCode r, TypeCodeVector a)
-    : symbol{s}, resultTypeCode{r}, argumentTypeCodes{a} {}
+  constexpr RuntimeStaticDescription(const char *s, MaybeTypeCode r,
+                                     TypeCodeVector a)
+      : symbol{s}, resultTypeCode{r}, argumentTypeCodes{a} {}
   const char *getSymbol() const { return symbol; }
   /// Conversion between types of the static representation and MLIR types.
   mlir::FunctionType getMLIRFunctionType(mlir::MLIRContext *) const;
@@ -114,7 +118,8 @@ private:
 // This is currently here because this was designed to provide
 // maps over runtime description without the burden of having to
 // instantiate these maps dynamically and to keep them somewhere.
-template<typename V> class StaticMultimapView {
+template <typename V>
+class StaticMultimapView {
 public:
   using Key = typename V::Key;
   struct Range {
@@ -132,10 +137,11 @@ public:
   };
   using const_iterator = typename Range::const_iterator;
 
-  template<std::size_t N>
+  template <std::size_t N>
   constexpr StaticMultimapView(const V (&array)[N])
-    : range{&array[0], &array[0] + N} {}
-  template<typename Key> constexpr bool verify() {
+      : range{&array[0], &array[0] + N} {}
+  template <typename Key>
+  constexpr bool verify() {
     // TODO: sorted
     // non empty increasing pointer direction
     return !range.empty();
@@ -166,8 +172,8 @@ public:
     return Range{start, end};
   }
 
-  constexpr std::pair<const_iterator, const_iterator> equal_range(
-      const Key &key) const {
+  constexpr std::pair<const_iterator, const_iterator>
+  equal_range(const Key &key) const {
     Range range{getRange(key)};
     return {range.begin(), range.end()};
   }
@@ -190,12 +196,14 @@ enum RuntimeEntryCode {
 
 llvm::StringRef getRuntimeEntryName(RuntimeEntryCode code);
 
-mlir::FunctionType getRuntimeEntryType(
-    RuntimeEntryCode code, mlir::MLIRContext &mlirContext, int kind);
+mlir::FunctionType getRuntimeEntryType(RuntimeEntryCode code,
+                                       mlir::MLIRContext &mlirContext,
+                                       int kind);
 
 mlir::FunctionType getRuntimeEntryType(RuntimeEntryCode code,
-    mlir::MLIRContext &mlirContext, int inpKind, int resKind);
+                                       mlir::MLIRContext &mlirContext,
+                                       int inpKind, int resKind);
 
-}  // Fortran::lower
+} // namespace Fortran::lower
 
-#endif  // FORTRAN_LOWER_RUNTIME_H_
+#endif // FORTRAN_LOWER_RUNTIME_H_
