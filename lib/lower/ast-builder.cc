@@ -27,7 +27,7 @@
 /// are either statements or constructs, where a construct contains a list of
 /// evaluations.  The resulting AST structure can then be used to create FIR.
 
-namespace Br = Fortran::burnside;
+namespace Br = Fortran::lower;
 namespace Co = Fortran::common;
 namespace L = llvm;
 namespace Pa = Fortran::parser;
