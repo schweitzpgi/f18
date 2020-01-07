@@ -13,7 +13,7 @@ namespace mlir {
 class OpBuilder;
 class Location;
 class ValueRange;
-}
+} // namespace mlir
 
 namespace Fortran {
 
@@ -28,7 +28,7 @@ struct PrintStmt;
 struct ReadStmt;
 struct RewindStmt;
 struct WriteStmt;
-}
+} // namespace parser
 
 /// Experimental IO lowering to FIR + runtime. The Runtime design is under
 /// design.
@@ -52,7 +52,7 @@ void genReadStatement(AbstractConverter &, const parser::ReadStmt &);
 void genRewindStatement(AbstractConverter &, const parser::RewindStmt &);
 void genWriteStatement(AbstractConverter &, const parser::WriteStmt &);
 
-}
-}
+} // namespace lower
+} // namespace Fortran
 
-#endif  // FORTRAN_LOWER_IO_H_
+#endif // FORTRAN_LOWER_IO_H_

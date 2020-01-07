@@ -31,10 +31,13 @@
 namespace Fortran::lower {
 
 // implementation of a (moveable) sum type (variant)
-template<typename... Ts> struct SumTypeMixin {
+template <typename... Ts>
+struct SumTypeMixin {
   using SumTypeTrait = std::true_type;
-  template<typename A> SumTypeMixin(const A &x) : u{x} {}
-  template<typename A> SumTypeMixin(A &&x) : u{std::forward<A>(x)} {}
+  template <typename A>
+  SumTypeMixin(const A &x) : u{x} {}
+  template <typename A>
+  SumTypeMixin(A &&x) : u{std::forward<A>(x)} {}
   SumTypeMixin(SumTypeMixin &&) = default;
   SumTypeMixin &operator=(SumTypeMixin &&) = default;
   SumTypeMixin(const SumTypeMixin &) = delete;
@@ -44,10 +47,13 @@ template<typename... Ts> struct SumTypeMixin {
 };
 
 // implementation of a copyable sum type
-template<typename... Ts> struct SumTypeCopyMixin {
+template <typename... Ts>
+struct SumTypeCopyMixin {
   using CopyableSumTypeTrait = std::true_type;
-  template<typename A> SumTypeCopyMixin(const A &x) : u{x} {}
-  template<typename A> SumTypeCopyMixin(A &&x) : u{std::forward<A>(x)} {}
+  template <typename A>
+  SumTypeCopyMixin(const A &x) : u{x} {}
+  template <typename A>
+  SumTypeCopyMixin(A &&x) : u{std::forward<A>(x)} {}
   SumTypeCopyMixin(SumTypeCopyMixin &&) = default;
   SumTypeCopyMixin &operator=(SumTypeCopyMixin &&) = default;
   SumTypeCopyMixin(const SumTypeCopyMixin &) = default;
@@ -55,18 +61,18 @@ template<typename... Ts> struct SumTypeCopyMixin {
   SumTypeCopyMixin() = delete;
   std::variant<Ts...> u;
 };
-#define SUM_TYPE_COPY_MIXIN(DT) \
-  DT(const DT &derived) : SumTypeCopyMixin(derived.u) {} \
-  DT(DT &&derived) : SumTypeCopyMixin(std::move(derived.u)) {} \
-  DT &operator=(const DT &derived) { \
-    SumTypeCopyMixin::operator=(derived.u); \
-    return *this; \
-  } \
-  DT &operator=(DT &&derived) { \
-    SumTypeCopyMixin::operator=(std::move(derived.u)); \
-    return *this; \
+#define SUM_TYPE_COPY_MIXIN(DT)                                                \
+  DT(const DT &derived) : SumTypeCopyMixin(derived.u) {}                       \
+  DT(DT &&derived) : SumTypeCopyMixin(std::move(derived.u)) {}                 \
+  DT &operator=(const DT &derived) {                                           \
+    SumTypeCopyMixin::operator=(derived.u);                                    \
+    return *this;                                                              \
+  }                                                                            \
+  DT &operator=(DT &&derived) {                                                \
+    SumTypeCopyMixin::operator=(std::move(derived.u));                         \
+    return *this;                                                              \
   }
 
-} // namespace lower
+} // namespace Fortran::lower
 
-#endif  // FORTRAN_LOWER_MIXIN_H_
+#endif // FORTRAN_LOWER_MIXIN_H_

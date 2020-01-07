@@ -12,14 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "fir/Attribute.h"
-#include "fir/FIRDialect.h"
-#include "fir/FIRType.h"
+#include "optimizer/Attribute.h"
 #include "mlir/IR/AttributeSupport.h"
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/DialectImplementation.h"
 #include "mlir/IR/Types.h"
 #include "mlir/Parser.h"
+#include "optimizer/FIRDialect.h"
+#include "optimizer/FIRType.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/Twine.h"
 
