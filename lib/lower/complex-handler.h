@@ -1,4 +1,4 @@
-//===-- lib/burnside/complex-handler.h --------------------------*- C++ -*-===//
+//===-- lib/lower/complex-handler.h -----------------------------*- C++ -*-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,8 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef FORTRAN_BURNSIDE_COMPLEX_HANDLER_H_
-#define FORTRAN_BURNSIDE_COMPLEX_HANDLER_H_
+#ifndef FORTRAN_LOWER_COMPLEX_HANDLER_H_
+#define FORTRAN_LOWER_COMPLEX_HANDLER_H_
 
 /// [Coding style](https://llvm.org/docs/CodingStandards.html)
 
@@ -15,7 +15,7 @@
 #include "fir/FIROps.h"
 #include "fir/FIRType.h"
 
-namespace Fortran::burnside {
+namespace Fortran::lower {
 /// Provide helpers to generate Complex manipulations in FIR.
 
 class ComplexHandler {
@@ -99,4 +99,4 @@ private:
 };
 
 }
-#endif  // FORTRAN_BURNSIDE_COMPLEX_HANDLER_H_
+#endif  // FORTRAN_LOWER_COMPLEX_HANDLER_H_

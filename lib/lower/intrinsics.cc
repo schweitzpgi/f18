@@ -1,4 +1,4 @@
-//===-- lib/burnside/intrinsics.cc ------------------------------*- C++ -*-===//
+//===-- lib/lower/intrinsics.cc ---------------------------------*- C++ -*-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -25,7 +25,7 @@
 namespace L = llvm;
 namespace M = mlir;
 
-namespace Fortran::burnside {
+namespace Fortran::lower {
 
 /// MathRuntimeLibrary maps Fortran generic intrinsic names to runtime function
 /// signatures. There is no guarantee that that runtime functions are available
@@ -712,4 +712,4 @@ M::Value IntrinsicLibrary::Implementation::genExtremum(
   return result;
 }
 
-}  // namespace Fortran::burnside
+}  // namespace Fortran::lower

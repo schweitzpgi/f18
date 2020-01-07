@@ -1,4 +1,4 @@
-//===-- lib/burnside/bridge.h -----------------------------------*- C++ -*-===//
+//===-- lib/lower/bridge.h --------------------------------------*- C++ -*-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,8 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef FORTRAN_BURNSIDE_BRIDGE_H_
-#define FORTRAN_BURNSIDE_BRIDGE_H_
+#ifndef FORTRAN_LOWER_BRIDGE_H_
+#define FORTRAN_LOWER_BRIDGE_H_
 
 #include "../common/Fortran.h"
 #include "mlir/IR/MLIRContext.h"
@@ -50,7 +50,7 @@ namespace fir {
 struct NameUniquer;
 }
 
-namespace Fortran::burnside {
+namespace Fortran::lower {
 
 using SomeExpr = evaluate::Expr<evaluate::SomeType>;
 using SymbolRef = common::Reference<const semantics::Symbol>;
@@ -142,6 +142,6 @@ private:
   std::unique_ptr<mlir::ModuleOp> module;
 };
 
-}  // Fortran::burnside
+}  // Fortran::lower
 
-#endif  // FORTRAN_BURNSIDE_BRIDGE_H_
+#endif  // FORTRAN_LOWER_BRIDGE_H_

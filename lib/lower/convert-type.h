@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef FORTRAN_BURNSIDE_CONVERT_TYPE_H_
-#define FORTRAN_BURNSIDE_CONVERT_TYPE_H_
+#ifndef FORTRAN_LOWER_CONVERT_TYPE_H_
+#define FORTRAN_LOWER_CONVERT_TYPE_H_
 
 /// Conversion of front-end TYPE, KIND, ATTRIBUTE (TKA) information to FIR/MLIR.
 /// This is meant to be the single point of truth (SPOT) for all type
@@ -56,7 +56,7 @@ namespace semantics {
 class Symbol;
 }  // semantics
 
-namespace burnside {
+namespace lower {
 
 using SomeExpr = evaluate::Expr<evaluate::SomeType>;
 using SymbolRef = common::Reference<const semantics::Symbol>;
@@ -103,7 +103,7 @@ mlir::FunctionType translateSymbolToFIRFunctionType(mlir::MLIRContext *ctxt,
 
 mlir::Type convertReal(mlir::MLIRContext *ctxt, int KIND);
 
-}  // burnside
+}  // lower
 }  // Fortran
 
-#endif  // FORTRAN_BURNSIDE_CONVERT_TYPE_H_
+#endif  // FORTRAN_LOWER_CONVERT_TYPE_H_
