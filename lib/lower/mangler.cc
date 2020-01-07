@@ -22,10 +22,10 @@
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/Twine.h"
 
-namespace Br = Fortran::burnside;
+namespace Br = Fortran::lower;
 namespace Co = Fortran::common;
 namespace L = llvm;
-namespace Ma = Fortran::burnside::mangle;
+namespace Ma = Fortran::lower::mangle;
 namespace Se = Fortran::semantics;
 
 using namespace Fortran;

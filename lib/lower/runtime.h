@@ -1,4 +1,4 @@
-//===-- lib/burnside/runtime.h ----------------------------------*- C++ -*-===//
+//===-- lib/lower/runtime.h -------------------------------------*- C++ -*-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,8 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef FORTRAN_BURNSIDE_RUNTIME_H_
-#define FORTRAN_BURNSIDE_RUNTIME_H_
+#ifndef FORTRAN_LOWER_RUNTIME_H_
+#define FORTRAN_LOWER_RUNTIME_H_
 
 #include <optional>
 
@@ -22,7 +22,7 @@ class OpBuilder;
 class FuncOp;
 }
 
-namespace Fortran::burnside {
+namespace Fortran::lower {
 
 /// [Coding style](https://llvm.org/docs/CodingStandards.html)
 
@@ -196,6 +196,6 @@ mlir::FunctionType getRuntimeEntryType(
 mlir::FunctionType getRuntimeEntryType(RuntimeEntryCode code,
     mlir::MLIRContext &mlirContext, int inpKind, int resKind);
 
-}  // Fortran::burnside
+}  // Fortran::lower
 
-#endif  // FORTRAN_BURNSIDE_RUNTIME_H_
+#endif  // FORTRAN_LOWER_RUNTIME_H_
