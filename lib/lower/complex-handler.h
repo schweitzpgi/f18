@@ -12,8 +12,8 @@
 /// [Coding style](https://llvm.org/docs/CodingStandards.html)
 
 #include "convert-type.h"
-#include "fir/FIROps.h"
-#include "fir/FIRType.h"
+#include "optimizer/FIROps.h"
+#include "optimizer/FIRType.h"
 
 namespace Fortran::lower {
 /// Provide helpers to generate Complex manipulations in FIR.
@@ -30,8 +30,8 @@ public:
     return convertReal(builder.getContext(), complexKind);
   }
 
-  mlir::Value createComplex(
-      fir::KindTy kind, mlir::Value real, mlir::Value imag) {
+  mlir::Value createComplex(fir::KindTy kind, mlir::Value real,
+                            mlir::Value imag) {
     mlir::Type complexTy{fir::CplxType::get(builder.getContext(), kind)};
     mlir::Value und = builder.create<fir::UndefOp>(loc, complexTy);
     return insert<Part::Imag>(insert<Part::Real>(und, real), imag);
@@ -46,29 +46,31 @@ public:
     return getComplexPartType(cplx->getType());
   }
 
-  template<Part partId> mlir::Value extract(mlir::Value cplx) {
-    return builder.create<fir::ExtractValueOp>(
-        loc, getComplexPartType(cplx), cplx, getPartId<partId>());
+  template <Part partId>
+  mlir::Value extract(mlir::Value cplx) {
+    return builder.create<fir::ExtractValueOp>(loc, getComplexPartType(cplx),
+                                               cplx, getPartId<partId>());
   }
-  template<Part partId> mlir::Value insert(mlir::Value cplx, mlir::Value part) {
+  template <Part partId>
+  mlir::Value insert(mlir::Value cplx, mlir::Value part) {
     assert(cplx != nullptr);
-    return builder.create<fir::InsertValueOp>(
-        loc, cplx->getType(), cplx, part, getPartId<partId>());
+    return builder.create<fir::InsertValueOp>(loc, cplx->getType(), cplx, part,
+                                              getPartId<partId>());
   }
 
   /// Complex part access helper dynamic versions
   mlir::Value extractComplexPart(mlir::Value cplx, bool isImagPart) {
     return isImagPart ? extract<Part::Imag>(cplx) : extract<Part::Real>(cplx);
   }
-  mlir::Value insertComplexPart(
-      mlir::Value cplx, mlir::Value part, bool isImagPart) {
+  mlir::Value insertComplexPart(mlir::Value cplx, mlir::Value part,
+                                bool isImagPart) {
     return isImagPart ? insert<Part::Imag>(cplx, part)
                       : insert<Part::Real>(cplx, part);
   }
 
   // Complex operation helpers
-  mlir::Value createComplexCompare(
-      mlir::Value cplx1, mlir::Value cplx2, bool eq) {
+  mlir::Value createComplexCompare(mlir::Value cplx1, mlir::Value cplx2,
+                                   bool eq) {
     mlir::Value real1 = extract<Part::Real>(cplx1);
     mlir::Value real2 = extract<Part::Real>(cplx2);
     mlir::Value imag1 = extract<Part::Imag>(cplx1);
@@ -88,7 +90,8 @@ public:
 
 private:
   // Make mlir ConstantOp from template part id.
-  template<Part partId> inline mlir::Value getPartId() {
+  template <Part partId>
+  inline mlir::Value getPartId() {
     auto type = mlir::IntegerType::get(32, builder.getContext());
     auto attr = builder.getIntegerAttr(type, static_cast<int>(partId));
     return builder.create<mlir::ConstantOp>(loc, type, attr).getResult();
@@ -98,5 +101,5 @@ private:
   mlir::Location loc;
 };
 
-}
-#endif  // FORTRAN_LOWER_COMPLEX_HANDLER_H_
+} // namespace Fortran::lower
+#endif // FORTRAN_LOWER_COMPLEX_HANDLER_H_

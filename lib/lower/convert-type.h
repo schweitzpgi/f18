@@ -30,31 +30,36 @@ namespace mlir {
 class Location;
 class MLIRContext;
 class Type;
-}
+} // namespace mlir
 
 namespace Fortran {
 namespace common {
 class IntrinsicTypeDefaultKinds;
-template<typename> class Reference;
-}  // common
+template <typename>
+class Reference;
+} // namespace common
 
 namespace evaluate {
 struct DataRef;
-template<typename> class Designator;
-template<typename> class Expr;
-template<common::TypeCategory> struct SomeKind;
+template <typename>
+class Designator;
+template <typename>
+class Expr;
+template <common::TypeCategory>
+struct SomeKind;
 struct SomeType;
-template<common::TypeCategory, int> class Type;
-}  // evaluate
+template <common::TypeCategory, int>
+class Type;
+} // namespace evaluate
 
 namespace parser {
 class CharBlock;
 class CookedSource;
-}  // parser
+} // namespace parser
 
 namespace semantics {
 class Symbol;
-}  // semantics
+} // namespace semantics
 
 namespace lower {
 
@@ -69,41 +74,48 @@ constexpr common::TypeCategory LogicalCat{common::TypeCategory::Logical};
 constexpr common::TypeCategory DerivedCat{common::TypeCategory::Derived};
 
 mlir::Type getFIRType(mlir::MLIRContext *ctxt,
-    common::IntrinsicTypeDefaultKinds const &defaults, common::TypeCategory tc,
-    int kind);
+                      common::IntrinsicTypeDefaultKinds const &defaults,
+                      common::TypeCategory tc, int kind);
 mlir::Type getFIRType(mlir::MLIRContext *ctxt,
-    common::IntrinsicTypeDefaultKinds const &defaults, common::TypeCategory tc);
+                      common::IntrinsicTypeDefaultKinds const &defaults,
+                      common::TypeCategory tc);
 
-mlir::Type translateDataRefToFIRType(mlir::MLIRContext *ctxt,
-    common::IntrinsicTypeDefaultKinds const &defaults,
-    const evaluate::DataRef &dataRef);
+mlir::Type
+translateDataRefToFIRType(mlir::MLIRContext *ctxt,
+                          common::IntrinsicTypeDefaultKinds const &defaults,
+                          const evaluate::DataRef &dataRef);
 
-template<common::TypeCategory TC, int KIND>
-inline mlir::Type translateDesignatorToFIRType(mlir::MLIRContext *ctxt,
-    common::IntrinsicTypeDefaultKinds const &defaults,
+template <common::TypeCategory TC, int KIND>
+inline mlir::Type translateDesignatorToFIRType(
+    mlir::MLIRContext *ctxt, common::IntrinsicTypeDefaultKinds const &defaults,
     const evaluate::Designator<evaluate::Type<TC, KIND>> &) {
   return getFIRType(ctxt, defaults, TC, KIND);
 }
 
-template<common::TypeCategory TC>
-inline mlir::Type translateDesignatorToFIRType(mlir::MLIRContext *ctxt,
-    common::IntrinsicTypeDefaultKinds const &defaults,
+template <common::TypeCategory TC>
+inline mlir::Type translateDesignatorToFIRType(
+    mlir::MLIRContext *ctxt, common::IntrinsicTypeDefaultKinds const &defaults,
     const evaluate::Designator<evaluate::SomeKind<TC>> &) {
   return getFIRType(ctxt, defaults, TC);
 }
 
-mlir::Type translateSomeExprToFIRType(mlir::MLIRContext *ctxt,
-    common::IntrinsicTypeDefaultKinds const &defaults, const SomeExpr *expr);
+mlir::Type
+translateSomeExprToFIRType(mlir::MLIRContext *ctxt,
+                           common::IntrinsicTypeDefaultKinds const &defaults,
+                           const SomeExpr *expr);
 
-mlir::Type translateSymbolToFIRType(mlir::MLIRContext *ctxt,
-    common::IntrinsicTypeDefaultKinds const &defaults, const SymbolRef symbol);
+mlir::Type
+translateSymbolToFIRType(mlir::MLIRContext *ctxt,
+                         common::IntrinsicTypeDefaultKinds const &defaults,
+                         const SymbolRef symbol);
 
-mlir::FunctionType translateSymbolToFIRFunctionType(mlir::MLIRContext *ctxt,
-    common::IntrinsicTypeDefaultKinds const &defaults, const SymbolRef symbol);
+mlir::FunctionType translateSymbolToFIRFunctionType(
+    mlir::MLIRContext *ctxt, common::IntrinsicTypeDefaultKinds const &defaults,
+    const SymbolRef symbol);
 
 mlir::Type convertReal(mlir::MLIRContext *ctxt, int KIND);
 
-}  // lower
-}  // Fortran
+} // namespace lower
+} // namespace Fortran
 
-#endif  // FORTRAN_LOWER_CONVERT_TYPE_H_
+#endif // FORTRAN_LOWER_CONVERT_TYPE_H_
