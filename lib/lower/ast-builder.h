@@ -12,14 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef FORTRAN_BURNSIDE_AST_BUILDER_H_
-#define FORTRAN_BURNSIDE_AST_BUILDER_H_
+#ifndef FORTRAN_LOWER_AST_BUILDER_H_
+#define FORTRAN_LOWER_AST_BUILDER_H_
 
 #include "../parser/parse-tree.h"
 #include "../semantics/scope.h"
 #include "llvm/Support/raw_ostream.h"
 
-namespace Fortran::burnside {
+namespace Fortran::lower {
 namespace AST {
 
 struct Evaluation;
@@ -327,6 +327,6 @@ void annotateControl(AST::Program &ast);
 
 void dumpAST(llvm::raw_ostream &o, AST::Program &ast);
 
-}  // namespace burnside
+}  // namespace lower
 
-#endif  // FORTRAN_BURNSIDE_AST_BUILDER_H_
+#endif  // FORTRAN_LOWER_AST_BUILDER_H_
