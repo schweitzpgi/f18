@@ -18,25 +18,26 @@ class Location;
 class OpBuilder;
 class Type;
 class Value;
-}  // mlir
+} // namespace mlir
 
 namespace fir {
 class AllocaExpr;
-}  // fir
+} // namespace fir
 
 namespace Fortran {
 namespace common {
 class IntrinsicTypeDefaultKinds;
-}  //  common
+} // namespace common
 
 namespace evaluate {
-template<typename> class Expr;
+template <typename>
+class Expr;
 struct SomeType;
-}  // evaluate
+} // namespace evaluate
 
 namespace semantics {
 class Symbol;
-}  // semantics
+} // namespace semantics
 
 namespace lower {
 
@@ -44,23 +45,26 @@ class AbstractConverter;
 class SymMap;
 
 mlir::Value createSomeExpression(mlir::Location loc,
-    AbstractConverter &converter,
-    const evaluate::Expr<evaluate::SomeType> &expr, SymMap &symMap,
-    const IntrinsicLibrary &intrinsics);
+                                 AbstractConverter &converter,
+                                 const evaluate::Expr<evaluate::SomeType> &expr,
+                                 SymMap &symMap,
+                                 const IntrinsicLibrary &intrinsics);
 
-mlir::Value createI1LogicalExpression(mlir::Location loc,
-    AbstractConverter &converter,
-    const evaluate::Expr<evaluate::SomeType> &expr, SymMap &symMap,
-    const IntrinsicLibrary &intrinsics);
+mlir::Value
+createI1LogicalExpression(mlir::Location loc, AbstractConverter &converter,
+                          const evaluate::Expr<evaluate::SomeType> &expr,
+                          SymMap &symMap, const IntrinsicLibrary &intrinsics);
 
 mlir::Value createSomeAddress(mlir::Location loc, AbstractConverter &converter,
-    const evaluate::Expr<evaluate::SomeType> &expr, SymMap &symMap,
-    const IntrinsicLibrary &intrinsics);
+                              const evaluate::Expr<evaluate::SomeType> &expr,
+                              SymMap &symMap,
+                              const IntrinsicLibrary &intrinsics);
 
 mlir::Value createTemporary(mlir::Location loc, mlir::OpBuilder &builder,
-    SymMap &symMap, mlir::Type type, const semantics::Symbol *symbol);
+                            SymMap &symMap, mlir::Type type,
+                            const semantics::Symbol *symbol);
 
-}  // lower
-}  // Fortran
+} // namespace lower
+} // namespace Fortran
 
-#endif  // FORTRAN_LOWER_CONVERT_EXPR_H_
+#endif // FORTRAN_LOWER_CONVERT_EXPR_H_
