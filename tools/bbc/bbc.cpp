@@ -14,8 +14,8 @@
 
 // Temporary Fortran front end driver main program for development scaffolding.
 
-#include "../../lib/burnside/bridge.h"
-#include "../../lib/burnside/convert-expr.h"
+#include "../../lib/lower/bridge.h"
+#include "../../lib/lower/convert-expr.h"
 #include "../../lib/common/Fortran-features.h"
 #include "../../lib/common/default-kinds.h"
 #include "../../lib/parser/characters.h"
@@ -61,7 +61,7 @@
 #include <unistd.h>
 #include <vector>
 
-namespace Br = Fortran::burnside;
+namespace Br = Fortran::lower;
 
 static std::list<std::string> argList(int argc, char *const argv[]) {
   std::list<std::string> result;
