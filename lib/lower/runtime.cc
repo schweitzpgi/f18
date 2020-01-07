@@ -22,7 +22,7 @@
 #include "mlir/IR/Types.h"
 #include <cassert>
 
-namespace Fortran::burnside {
+namespace Fortran::lower {
 mlir::Type RuntimeStaticDescription::getMLIRType(
     TypeCode t, mlir::MLIRContext *context) {
   switch (t) {
@@ -72,9 +72,9 @@ mlir::FuncOp RuntimeStaticDescription::getFuncOp(
 
 // TODO remove dependencies to stub rt below
 
-namespace Br = Fortran::burnside;
+namespace Br = Fortran::lower;
 using namespace Fortran;
-using namespace Fortran::burnside;
+using namespace Fortran::lower;
 
 namespace {
 
