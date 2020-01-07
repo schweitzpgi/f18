@@ -1,4 +1,4 @@
-//===-- lib/fir/Transforms/MemToReg.cpp -------------------------*- C++ -*-===//
+//===-- lib/optimizer/Transforms/MemToReg.cpp -------------------*- C++ -*-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,13 +6,13 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "fir/Analysis/IteratedDominanceFrontier.h"
-#include "fir/FIRDialect.h"
-#include "fir/FIROps.h"
-#include "fir/Transforms/Passes.h"
 #include "mlir/Analysis/Dominance.h"
 #include "mlir/Dialect/StandardOps/Ops.h"
 #include "mlir/Pass/Pass.h"
+#include "optimizer/Analysis/IteratedDominanceFrontier.h"
+#include "optimizer/FIRDialect.h"
+#include "optimizer/FIROps.h"
+#include "optimizer/Transforms/Passes.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SmallVector.h"
 #include <utility>

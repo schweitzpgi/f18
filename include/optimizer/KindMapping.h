@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef FIR_KINDMAPPING_H
-#define FIR_KINDMAPPING_H
+#ifndef OPTIMIZER_KINDMAPPING_H
+#define OPTIMIZER_KINDMAPPING_H
 
 #include "llvm/IR/Type.h"
 #include <map>
@@ -88,4 +88,4 @@ private:
 
 } // namespace fir
 
-#endif // FIR_KINDMAPPING_H
+#endif // OPTIMIZER_KINDMAPPING_H

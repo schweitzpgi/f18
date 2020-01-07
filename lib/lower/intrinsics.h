@@ -9,8 +9,8 @@
 #ifndef FORTRAN_LOWER_INTRINSICS_H_
 #define FORTRAN_LOWER_INTRINSICS_H_
 
-#include "llvm/ADT/StringRef.h"
 #include "mlir/Dialect/StandardOps/Ops.h"
+#include "llvm/ADT/StringRef.h"
 #include <optional>
 
 /// [Coding style](https://llvm.org/docs/CodingStandards.html)
@@ -43,8 +43,8 @@ public:
   /// On failure, returns a nullptr, else the returned mlir::Value is
   /// the returned Fortran intrinsic value.
   mlir::Value genval(mlir::Location loc, mlir::OpBuilder &builder,
-      llvm::StringRef name, mlir::Type resultType,
-      llvm::ArrayRef<mlir::Value> args) const;
+                     llvm::StringRef name, mlir::Type resultType,
+                     llvm::ArrayRef<mlir::Value> args) const;
 
   // TODO: Expose interface to get specific intrinsic function address.
   // TODO: Handle intrinsic subroutine.
@@ -60,9 +60,9 @@ public:
 private:
   /// Actual implementation is hidden.
   class Implementation;
-  Implementation *impl{nullptr};  // owning pointer
+  Implementation *impl{nullptr}; // owning pointer
 };
 
-}
+} // namespace Fortran::lower
 
-#endif  // FORTRAN_LOWER_INTRINSICS_H_
+#endif // FORTRAN_LOWER_INTRINSICS_H_

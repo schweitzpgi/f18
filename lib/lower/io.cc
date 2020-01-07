@@ -7,13 +7,13 @@
 //===----------------------------------------------------------------------===//
 
 #include "io.h"
-#include "bridge.h"
-#include "builder.h"
-#include "runtime.h"
 #include "../parser/parse-tree.h"
 #include "../semantics/tools.h"
+#include "bridge.h"
+#include "builder.h"
 #include "mlir/Dialect/StandardOps/Ops.h"
 #include "mlir/IR/Builders.h"
+#include "runtime.h"
 #include <cassert>
 
 namespace Br = Fortran::lower;
@@ -34,9 +34,9 @@ enum class IOAction { BeginExternalList, Output, EndIO };
 class IORuntimeDescription : public RuntimeStaticDescription {
 public:
   using Key = IOAction;
-  constexpr IORuntimeDescription(
-      IOAction act, const char *s, MaybeTypeCode r, TypeCodeVector a)
-    : RuntimeStaticDescription{s, r, a}, key{act} {}
+  constexpr IORuntimeDescription(IOAction act, const char *s, MaybeTypeCode r,
+                                 TypeCodeVector a)
+      : RuntimeStaticDescription{s, r, a}, key{act} {}
   static M::Type getIOCookieType(M::MLIRContext *context) {
     return getMLIRType(TypeCode::IOCookie, context);
   }
@@ -55,13 +55,13 @@ using IOA = IOAction;
 /// Experimental runtime for now.
 static constexpr IORuntimeDescription ioRuntimeTable[]{
     {IOA::BeginExternalList, "__F18IOa_BeginExternalListOutput",
-        RType::IOCookie, Args::create<RType::i32>()},
+     RType::IOCookie, Args::create<RType::i32>()},
     {IOA::Output, "__F18IOa_OutputInteger64", RT::voidTy,
-        Args::create<RType::IOCookie, RType::i64>()},
+     Args::create<RType::IOCookie, RType::i64>()},
     {IOA::Output, "__F18IOa_OutputReal64", RT::voidTy,
-        Args::create<RType::IOCookie, RType::f64>()},
+     Args::create<RType::IOCookie, RType::f64>()},
     {IOA::EndIO, "__F18IOa_EndIOStatement", RT::voidTy,
-        Args::create<RType::IOCookie>()},
+     Args::create<RType::IOCookie>()},
 };
 
 static constexpr IORuntimeMap ioRuntimeMap{ioRuntimeTable};
@@ -70,7 +70,7 @@ static constexpr IORuntimeMap ioRuntimeMap{ioRuntimeTable};
 /// are mapped to an IOAction that must be mapped to one and
 /// exactly one runtime function. This constraint is enforced
 /// at compile time. This search is resolved at compile time.
-template<IORuntimeDescription::Key key>
+template <IORuntimeDescription::Key key>
 static M::FuncOp getIORuntimeFunction(M::OpBuilder &builder) {
   static constexpr auto runtimeDescription{ioRuntimeMap.find(key)};
   static_assert(runtimeDescription != ioRuntimeMap.end());
@@ -102,8 +102,8 @@ static M::FuncOp getOutputRuntimeFunction(M::OpBuilder &builder, M::Type type) {
 }
 
 /// Lower print statement assuming a dummy runtime interface for now.
-void lowerPrintStatement(
-    M::OpBuilder &builder, M::Location loc, M::ValueRange args) {
+void lowerPrintStatement(M::OpBuilder &builder, M::Location loc,
+                         M::ValueRange args) {
   M::ModuleOp module{getModule(&builder)};
   M::MLIRContext *mlirContext{module.getContext()};
 
@@ -131,7 +131,7 @@ void lowerPrintStatement(
   builder.create<M::CallOp>(loc, endIOFunc, endArgs);
 }
 
-}  // namespace
+} // namespace
 
 void Br::genBackspaceStatement(AbstractConverter &, const Pa::BackspaceStmt &) {
   assert(false);
@@ -157,19 +157,19 @@ void Br::genOpenStatement(AbstractConverter &, const Pa::OpenStmt &) {
   assert(false);
 }
 
-void Br::genPrintStatement(
-    Br::AbstractConverter &converter, const Pa::PrintStmt &stmt) {
+void Br::genPrintStatement(Br::AbstractConverter &converter,
+                           const Pa::PrintStmt &stmt) {
   llvm::SmallVector<M::Value, 4> args;
   for (auto &item : std::get<std::list<Pa::OutputItem>>(stmt.t)) {
     if (auto *pe{std::get_if<Pa::Expr>(&item.u)}) {
       auto loc{converter.genLocation(pe->source)};
       args.push_back(converter.genExprValue(*semantics::GetExpr(*pe), &loc));
     } else {
-      assert(false);  // TODO implied do
+      assert(false); // TODO implied do
     }
   }
-  lowerPrintStatement(
-      converter.getOpBuilder(), converter.getCurrentLocation(), args);
+  lowerPrintStatement(converter.getOpBuilder(), converter.getCurrentLocation(),
+                      args);
 }
 
 void Br::genReadStatement(AbstractConverter &, const Pa::ReadStmt &) {
