@@ -32,7 +32,7 @@ set(EXE_LIBS
   FortranParser
   FortranEvaluate
   FortranSemantics
-  FortranBurnside
+  FortranLower
 )
 
 add_llvm_tool(bbc bbc.cpp)
