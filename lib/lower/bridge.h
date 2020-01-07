@@ -22,27 +22,29 @@
 namespace Fortran {
 namespace common {
 class IntrinsicTypeDefaultKinds;
-template<typename> class Reference;
-}
+template <typename>
+class Reference;
+} // namespace common
 namespace evaluate {
 struct DataRef;
-template<typename> class Expr;
+template <typename>
+class Expr;
 struct SomeType;
-}
+} // namespace evaluate
 namespace parser {
 class CharBlock;
 class CookedSource;
 struct Program;
-}
+} // namespace parser
 namespace semantics {
 class Symbol;
 }
-}  // namespace Fortran
+} // namespace Fortran
 
 namespace llvm {
 class Module;
 class SourceMgr;
-}
+} // namespace llvm
 namespace mlir {
 class OpBuilder;
 }
@@ -63,11 +65,11 @@ public:
   // Expressions
 
   /// Generate the address of the location holding the expression
-  virtual mlir::Value genExprAddr(
-      const SomeExpr &, mlir::Location *loc = nullptr) = 0;
+  virtual mlir::Value genExprAddr(const SomeExpr &,
+                                  mlir::Location *loc = nullptr) = 0;
   /// Generate the computations of the expression to produce a value
-  virtual mlir::Value genExprValue(
-      const SomeExpr &, mlir::Location *loc = nullptr) = 0;
+  virtual mlir::Value genExprValue(const SomeExpr &,
+                                   mlir::Location *loc = nullptr) = 0;
 
   //
   // Types
@@ -108,9 +110,9 @@ public:
 
 class BurnsideBridge {
 public:
-  static BurnsideBridge create(
-      const common::IntrinsicTypeDefaultKinds &defaultKinds,
-      const parser::CookedSource *cooked) {
+  static BurnsideBridge
+  create(const common::IntrinsicTypeDefaultKinds &defaultKinds,
+         const parser::CookedSource *cooked) {
     return BurnsideBridge{defaultKinds, cooked};
   }
 
@@ -132,7 +134,7 @@ public:
 
 private:
   explicit BurnsideBridge(const common::IntrinsicTypeDefaultKinds &defaultKinds,
-      const parser::CookedSource *cooked);
+                          const parser::CookedSource *cooked);
   BurnsideBridge() = delete;
   BurnsideBridge(const BurnsideBridge &) = delete;
 
@@ -142,6 +144,6 @@ private:
   std::unique_ptr<mlir::ModuleOp> module;
 };
 
-}  // Fortran::lower
+} // namespace Fortran::lower
 
-#endif  // FORTRAN_LOWER_BRIDGE_H_
+#endif // FORTRAN_LOWER_BRIDGE_H_
