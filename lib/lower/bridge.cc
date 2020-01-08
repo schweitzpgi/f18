@@ -685,9 +685,6 @@ class FirConverter : public AbstractConverter {
       M::Value addr = genExprAddr(charDesignatorExpr);
       const auto &charExpr{
           std::get<Ev::Expr<Ev::SomeCharacter>>(charDesignatorExpr.u)};
-      // FIXME LEN() should also succeed on character(*) and return a
-      // DescriptorInquiry, this does not work but should be fixed after FIR f18
-      // is rebased with master f18 that contains PR871.
       std::optional<Ev::Expr<Ev::SubscriptInteger>> lenExpr{charExpr.LEN()};
       assert(lenExpr && "could not get expression to compute character length");
       M::Value len = genExprValue(Ev::AsGenericExpr(std::move(*lenExpr)));
@@ -705,21 +702,14 @@ class FirConverter : public AbstractConverter {
     // Generate the copy.
     // FIXME: Currently assumes no overlap (else a temp should be used).
 
-    // Get reference and character type.
+    // Get character sequence reference type for fir::CoordinateOp.
     assert(lhsAddrAndLen.first && "could not get character variable address");
-    auto charRefType{
-        lhsAddrAndLen.first->getType().dyn_cast<fir::ReferenceType>()};
-    assert(charRefType && "expected character reference type");
-    auto charType{charRefType.getEleTy()};
-    // Cast character string to array of character to index it in fir.loop
-    // This is currently required by fir::CoordinateOp.
-    fir::SequenceType::Shape shape{-1};
-    auto arrayRefCharType{
-        fir::ReferenceType::get(fir::SequenceType::get(shape, charType))};
+    auto charRefType{lhsAddrAndLen.first.getType()};
+    auto charSequenceRefType{getSequenceRefType(charRefType)};
     auto lhsArrayView{builder->create<fir::ConvertOp>(
-        toLocation(), arrayRefCharType, lhsAddrAndLen.first)};
+        toLocation(), charSequenceRefType, lhsAddrAndLen.first)};
     auto rhsArrayView{builder->create<fir::ConvertOp>(
-        toLocation(), arrayRefCharType, rhsAddrAndLen.first)};
+        toLocation(), charSequenceRefType, rhsAddrAndLen.first)};
 
     // Build loop to copy rhs
     auto indexTy{M::IndexType::get(builder->getContext())};
@@ -756,6 +746,7 @@ class FirConverter : public AbstractConverter {
     auto byteTy{M::IntegerType::get(8, builder->getContext())};
     auto asciiSpace{builder->create<M::ConstantOp>(
         toLocation(), byteTy, builder->getIntegerAttr(byteTy, 32))};
+    auto charType{charRefType.dyn_cast<fir::ReferenceType>().getEleTy()};
     auto blank{
         builder->create<fir::ConvertOp>(toLocation(), charType, asciiSpace)};
     auto padLoop{builder->create<fir::LoopOp>(toLocation(), copyMaxIndex,
