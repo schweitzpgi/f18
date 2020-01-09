@@ -282,10 +282,10 @@ public:
           bounds.emplace_back(toConstant(ubv.value()) -
                               toConstant(lbv.value()) + 1);
         } else {
-          bounds.emplace_back(fir::SequenceType::getUnkownExtent());
+          bounds.emplace_back(fir::SequenceType::getUnknownExtent());
         }
       } else {
-        bounds.emplace_back(fir::SequenceType::getUnkownExtent());
+        bounds.emplace_back(fir::SequenceType::getUnknownExtent());
       }
     }
     return bounds;
@@ -487,6 +487,6 @@ M::Type Br::getSequenceRefType(M::Type refType) {
   auto type{refType.dyn_cast<fir::ReferenceType>()};
   assert(type && "expected a reference type");
   auto elementType{type.getEleTy()};
-  fir::SequenceType::Shape shape{fir::SequenceType::getUnkownExtent()};
+  fir::SequenceType::Shape shape{fir::SequenceType::getUnknownExtent()};
   return fir::ReferenceType::get(fir::SequenceType::get(shape, elementType));
 }
