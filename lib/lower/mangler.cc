@@ -1,4 +1,4 @@
-//===-- lib/burnside/mangler.cc -------------------------------------------===//
+//===-- lib/lower/mangler.cc ----------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -10,10 +10,10 @@
 #include "../common/reference.h"
 #include "../semantics/tools.h"
 #include "optimizer/InternalNames.h"
+#include "utils.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/Optional.h"
 #include "llvm/ADT/SmallVector.h"
-#include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/Twine.h"
 
 namespace Br = Fortran::lower;
@@ -25,10 +25,6 @@ namespace Se = Fortran::semantics;
 using namespace Fortran;
 
 namespace {
-
-L::StringRef toStringRef(const parser::CharBlock &cb) {
-  return L::StringRef{cb.begin(), cb.size()};
-}
 
 // recursively build the vector of module scopes
 void moduleNames(const Se::Scope *scope,
