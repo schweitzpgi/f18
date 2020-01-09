@@ -1,4 +1,4 @@
-//===-- lib/burnside/convert-type.cc --------------------------------------===//
+//===-- lib/lower/convert-type.cc -----------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -16,6 +16,7 @@
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/StandardTypes.h"
 #include "optimizer/FIRType.h"
+#include "utils.h"
 
 namespace Br = Fortran::lower;
 namespace Co = Fortran::common;
@@ -179,10 +180,6 @@ class TypeBuilder {
     return M::emitWarning(M::UnknownLoc::get(context), message);
   }
 
-  llvm::StringRef toStrRef(const Pa::CharBlock &cb) {
-    return {cb.begin(), cb.size()};
-  }
-
 public:
   explicit TypeBuilder(M::MLIRContext *context,
                        Co::IntrinsicTypeDefaultKinds const &defaults)
@@ -282,10 +279,10 @@ public:
           bounds.emplace_back(toConstant(ubv.value()) -
                               toConstant(lbv.value()) + 1);
         } else {
-          bounds.emplace_back(fir::SequenceType::getUnkownExtent());
+          bounds.emplace_back(fir::SequenceType::getUnknownExtent());
         }
       } else {
-        bounds.emplace_back(fir::SequenceType::getUnkownExtent());
+        bounds.emplace_back(fir::SequenceType::getUnknownExtent());
       }
     }
     return bounds;
@@ -367,7 +364,7 @@ public:
         auto &symbol = tySpec->typeSymbol();
         // FIXME: don't want to recurse forever here, but this won't happen
         // since we don't know the components at this time
-        auto rec = fir::RecordType::get(context, toStrRef(symbol.name()));
+        auto rec = fir::RecordType::get(context, toStringRef(symbol.name()));
         auto &details = symbol.get<Se::DerivedTypeDetails>();
         for (auto &param : details.paramDecls()) {
           auto &p{*param};
@@ -383,7 +380,7 @@ public:
         emitWarning("the front-end returns symbols of derived type that have "
                     "components that are simple names and not symbols, so "
                     "cannot construct type " +
-                    toStrRef(symbol.name()));
+                    toStringRef(symbol.name()));
 #endif
         rec.finalize(ps, cs);
         returnTy = rec;
@@ -487,6 +484,6 @@ M::Type Br::getSequenceRefType(M::Type refType) {
   auto type{refType.dyn_cast<fir::ReferenceType>()};
   assert(type && "expected a reference type");
   auto elementType{type.getEleTy()};
-  fir::SequenceType::Shape shape{fir::SequenceType::getUnkownExtent()};
+  fir::SequenceType::Shape shape{fir::SequenceType::getUnknownExtent()};
   return fir::ReferenceType::get(fir::SequenceType::get(shape, elementType));
 }
