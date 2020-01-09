@@ -55,22 +55,22 @@ struct TypeDescTypeStorage;
 enum TypeKind {
   // The enum starts at the range reserved for this dialect.
   FIR_TYPE = mlir::Type::FIRST_FIR_TYPE,
-  FIR_BOX,
-  FIR_BOXCHAR,
-  FIR_BOXPROC,
-  FIR_CHARACTER, // intrinsic
-  FIR_COMPLEX,   // intrinsic
+  FIR_BOX,       // (static) descriptor
+  FIR_BOXCHAR,   // CHARACTER pointer and length
+  FIR_BOXPROC,   // procedure with host association
+  FIR_CHARACTER, // intrinsic type
+  FIR_COMPLEX,   // intrinsic type
   FIR_DERIVED,   // derived
   FIR_DIMS,
   FIR_FIELD,
   FIR_HEAP,
-  FIR_INT, // intrinsic
+  FIR_INT, // intrinsic type
   FIR_LEN,
-  FIR_LOGICAL, // intrinsic
-  FIR_POINTER,
-  FIR_REAL, // intrinsic
+  FIR_LOGICAL, // intrinsic type
+  FIR_POINTER, // POINTER attr
+  FIR_REAL,    // intrinsic type
   FIR_REFERENCE,
-  FIR_SEQUENCE,
+  FIR_SEQUENCE, // DIMENSION attr
   FIR_TYPEDESC,
 };
 
@@ -240,6 +240,11 @@ public:
                                mlir::MLIRContext *context, mlir::Type eleTy);
 };
 
+/// A sequence type is a multi-dimensional array of values. The sequence type
+/// may have an unknown number of dimensions or the extent of dimensions may be
+/// unknown. A sequence type models a Fortran array entity, giving it a type in
+/// FIR. A sequence type is assumed to be stored in a column-major order, which
+/// differs from LLVM IR and other dialects of MLIR.
 class SequenceType : public mlir::Type::TypeBase<SequenceType, mlir::Type,
                                                  detail::SequenceTypeStorage> {
 public:
@@ -247,15 +252,27 @@ public:
   using Extent = int64_t;
   using Shape = llvm::SmallVector<Extent, 8>;
 
-  mlir::Type getEleTy() const;
-  Shape getShape() const;
-  mlir::AffineMapAttr getLayoutMap() const;
-  unsigned getDimension() const { return getShape().size(); }
-
+  /// Return a sequence type with the specified shape and element type
   static SequenceType get(const Shape &shape, mlir::Type elementType,
                           mlir::AffineMapAttr map = {});
-  constexpr static Extent getUnkownExtent() { return -1; }
+
+  /// The element type of this sequence
+  mlir::Type getEleTy() const;
+
+  /// The shape of the sequence. If the sequence has an unknown shape, the shape
+  /// returned will be empty.
+  Shape getShape() const;
+
+  mlir::AffineMapAttr getLayoutMap() const;
+
+  /// The number of dimensions of the sequence
+  unsigned getDimension() const { return getShape().size(); }
+
+  /// The value `-1` represents an unknown extent for a dimension
+  constexpr static Extent getUnknownExtent() { return -1; }
+
   static bool kindof(unsigned kind) { return kind == TypeKind::FIR_SEQUENCE; }
+
   static mlir::LogicalResult
   verifyConstructionInvariants(llvm::Optional<mlir::Location> loc,
                                mlir::MLIRContext *context, const Shape &shape,
