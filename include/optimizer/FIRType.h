@@ -260,6 +260,7 @@ public:
 
   static SequenceType get(const Shape &shape, mlir::Type elementType,
                           mlir::AffineMapAttr map = {});
+  constexpr static Extent getUnkownExtent() { return -1; }
   static bool kindof(unsigned kind) { return kind == TypeKind::FIR_SEQUENCE; }
   static mlir::LogicalResult
   verifyConstructionInvariants(llvm::Optional<mlir::Location> loc,
