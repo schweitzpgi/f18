@@ -316,15 +316,6 @@ void BigRadixFloatingPointNumber<PREC,
   }
 }
 
-#define INSTANTIATE_WALDO(X) \
-  template void BigRadixFloatingPointNumber<X,16>::LoseLeastSignificantDigit()
-INSTANTIATE_WALDO(8);
-INSTANTIATE_WALDO(11);
-INSTANTIATE_WALDO(24);
-INSTANTIATE_WALDO(53);
-INSTANTIATE_WALDO(64);
-INSTANTIATE_WALDO(112);
-
 template<int PREC>
 ConversionToDecimalResult ConvertToDecimal(char *buffer, std::size_t size,
     enum DecimalConversionFlags flags, int digits,

@@ -5,7 +5,7 @@ func @f_tuple(%a : tuple<i32, i64>) -> i64 {
 }
 
 func @f_record(%a : !fir.type<rec1{fa:i32, fb:i64}>) -> i64 {
-  %0 = fir.field_index("fb")
-  %1 = fir.extract_value %a, %0 : (!fir.type<rec1{fa:i32, fb:i64}>, !fir.field) -> i64
+  %0 = fir.field_index fb, !fir.type<rec1>
+  %1 = fir.extract_value %a, %0 : (!fir.type<rec1>, !fir.field) -> i64
   return %1 : i64
 }
