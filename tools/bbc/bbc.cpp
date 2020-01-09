@@ -4,10 +4,11 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
-// =============================================================================
-//
-// This is a tool for translating Fortran sources to the FIR dialect of MLIR.
-//
+//===----------------------------------------------------------------------===//
+///
+/// \file
+/// This is a tool for translating Fortran sources to the FIR dialect of MLIR.
+///
 //===----------------------------------------------------------------------===//
 
 #include "../../lib/common/Fortran-features.h"
