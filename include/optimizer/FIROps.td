@@ -11,12 +11,10 @@
 ///
 //===----------------------------------------------------------------------===//
 
-#ifdef FIR_DIALECT_FIR_OPS
-#else
+#ifndef FIR_DIALECT_FIR_OPS
 #define FIR_DIALECT_FIR_OPS
 
-#ifdef OP_BASE
-#else
+#ifndef OP_BASE
 include "mlir/IR/OpBase.td"
 #endif
 
