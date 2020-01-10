@@ -687,6 +687,7 @@ def fir_SelectCaseOp : fir_SwitchTerminatorOp<"select_case"> {
           getSelector()->getType().isa<fir::CharacterType>()))
       return emitOpError("must be an integer, character, or logical");
     for (unsigned i = 0, count = getNumConditions(); i != count; ++i) {
+      // TODO: add checks!
     }
     return M::success();
   }];
@@ -768,11 +769,9 @@ def fir_SelectTypeOp : fir_SwitchTerminatorOp<"select_type"> {
     auto cases = getAttrOfType<M::ArrayAttr>(AttrName).getValue();
     for (unsigned i = 0, count = getNumConditions(); i != count; ++i) {
       auto &attr = cases[i];
-      if (attr.dyn_cast_or_null<fir::ExactTypeAttr>()) {
-        // ok
-      } else if (attr.dyn_cast_or_null<fir::SubclassAttr>()) {
-        // ok
-      } else if (attr.dyn_cast_or_null<M::UnitAttr>()) {
+      if (attr.dyn_cast_or_null<fir::ExactTypeAttr>() ||
+          attr.dyn_cast_or_null<fir::SubclassAttr>() ||
+          attr.dyn_cast_or_null<M::UnitAttr>()) {
         // ok
       } else {
         return emitOpError("invalid type-case alternative");
