@@ -61,7 +61,6 @@ public:
   /// not include blocks where any phi insertion would be dead.
   ///
   /// Note: This set *must* live for the entire lifetime of the IDF calculator.
-
   void setLiveInBlocks(const llvm::SmallPtrSetImpl<NodeTy *> &Blocks) {
     LiveInBlocks = &Blocks;
     useLiveIn = true;
