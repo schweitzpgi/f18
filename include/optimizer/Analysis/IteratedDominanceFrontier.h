@@ -23,8 +23,6 @@
 #ifndef OPTIMIZER_ANALYSIS_IDF_H
 #define OPTIMIZER_ANALYSIS_IDF_H
 
-#include "mlir/Analysis/Dominance.h"
-#include "mlir/IR/Block.h"
 #include "mlir/Support/LLVM.h"
 
 namespace mlir {
