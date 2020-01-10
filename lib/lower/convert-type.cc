@@ -16,6 +16,7 @@
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/StandardTypes.h"
 #include "optimizer/FIRType.h"
+#include "utils.h"
 
 namespace Br = Fortran::lower;
 namespace Co = Fortran::common;
@@ -177,10 +178,6 @@ class TypeBuilder {
 
   M::InFlightDiagnostic emitWarning(const llvm::Twine &message) {
     return M::emitWarning(M::UnknownLoc::get(context), message);
-  }
-
-  llvm::StringRef toStrRef(const Pa::CharBlock &cb) {
-    return {cb.begin(), cb.size()};
   }
 
 public:
@@ -367,7 +364,7 @@ public:
         auto &symbol = tySpec->typeSymbol();
         // FIXME: don't want to recurse forever here, but this won't happen
         // since we don't know the components at this time
-        auto rec = fir::RecordType::get(context, toStrRef(symbol.name()));
+        auto rec = fir::RecordType::get(context, toStringRef(symbol.name()));
         auto &details = symbol.get<Se::DerivedTypeDetails>();
         for (auto &param : details.paramDecls()) {
           auto &p{*param};
@@ -383,7 +380,7 @@ public:
         emitWarning("the front-end returns symbols of derived type that have "
                     "components that are simple names and not symbols, so "
                     "cannot construct type " +
-                    toStrRef(symbol.name()));
+                    toStringRef(symbol.name()));
 #endif
         rec.finalize(ps, cs);
         returnTy = rec;
