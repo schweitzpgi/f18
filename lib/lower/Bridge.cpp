@@ -661,83 +661,33 @@ class FirConverter : public AbstractConverter {
     // Helper to get address and length from an Expr that is a character
     // variable designator
     auto getAddrAndLength{[&](const SomeExpr &charDesignatorExpr)
-                              -> std::pair<mlir::Value, mlir::Value> {
+                              -> CharacterOpsCreator::CharValue {
       M::Value addr = genExprAddr(charDesignatorExpr);
       const auto &charExpr{
           std::get<Ev::Expr<Ev::SomeCharacter>>(charDesignatorExpr.u)};
       std::optional<Ev::Expr<Ev::SubscriptInteger>> lenExpr{charExpr.LEN()};
       assert(lenExpr && "could not get expression to compute character length");
-      M::Value len = genExprValue(Ev::AsGenericExpr(std::move(*lenExpr)));
-      return {addr, len};
+      M::Value len{genExprValue(Ev::AsGenericExpr(std::move(*lenExpr)))};
+      return CharacterOpsCreator::CharValue{addr, len};
     }};
 
-    auto lhsAddrAndLen{getAddrAndLength(assignment.lhs)};
-    // FIXME:  In general an address cannot be obtained for rhs because it does
-    // not have to be a variable. rhs either needs to be materialized (but this
-    // just push the problem into assigning into a temp), or each element of the
-    // character rhs must be computed and directly assigned in the related lhs
-    // element.
-    auto rhsAddrAndLen{getAddrAndLength(assignment.rhs)};
+    CharacterOpsCreator creator{*builder, toLocation()};
 
-    // Generate the copy.
-    // FIXME: Currently assumes no overlap (else a temp should be used).
+    // RHS evaluation.
+    // FIXME:  Only works with rhs that are variable reference.
+    // Other expression evaluation are not simple copies.
+    auto rhs{getAddrAndLength(assignment.rhs)};
+    // A temp is needed to evaluate rhs until proven it does not depend on lhs.
+    auto tempToEvalRhs{creator.createTemp(rhs.getCharacterType(), rhs.len)};
+    creator.genCopy(tempToEvalRhs, rhs, rhs.len);
 
-    // Get character sequence reference type for fir::CoordinateOp.
-    assert(lhsAddrAndLen.first && "could not get character variable address");
-    auto charRefType{lhsAddrAndLen.first.getType()};
-    auto charSequenceRefType{getSequenceRefType(charRefType)};
-    auto lhsArrayView{builder->create<fir::ConvertOp>(
-        toLocation(), charSequenceRefType, lhsAddrAndLen.first)};
-    auto rhsArrayView{builder->create<fir::ConvertOp>(
-        toLocation(), charSequenceRefType, rhsAddrAndLen.first)};
-
-    // Build loop to copy rhs
-    auto indexTy{M::IndexType::get(builder->getContext())};
-    auto zero{builder->create<M::ConstantOp>(
-        toLocation(), indexTy, builder->getIntegerAttr(indexTy, 0))};
-    auto one{builder->create<M::ConstantOp>(
-        toLocation(), indexTy, builder->getIntegerAttr(indexTy, 1))};
-    L::SmallVector<M::Value, 1> step;
-    step.emplace_back(one);
-    // Copy the minimum of the lhs and rhs lengths
-    auto cmpLen{builder->create<M::CmpIOp>(toLocation(), M::CmpIPredicate::slt,
-                                           lhsAddrAndLen.second,
-                                           rhsAddrAndLen.second)};
-    auto copyLen{builder->create<M::SelectOp>(
-        toLocation(), cmpLen, lhsAddrAndLen.second, rhsAddrAndLen.second)};
-    auto copyMaxIndex{
-        builder->create<fir::ConvertOp>(toLocation(), indexTy, copyLen)};
-    auto copyLoop{
-        builder->create<fir::LoopOp>(toLocation(), zero, copyMaxIndex, step)};
-    auto *insPt{builder->getInsertionBlock()};
-    builder->setInsertionPointToStart(copyLoop.getBody());
-    auto index{copyLoop.getInductionVar()};
-    auto lhsElementAddr{builder->create<fir::CoordinateOp>(
-        toLocation(), charRefType, lhsArrayView, index)};
-    auto rhsElementAddr{builder->create<fir::CoordinateOp>(
-        toLocation(), charRefType, rhsArrayView, index)};
-    auto elementVal{builder->create<fir::LoadOp>(toLocation(), rhsElementAddr)};
-    builder->create<fir::StoreOp>(toLocation(), elementVal, lhsElementAddr);
-    builder->setInsertionPointToEnd(insPt);
-
-    // Build loop to pad lhs with blanks if needed.
-    auto padMaxIndex{builder->create<fir::ConvertOp>(toLocation(), indexTy,
-                                                     lhsAddrAndLen.second)};
-    auto byteTy{M::IntegerType::get(8, builder->getContext())};
-    auto asciiSpace{builder->create<M::ConstantOp>(
-        toLocation(), byteTy, builder->getIntegerAttr(byteTy, 32))};
-    auto charType{charRefType.dyn_cast<fir::ReferenceType>().getEleTy()};
-    auto blank{
-        builder->create<fir::ConvertOp>(toLocation(), charType, asciiSpace)};
-    auto padLoop{builder->create<fir::LoopOp>(toLocation(), copyMaxIndex,
-                                              padMaxIndex, step)};
-    insPt = builder->getInsertionBlock();
-    builder->setInsertionPointToStart(padLoop.getBody());
-    auto padIndex{padLoop.getInductionVar()};
-    auto lhsElementAddrPad{builder->create<fir::CoordinateOp>(
-        toLocation(), charRefType, lhsArrayView, padIndex)};
-    builder->create<fir::StoreOp>(toLocation(), blank, lhsElementAddrPad);
-    builder->setInsertionPointToEnd(insPt);
+    // Copy the minimum of the lhs and rhs lengths and pad the lhs remainder
+    auto lhs{getAddrAndLength(assignment.lhs)};
+    auto cmpLen{
+        creator.create<M::CmpIOp>(M::CmpIPredicate::slt, lhs.len, rhs.len)};
+    auto copyCount{creator.create<M::SelectOp>(cmpLen, lhs.len, rhs.len)};
+    creator.genCopy(lhs, tempToEvalRhs, copyCount);
+    creator.genPadding(lhs, copyCount, lhs.len);
   }
 
   void genFIR(const Pa::AssignmentStmt &stmt) {
