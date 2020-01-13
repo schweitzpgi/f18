@@ -66,13 +66,11 @@ int compileFIR() {
     return 4;
   }
 
-  errs() << ";== input ==\n";
-  owningRef->dump();
-
   // run passes
   fir::NameUniquer uniquer;
   fir::KindMapping kindMap{context.get()};
   mlir::PassManager pm{context.get()};
+  mlir::applyPassManagerCLOptions(pm);
   pm.addPass(fir::createMemToRegPass());
   pm.addPass(fir::createCSEPass());
   // convert fir dialect to affine
@@ -84,14 +82,10 @@ int compileFIR() {
   pm.addPass(mlir::createLowerToCFGPass());
   pm.addPass(fir::createFIRToLLVMPass(uniquer));
   pm.addPass(fir::createLLVMDialectToLLVMPass(ClOutput));
-  if (mlir::succeeded(pm.run(*owningRef))) {
-    errs() << ";== output ==\n";
-    owningRef->dump();
-  } else {
-    errs() << "FAILED: " << ClInput << '\n';
-    return 8;
-  }
-  return 0;
+  if (mlir::succeeded(pm.run(*owningRef)))
+    return 0;
+  errs() << "FAILED: " << ClInput << '\n';
+  return 8;
 }
 
 int main(int argc, char **argv) {
