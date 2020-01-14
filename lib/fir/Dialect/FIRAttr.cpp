@@ -1,4 +1,4 @@
-//===-- lib/fir/Attribute.cpp ---------------------------------------------===//
+//===-- fir/FIRAttr.cpp ---------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,14 +6,14 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "optimizer/Attribute.h"
+#include "fir/Dialect/FIRAttr.h"
+#include "fir/Dialect/FIRDialect.h"
+#include "fir/Dialect/FIRType.h"
 #include "mlir/IR/AttributeSupport.h"
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/DialectImplementation.h"
 #include "mlir/IR/Types.h"
 #include "mlir/Parser.h"
-#include "optimizer/FIRDialect.h"
-#include "optimizer/FIRType.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/Twine.h"
 
