@@ -6,14 +6,14 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "fir/Dialect/FIRDialect.h"
+#include "fir/Dialect/FIROps.h"
+#include "flang/optimizer/Transforms/Passes.h"
 #include "mlir/Dialect/AffineOps/AffineOps.h"
 #include "mlir/Dialect/LoopOps/LoopOps.h"
 #include "mlir/Dialect/StandardOps/Ops.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/DialectConversion.h"
-#include "optimizer/FIRDialect.h"
-#include "optimizer/FIROps.h"
-#include "optimizer/Transforms/Passes.h"
 #include "llvm/Support/CommandLine.h"
 #include <memory>
 
