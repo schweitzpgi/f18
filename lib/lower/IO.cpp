@@ -1,4 +1,4 @@
-//===-- lib/lower/io.cc -----------------------------------------*- C++ -*-===//
+//===-- lower/IO.cpp ------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,14 +6,14 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "io.h"
+#include "flang/lower/IO.h"
 #include "../parser/parse-tree.h"
 #include "../semantics/tools.h"
-#include "bridge.h"
-#include "builder.h"
+#include "flang/lower/Bridge.h"
+#include "flang/lower/OpBuilder.h"
+#include "flang/lower/Runtime.h"
 #include "mlir/Dialect/StandardOps/Ops.h"
 #include "mlir/IR/Builders.h"
-#include "runtime.h"
 #include <cassert>
 
 namespace Br = Fortran::lower;
