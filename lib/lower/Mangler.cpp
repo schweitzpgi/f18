@@ -1,4 +1,4 @@
-//===-- lib/lower/mangler.cc ----------------------------------------------===//
+//===-- lower/Mangler.cpp -------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,11 +6,11 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "mangler.h"
+#include "flang/lower/Mangler.h"
 #include "../common/reference.h"
 #include "../semantics/tools.h"
-#include "optimizer/InternalNames.h"
-#include "utils.h"
+#include "flang/lower/Utils.h"
+#include "flang/optimizer/InternalNames.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/Optional.h"
 #include "llvm/ADT/SmallVector.h"

@@ -6,7 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "ast-builder.h"
+#include "flang/lower/ASTBuilder.h"
 #include "../parser/parse-tree-visitor.h"
 #include <cassert>
 #include <utility>
