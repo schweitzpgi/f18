@@ -1,6 +1,6 @@
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-unused-parameter -Wno-error")
 set(LIBS
-  FIR
+  FIRDialect
   MLIRAffineOps
   MLIRLLVMIR
   MLIRLoopOps
@@ -24,4 +24,4 @@ set(EXE_LIBS
 add_llvm_tool(bbc bbc.cpp)
 llvm_update_compile_flags(bbc)
 whole_archive_link(bbc ${LIBS})
-target_link_libraries(bbc PRIVATE FIR MLIRIR FirBbcLib ${EXE_LIBS} LLVMSupport)
+target_link_libraries(bbc PRIVATE FIRDialect MLIRIR FirBbcLib ${EXE_LIBS} LLVMSupport)
