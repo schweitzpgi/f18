@@ -6,13 +6,13 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "fir/Dialect/FIRDialect.h"
+#include "fir/Dialect/FIROps.h"
+#include "flang/optimizer/Analysis/IteratedDominanceFrontier.h"
+#include "flang/optimizer/Transforms/Passes.h"
 #include "mlir/Analysis/Dominance.h"
 #include "mlir/Dialect/StandardOps/Ops.h"
 #include "mlir/Pass/Pass.h"
-#include "optimizer/Analysis/IteratedDominanceFrontier.h"
-#include "optimizer/FIRDialect.h"
-#include "optimizer/FIROps.h"
-#include "optimizer/Transforms/Passes.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SmallVector.h"
 #include <utility>

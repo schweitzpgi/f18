@@ -6,17 +6,17 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "convert-type.h"
+#include "flang/lower/ConvertType.h"
 #include "../semantics/expression.h"
 #include "../semantics/tools.h"
 #include "../semantics/type.h"
-#include "bridge.h"
+#include "fir/Dialect/FIRType.h"
+#include "flang/lower/Bridge.h"
+#include "flang/lower/Utils.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Location.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/StandardTypes.h"
-#include "optimizer/FIRType.h"
-#include "utils.h"
 
 namespace Br = Fortran::lower;
 namespace Co = Fortran::common;
