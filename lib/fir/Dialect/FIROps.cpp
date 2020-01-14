@@ -1,4 +1,4 @@
-//===-- lib/optimizer/FIROps.cpp --------------------------------*- C++ -*-===//
+//===-- fir/FIROps.cpp ----------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,16 +6,16 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "optimizer/FIROps.h"
+#include "fir/Dialect/FIROps.h"
+#include "fir/Dialect/FIRAttr.h"
+#include "fir/Dialect/FIROpsSupport.h"
+#include "fir/Dialect/FIRType.h"
 #include "mlir/Dialect/StandardOps/Ops.h"
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/Function.h"
 #include "mlir/IR/Module.h"
 #include "mlir/IR/StandardTypes.h"
 #include "mlir/IR/SymbolTable.h"
-#include "optimizer/Attribute.h"
-#include "optimizer/FIROpsSupport.h"
-#include "optimizer/FIRType.h"
 #include "llvm/ADT/StringSwitch.h"
 
 namespace L = llvm;

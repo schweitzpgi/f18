@@ -9,8 +9,8 @@
 #ifndef OPTIMIZER_FIROPS_SUPPORT_H
 #define OPTIMIZER_FIROPS_SUPPORT_H
 
+#include "fir/Dialect/FIROps.h"
 #include "mlir/Dialect/StandardOps/Ops.h"
-#include "optimizer/FIROps.h"
 
 namespace fir {
 
