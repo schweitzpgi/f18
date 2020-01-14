@@ -11,9 +11,9 @@
 
 /// [Coding style](https://llvm.org/docs/CodingStandards.html)
 
-#include "convert-type.h"
-#include "optimizer/FIROps.h"
-#include "optimizer/FIRType.h"
+#include "ConvertType.h"
+#include "fir/Dialect/FIROps.h"
+#include "fir/Dialect/FIRType.h"
 
 namespace Fortran::lower {
 /// Provide helpers to generate Complex manipulations in FIR.
