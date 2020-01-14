@@ -1,6 +1,6 @@
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-unused-parameter -Wno-error")
 set(LIBS
-  FIR
+  FIRDialect
   MLIRAffineOps
   MLIRIR
   MLIRLLVMIR
@@ -32,4 +32,4 @@ set(EXE_LIBS
 add_llvm_tool(tco tco.cpp)
 llvm_update_compile_flags(tco)
 whole_archive_link(tco ${LIBS})
-target_link_libraries(tco PRIVATE FIR MLIRIR FirTcoLib ${EXE_LIBS} LLVMSupport)
+target_link_libraries(tco PRIVATE FIRDialect MLIRIR FirTcoLib ${EXE_LIBS} LLVMSupport)
