@@ -8,7 +8,7 @@ add_subdirectory(Common)
 add_subdirectory(Evaluate)
 add_subdirectory(Decimal)
 add_subdirectory(Lower)
-add_subdirectory(optimizer)
+add_subdirectory(Optimizer)
 add_subdirectory(Parser)
 add_subdirectory(Semantics)
 
