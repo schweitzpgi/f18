@@ -6,17 +6,17 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "optimizer/Transforms/StdConverter.h"
+#include "flang/optimizer/Transforms/StdConverter.h"
+#include "fir/Dialect/FIRAttr.h"
+#include "fir/Dialect/FIRDialect.h"
+#include "fir/Dialect/FIROpsSupport.h"
+#include "fir/Dialect/FIRType.h"
+#include "flang/optimizer/KindMapping.h"
 #include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
 #include "mlir/Dialect/StandardOps/Ops.h"
 #include "mlir/IR/StandardTypes.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/DialectConversion.h"
-#include "optimizer/Attribute.h"
-#include "optimizer/FIRDialect.h"
-#include "optimizer/FIROpsSupport.h"
-#include "optimizer/FIRType.h"
-#include "optimizer/KindMapping.h"
 #include "llvm/ADT/ArrayRef.h"
 
 // This module performs the conversion of some FIR operations.
