@@ -501,3 +501,4 @@ configure_file(
   ${FLANG_SOURCE_DIR}/include/flang/Config/config.h.cmake
   ${FLANG_BINARY_DIR}/include/flang/Config/config.h)
 
+add_subdirectory(test-lit)
