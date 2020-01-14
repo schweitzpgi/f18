@@ -11,6 +11,12 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "fir/Dialect/FIRDialect.h"
+#include "flang/optimizer/CodeGen/CodeGen.h"
+#include "flang/optimizer/InternalNames.h"
+#include "flang/optimizer/KindMapping.h"
+#include "flang/optimizer/Transforms/Passes.h"
+#include "flang/optimizer/Transforms/StdConverter.h"
 #include "mlir/Conversion/LoopToStandard/ConvertLoopToStandard.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/Module.h"
@@ -18,12 +24,6 @@
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/Passes.h"
-#include "optimizer/CodeGen/CodeGen.h"
-#include "optimizer/FIRDialect.h"
-#include "optimizer/InternalNames.h"
-#include "optimizer/KindMapping.h"
-#include "optimizer/Transforms/Passes.h"
-#include "optimizer/Transforms/StdConverter.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/ErrorOr.h"
 #include "llvm/Support/InitLLVM.h"

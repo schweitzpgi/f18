@@ -6,26 +6,26 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "bridge.h"
+#include "flang/lower/Bridge.h"
 #include "../parser/parse-tree.h"
 #include "../semantics/tools.h"
-#include "ast-builder.h"
-#include "builder.h"
-#include "convert-expr.h"
-#include "convert-type.h"
-#include "intrinsics.h"
-#include "io.h"
-#include "mangler.h"
+#include "fir/Dialect/FIRDialect.h"
+#include "fir/Dialect/FIROps.h"
+#include "fir/Dialect/FIRType.h"
+#include "flang/lower/ASTBuilder.h"
+#include "flang/lower/ConvertExpr.h"
+#include "flang/lower/ConvertType.h"
+#include "flang/lower/IO.h"
+#include "flang/lower/Intrinsics.h"
+#include "flang/lower/Mangler.h"
+#include "flang/lower/OpBuilder.h"
+#include "flang/lower/Runtime.h"
+#include "flang/optimizer/InternalNames.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/StandardOps/Ops.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/Parser.h"
 #include "mlir/Target/LLVMIR.h"
-#include "optimizer/FIRDialect.h"
-#include "optimizer/FIROps.h"
-#include "optimizer/FIRType.h"
-#include "optimizer/InternalNames.h"
-#include "runtime.h"
 #include "llvm/Support/CommandLine.h"
 
 namespace Br = Fortran::lower;
@@ -64,7 +64,7 @@ constexpr static bool isStopStmt(const Pa::StopStmt &stm) {
 }
 
 // CfgBuilder implementation
-#include "cfg-builder.h"
+#include "CFGBuilder.h"
 
 #undef TODO
 #define TODO()                                                                 \
