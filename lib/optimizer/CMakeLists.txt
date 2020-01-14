@@ -11,7 +11,7 @@ add_llvm_library(FortranOptimizer
 )
 
 target_link_libraries(FortranOptimizer
-  FIR
+  FIRDialect
 )
 
 install (TARGETS FortranOptimizer
