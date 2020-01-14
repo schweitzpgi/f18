@@ -9,7 +9,7 @@
 #ifndef FORTRAN_LOWER_CONVERT_EXPR_H_
 #define FORTRAN_LOWER_CONVERT_EXPR_H_
 
-#include "intrinsics.h"
+#include "Intrinsics.h"
 
 /// [Coding style](https://llvm.org/docs/CodingStandards.html)
 

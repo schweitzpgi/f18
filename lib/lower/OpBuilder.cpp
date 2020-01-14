@@ -6,12 +6,12 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "builder.h"
-#include "bridge.h"
-#include "convert-type.h"
+#include "flang/lower/OpBuilder.h"
+#include "fir/Dialect/FIROpsSupport.h"
+#include "flang/lower/Bridge.h"
+#include "flang/lower/ConvertType.h"
 #include "mlir/IR/Module.h"
 #include "mlir/IR/Value.h"
-#include "optimizer/FIROpsSupport.h"
 #include "llvm/ADT/StringRef.h"
 
 namespace B = Fortran::lower;
