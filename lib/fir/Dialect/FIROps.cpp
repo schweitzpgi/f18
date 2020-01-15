@@ -632,6 +632,6 @@ GlobalOp createGlobalOp(M::Location loc, M::ModuleOp module, StringRef name,
 // Tablegen operators
 
 #define GET_OP_CLASSES
-#include "optimizer/FIROps.cpp.inc"
+#include "fir/Dialect/FIROps.cpp.inc"
 
 } // namespace fir
