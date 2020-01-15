@@ -51,7 +51,7 @@ fir::FIROpsDialect::FIROpsDialect(M::MLIRContext *ctx)
                 PointIntervalAttr, SubclassAttr, UpperBoundAttr>();
   addOperations<GlobalOp, DispatchTableOp,
 #define GET_OP_LIST
-#include "optimizer/FIROps.cpp.inc"
+#include "fir/Dialect/FIROps.cpp.inc"
                 >();
 }
 
