@@ -103,12 +103,6 @@ class FirConverter : public AbstractConverter {
     return Br::createTemporary(loc, *builder, localSymbols, genType(sym), &sym);
   }
 
-  // TODO: we need a map for the various Fortran runtime entry points
-  M::FuncOp genRuntimeFunction(RuntimeEntryCode rec, int kind) {
-    return genFunctionFIR(getRuntimeEntryName(rec),
-                          getRuntimeEntryType(rec, mlirContext, kind));
-  }
-
   M::FuncOp genFunctionFIR(L::StringRef callee, M::FunctionType funcTy) {
     if (auto func{getNamedFunction(module, callee)}) {
       return func;
@@ -872,17 +866,17 @@ class FirConverter : public AbstractConverter {
 
   // call FAIL IMAGE in runtime
   void genFIR(const Pa::FailImageStmt &stmt) {
-    auto callee{genRuntimeFunction(FIRT_FAIL_IMAGE, 0)};
+    auto callee{
+        genRuntimeFunction(RuntimeEntryCode::FailImageStatement, *builder)};
     L::SmallVector<M::Value, 1> operands; // FAIL IMAGE has no args
     builder->create<M::CallOp>(toLocation(), callee, operands);
   }
 
   // call STOP, ERROR STOP in runtime
   void genFIR(const Pa::StopStmt &stm) {
-    auto callee{
-        genRuntimeFunction(isStopStmt(stm) ? FIRT_STOP : FIRT_ERROR_STOP,
-                           defaults.GetDefaultKind(IntegerCat))};
-    // 2 args: stop-code-opt, quiet-opt
+    auto callee{genRuntimeFunction(RuntimeEntryCode::StopStatement, *builder)};
+    // TODO: 3 args: stop-code-opt, ierror, quiet-opt
+    // auto isError{genFIRLo!isStopStmt(stmt)}
     L::SmallVector<M::Value, 8> operands;
     builder->create<M::CallOp>(toLocation(), callee, operands);
   }
