@@ -12,7 +12,7 @@
 #include <memory>
 
 namespace llvm {
-class StringRef;
+class raw_ostream;
 }
 namespace mlir {
 class Pass;
@@ -26,7 +26,8 @@ struct NameUniquer;
 std::unique_ptr<mlir::Pass> createFIRToLLVMPass(NameUniquer &uniquer);
 
 /// Convert the LLVM IR dialect to LLVM-IR proper
-std::unique_ptr<mlir::Pass> createLLVMDialectToLLVMPass(llvm::StringRef output);
+std::unique_ptr<mlir::Pass>
+createLLVMDialectToLLVMPass(llvm::raw_ostream &output);
 
 } // namespace fir
 
