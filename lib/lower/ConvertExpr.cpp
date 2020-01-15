@@ -168,11 +168,6 @@ class ExprLowering {
     return createFunction(module, name, funTy);
   }
 
-  M::FuncOp getRuntimeFunction(RuntimeEntryCode callee, M::FunctionType funTy) {
-    auto name{getRuntimeEntryName(callee)};
-    return getFunction(name, funTy);
-  }
-
   // FIXME binary operation :: ('a, 'a) -> 'a
   template <Co::TypeCategory TC, int KIND>
   M::FunctionType createFunctionType() {
@@ -192,18 +187,6 @@ class ExprLowering {
       assert(false);
       return {};
     }
-  }
-
-  /// Create a call to a Fortran runtime entry point
-  template <Co::TypeCategory TC, int KIND, typename A>
-  M::Value createBinaryFIRTCall(A const &ex, RuntimeEntryCode callee) {
-    L::SmallVector<M::Value, 2> operands;
-    operands.push_back(genval(ex.left()));
-    operands.push_back(genval(ex.right()));
-    M::FunctionType funTy = createFunctionType<TC, KIND>();
-    auto func{getRuntimeFunction(callee, funTy)};
-    auto x{builder.create<M::CallOp>(getLoc(), func, operands)};
-    return x.getResult(0); // FIXME
   }
 
   template <typename OpTy, typename A>
@@ -383,8 +366,7 @@ class ExprLowering {
   }
   template <int KIND>
   M::Value genval(Ev::Concat<KIND> const &op) {
-    // TODO this is a bogus call
-    return createBinaryFIRTCall<CharacterCat, KIND>(op, FIRT_CONCAT);
+    TODO();
   }
 
   /// MIN and MAX operations

@@ -86,7 +86,7 @@ public:
   /// Define possible runtime function argument/return type used in signature
   /// descriptions. They follow mlir standard types naming. MLIR types cannot
   /// directly be used because they can only be dynamically built.
-  enum TypeCode { i32, i64, f32, f64, c32, c64, IOCookie };
+  enum TypeCode { i32, i64, f32, f64, c32, c64, boolean, charPtr, IOCookie };
   using MaybeTypeCode = std::optional<TypeCode>; // for results
   using TypeCodeVector = StaticVector<TypeCode>; // for arguments
   static constexpr MaybeTypeCode voidTy{MaybeTypeCode{std::nullopt}};
@@ -186,23 +186,16 @@ public:
 private:
   Range range{nullptr, nullptr};
 };
-// TODO get rid of fake runtime below
 
-#define DEFINE_RUNTIME_ENTRY(A, B, C, D) FIRT_##A,
-enum RuntimeEntryCode {
-#include "runtime.def"
-  FIRT_LAST_ENTRY_CODE
+// Define Fortran related language (other than IO and maths)
+// TODO: complete this list while working on the runtime.
+enum class RuntimeEntryCode {
+  StopStatement,
+  StopStatementText,
+  FailImageStatement
 };
 
-llvm::StringRef getRuntimeEntryName(RuntimeEntryCode code);
-
-mlir::FunctionType getRuntimeEntryType(RuntimeEntryCode code,
-                                       mlir::MLIRContext &mlirContext,
-                                       int kind);
-
-mlir::FunctionType getRuntimeEntryType(RuntimeEntryCode code,
-                                       mlir::MLIRContext &mlirContext,
-                                       int inpKind, int resKind);
+mlir::FuncOp genRuntimeFunction(RuntimeEntryCode code, mlir::OpBuilder &);
 
 } // namespace Fortran::lower
 
