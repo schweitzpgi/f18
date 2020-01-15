@@ -4,7 +4,7 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
-// =============================================================================
+//===----------------------------------------------------------------------===//
 //
 // This is to be like LLVM's opt program, only for FIR.  Such a program is
 // required for roundtrip testing, etc.
@@ -29,23 +29,36 @@
 #include "llvm/Support/InitLLVM.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/SourceMgr.h"
+#include "llvm/Support/ToolOutputFile.h"
 #include "llvm/Support/raw_ostream.h"
 
 namespace {
 
 namespace Cl = llvm::cl;
 
-Cl::opt<std::string> ClInput(Cl::Positional, Cl::Required,
-                             Cl::desc("<input file>"));
+Cl::opt<std::string> inputFilename(Cl::Positional, Cl::desc("<input file>"),
+                                   Cl::init("-"));
 
-Cl::opt<std::string> ClOutput("o", Cl::desc("Specify output filename"),
-                              Cl::value_desc("filename"), Cl::init("a.ll"));
+Cl::opt<std::string> outputFilename("o", Cl::desc("Specify output filename"),
+                                    Cl::value_desc("filename"), Cl::init("-"));
+
+Cl::opt<bool> emitFir("emit-fir", Cl::desc("Parse and pretty-print the input"),
+                      Cl::init(false));
+
+void printModuleBody(mlir::ModuleOp mod) {
+  // don't output the terminator bogo-op
+  auto e{--mod.end()};
+  for (auto i{mod.begin()}; i != e; ++i) {
+    i->print(llvm::outs());
+    llvm::outs() << '\n';
+  }
+}
 
 // compile a .fir file
 int compileFIR() {
   // check that there is a file to load
   llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> fileOrErr =
-      llvm::MemoryBuffer::getFileOrSTDIN(ClInput);
+      llvm::MemoryBuffer::getFileOrSTDIN(inputFilename);
 
   if (std::error_code EC = fileOrErr.getError()) {
     llvm::errs() << "Could not open file: " << EC.message() << '\n';
@@ -59,7 +72,7 @@ int compileFIR() {
   auto owningRef = mlir::parseSourceFile(sourceMgr, context.get());
 
   if (!owningRef) {
-    llvm::errs() << "Error can't load file " << ClInput << '\n';
+    llvm::errs() << "Error can't load file " << inputFilename << '\n';
     return 2;
   }
   if (mlir::failed(owningRef->verify())) {
@@ -67,25 +80,35 @@ int compileFIR() {
     return 4;
   }
 
+  std::error_code ec;
+  llvm::ToolOutputFile out(outputFilename, ec, llvm::sys::fs::OF_None);
+
   // run passes
   fir::NameUniquer uniquer;
   fir::KindMapping kindMap{context.get()};
   mlir::PassManager pm{context.get()};
   mlir::applyPassManagerCLOptions(pm);
-  pm.addPass(fir::createMemToRegPass());
-  pm.addPass(fir::createCSEPass());
-  // convert fir dialect to affine
-  pm.addPass(fir::createPromoteToAffinePass());
-  // convert fir dialect to loop
-  pm.addPass(fir::createLowerToLoopPass());
-  pm.addPass(fir::createFIRToStdPass(kindMap));
-  // convert loop dialect to standard
-  pm.addPass(mlir::createLowerToCFGPass());
-  pm.addPass(fir::createFIRToLLVMPass(uniquer));
-  pm.addPass(fir::createLLVMDialectToLLVMPass(ClOutput));
-  if (mlir::succeeded(pm.run(*owningRef)))
+  if (emitFir) {
+    // parse the input and pretty-print it back out
+  } else {
+    pm.addPass(fir::createMemToRegPass());
+    pm.addPass(fir::createCSEPass());
+    // convert fir dialect to affine
+    pm.addPass(fir::createPromoteToAffinePass());
+    // convert fir dialect to loop
+    pm.addPass(fir::createLowerToLoopPass());
+    pm.addPass(fir::createFIRToStdPass(kindMap));
+    // convert loop dialect to standard
+    pm.addPass(mlir::createLowerToCFGPass());
+    pm.addPass(fir::createFIRToLLVMPass(uniquer));
+    pm.addPass(fir::createLLVMDialectToLLVMPass(out.os()));
+  }
+  if (mlir::succeeded(pm.run(*owningRef))) {
+    if (emitFir)
+      printModuleBody(*owningRef);
     return 0;
-  llvm::errs() << "FAILED: " << ClInput << '\n';
+  }
+  llvm::errs() << "FAILED: " << inputFilename << '\n';
   return 8;
 }
 } // namespace
