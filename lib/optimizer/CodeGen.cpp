@@ -2046,17 +2046,14 @@ private:
 
 /// Lower from LLVM IR dialect to proper LLVM-IR and dump the module
 struct LLVMIRLoweringPass : public M::ModulePass<LLVMIRLoweringPass> {
-  LLVMIRLoweringPass(L::StringRef outputName) : outputName{outputName} {}
+  LLVMIRLoweringPass(L::raw_ostream &output) : output{output} {}
 
   void runOnModule() override {
     if (ClDisableLLVM)
       return;
 
     if (auto llvmModule{M::translateModuleToLLVMIR(getModule())}) {
-      std::error_code ec;
-      L::raw_fd_ostream stream(outputName, ec, L::sys::fs::F_None);
-      stream << *llvmModule << '\n';
-      L::errs() << outputName << " written\n";
+      output << *llvmModule;
       return;
     }
 
@@ -2066,7 +2063,7 @@ struct LLVMIRLoweringPass : public M::ModulePass<LLVMIRLoweringPass> {
   }
 
 private:
-  L::StringRef outputName;
+  L::raw_ostream &output;
 };
 
 } // namespace
@@ -2076,6 +2073,7 @@ fir::createFIRToLLVMPass(fir::NameUniquer &nameUniquer) {
   return std::make_unique<FIRToLLVMLoweringPass>(nameUniquer);
 }
 
-std::unique_ptr<M::Pass> fir::createLLVMDialectToLLVMPass(L::StringRef output) {
+std::unique_ptr<M::Pass>
+fir::createLLVMDialectToLLVMPass(L::raw_ostream &output) {
   return std::make_unique<LLVMIRLoweringPass>(output);
 }
