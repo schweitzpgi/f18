@@ -93,9 +93,12 @@ def AnyCoordinateLike : TypeConstraint<Or<[AnyInteger.predicate,
     fir_LenType.predicate]>, "any coordinate index">;
 def AnyCoordinateType : Type<AnyCoordinateLike.predicate, "coordinate type">;
 
+// Base class for FIR operations.
+// All operations automatically get a prefix of "fir.".
 class fir_Op<string mnemonic, list<OpTrait> traits>
   : Op<fir_Dialect, mnemonic, traits>;
 
+// Base class for FIR operations that take a single argument
 class fir_SimpleOp<string mnemonic, list<OpTrait> traits>
   : fir_Op<mnemonic, traits> {
   let parser = [{
@@ -117,6 +120,7 @@ class fir_SimpleOp<string mnemonic, list<OpTrait> traits>
   }];
 }
 
+// Base builder for allocate operations
 def fir_AllocateOpBuilder : OpBuilder<
   "Builder *builder, OperationState &result, Type inType,"
   "ArrayRef<Value> sizes = {}, ArrayRef<NamedAttribute> attributes = {}",
@@ -151,11 +155,13 @@ def fir_OneResultOpBuilder : OpBuilder<
       result.addAttribute(namedAttr.first, namedAttr.second);
   }]>;
 
+// Base class of FIR operations that return 1 result
 class fir_OneResultOp<string mnemonic, list<OpTrait> traits = []> :
     fir_Op<mnemonic, traits>, Results<(outs fir_Type:$res)> {
   let builders = [fir_OneResultOpBuilder];
 }
 
+// Base class of FIR operations that have 1 argument and return 1 result
 class fir_SimpleOneResultOp<string mnemonic, list<OpTrait> traits = []> :
     fir_SimpleOp<mnemonic, traits>, Results<(outs fir_Type:$res)> {
   let builders = [fir_OneResultOpBuilder];
@@ -941,31 +947,52 @@ def fir_EmboxProcOp : fir_Op<"emboxproc", [NoSideEffect]>,
   let summary = "boxes a given procedure and optional host context";
 
   let description = [{
-    Creates an abstract encapsulation of a PROCEDURE POINTER
-    along with an optional pointer to a host instance context. An internal
-    procedure may require a host instance for execution.
+    Creates an abstract encapsulation of a PROCEDURE POINTER along with an
+    optional pointer to a host instance context. If the pointer is not to an
+    internal procedure or the internal procedure does not need a host context
+    then the form takes only the procedure's symbol.
+
+      %0 = fir.emboxproc @f : ((i32) -> i32) -> !fir.boxproc<(i32) -> i32>
+
+    An internal procedure requiring a host instance for correct execution uses
+    the second form. The closure of the host procedure's state is passed as a
+    reference to a tuple. It is the responsibility of the host to manage the
+    context's values accordingly, up to and including inhibiting register
+    promotion of local values.
+
+      %5 = fir.emboxproc @g, %4 : ((i32) -> i32, !fir.ref<tuple<i32, i32>>) ->
+                                  !fir.boxproc<(i32) -> i32>
   }];
 
   let parser = [{
-    M::FunctionType type;
-    M::SymbolRefAttr procref;
-    M::OpAsmParser::OperandType tupleref;
-    if (parser.parseAttribute(procref, "funcname", result.attributes))
+    M::SymbolRefAttr procRef;
+    if (parser.parseAttribute(procRef, "funcname", result.attributes))
       return M::failure();
     bool hasTuple = false;
+    M::OpAsmParser::OperandType tupleRef;
     if (!parser.parseOptionalComma()) {
-      if (parser.parseOperand(tupleref))
+      if (parser.parseOperand(tupleRef))
         return M::failure();
       hasTuple = true;
     }
-    if (parser.parseColonType(type))
+    M::FunctionType type;
+    if (parser.parseColon() ||
+        parser.parseLParen() ||
+        parser.parseType(type))
       return M::failure();
+    result.addAttribute("functype", M::TypeAttr::get(type));
     if (hasTuple) {
-      auto input = type.getInputs()[1];
-      if (parser.resolveOperand(tupleref, input, result.operands))
+      M::Type tupleType;
+      if (parser.parseComma() ||
+          parser.parseType(tupleType) ||
+          parser.resolveOperand(tupleRef, tupleType, result.operands))
         return M::failure();
     }
-    if (parser.addTypesToList(type.getResults(), result.types))
+    M::Type boxType;
+    if (parser.parseRParen() ||
+        parser.parseArrow() ||
+        parser.parseType(boxType) ||
+        parser.addTypesToList(boxType, result.types))
       return M::failure();
     return M::success();
   }];
@@ -977,8 +1004,23 @@ def fir_EmboxProcOp : fir_Op<"emboxproc", [NoSideEffect]>,
       p << ", ";
       p.printOperand(h);
     }
-    p << " : ";
-    p.printFunctionalType(getOperation());
+    p << " : (" << getAttr("functype");
+    if (h)
+      p << ", " << h->getType();
+    p << ") -> " << getType();
+  }];
+
+  let verifier = [{
+    // host bindings (optional) must be a reference to a tuple
+    if (auto h = host()) {
+      if (auto r = h.getType().dyn_cast<ReferenceType>()) {
+        if (!r.getEleTy().dyn_cast<M::TupleType>())
+          return M::failure();
+      } else {
+        return M::failure();
+      }
+    }
+    return M::success();
   }];
 }
 
@@ -1388,7 +1430,9 @@ def fir_InsertValueOp : fir_OneResultOp<"insert_value", [NoSideEffect]>,
 
   let printer = [{
     p << getOperationName() << ' ';
-    p.printOperand(adt());
+    p.printOperand(adt());    
+    p << ", ";
+    p.printOperand(val());    
     p << ", ";
     p.printOperands(coor());
     p << " : ";
