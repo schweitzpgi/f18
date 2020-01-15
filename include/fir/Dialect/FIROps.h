@@ -122,7 +122,7 @@ ParseResult parseCmpfOp(OpAsmParser &parser, OperationState &result);
 ParseResult parseCmpcOp(OpAsmParser &parser, OperationState &result);
 
 #define GET_OP_CLASSES
-#include "optimizer/FIROps.h.inc"
+#include "fir/Dialect/FIROps.h.inc"
 
 LoopOp getForInductionVarOwner(mlir::Value val);
 
