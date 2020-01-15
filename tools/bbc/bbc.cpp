@@ -44,6 +44,7 @@
 #include "llvm/Support/InitLLVM.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/SourceMgr.h"
+#include "llvm/Support/ToolOutputFile.h"
 #include "llvm/Support/raw_ostream.h"
 #include <iostream>
 
@@ -147,7 +148,14 @@ void convertFortranSourceToMLIR(
 
   if (EmitLLVM) {
     pm.addPass(fir::createFIRToLLVMPass(nameUniquer));
-    pm.addPass(fir::createLLVMDialectToLLVMPass(OutputFilename + ".ll"));
+    std::error_code ec;
+    llvm::ToolOutputFile out(OutputFilename + ".ll", ec,
+                             llvm::sys::fs::OF_None);
+    if (ec) {
+      errs() << "can't open output file " + OutputFilename + ".ll";
+      return;
+    }
+    pm.addPass(fir::createLLVMDialectToLLVMPass(out.os()));
   }
 
   if (mlir::succeeded(pm.run(mlirModule))) {
