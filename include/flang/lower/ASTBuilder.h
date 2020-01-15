@@ -9,8 +9,8 @@
 #ifndef FORTRAN_LOWER_AST_BUILDER_H_
 #define FORTRAN_LOWER_AST_BUILDER_H_
 
-#include "../parser/parse-tree.h"
-#include "../semantics/scope.h"
+#include "../../../lib/parser/parse-tree.h"
+#include "../../../lib/semantics/scope.h"
 #include "llvm/Support/raw_ostream.h"
 
 namespace Fortran::lower {
