@@ -1388,7 +1388,9 @@ def fir_InsertValueOp : fir_OneResultOp<"insert_value", [NoSideEffect]>,
 
   let printer = [{
     p << getOperationName() << ' ';
-    p.printOperand(adt());
+    p.printOperand(adt());    
+    p << ", ";
+    p.printOperand(val());    
     p << ", ";
     p.printOperands(coor());
     p << " : ";
