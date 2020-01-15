@@ -32,5 +32,4 @@ set_target_properties(check-flang PROPERTIES FOLDER "Tests")
 add_lit_testsuites(FLANG ${CMAKE_CURRENT_SOURCE_DIR}
   DEPENDS ${FLANG_TEST_DEPS}
 )
-
-
+set(FLANG_TOOLS_DIR  ${FLANG_BINARY_DIR}/tools/f18/bin)
