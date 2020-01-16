@@ -1,6 +1,8 @@
 # Test runner infrastructure for Flang. This configures the Flang test trees
 # for use by Lit, and delegates to LLVM's lit test handlers.
 
+set(FLANG_TOOLS_DIR  ${FLANG_BINARY_DIR}/tools/f18/bin)
+
 configure_lit_site_cfg(
   ${CMAKE_CURRENT_SOURCE_DIR}/lit.site.cfg.py.in
   ${CMAKE_CURRENT_BINARY_DIR}/lit.site.cfg.py
@@ -32,4 +34,3 @@ set_target_properties(check-flang PROPERTIES FOLDER "Tests")
 add_lit_testsuites(FLANG ${CMAKE_CURRENT_SOURCE_DIR}
   DEPENDS ${FLANG_TEST_DEPS}
 )
-set(FLANG_TOOLS_DIR  ${FLANG_BINARY_DIR}/tools/f18/bin)
