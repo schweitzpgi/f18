@@ -368,52 +368,50 @@ class FirConverter : public AbstractConverter {
     assert(eval.subs && "eval must have a body");
     auto *insPt = builder->getInsertionBlock();
 
-    if (std::holds_alternative<const Pa::DoConstruct *>(eval.u)) {
-      // Construct fir.loop
-      fir::LoopOp doLoop;
-      for (auto &e : *eval.subs) {
-        if (auto **s = std::get_if<const Pa::NonLabelDoStmt *>(&e.u)) {
-          // do bounds, fir.loop op
-          std::visit(
-              Co::visitors{
-                  [&](const Pa::LoopControl::Bounds &x) {
-                    // create the fir.loop op
-                    M::Value lo = genFIRLoopIndex(x.lower);
-                    M::Value hi = genFIRLoopIndex(x.upper);
-                    L::SmallVector<M::Value, 1> step;
-                    if (x.step.has_value()) {
-                      step.emplace_back(genExprValue(*Se::GetExpr(*x.step)));
-                    }
-                    doLoop = builder->create<fir::LoopOp>(toLocation(), lo, hi,
-                                                          step);
-                    builder->setInsertionPointToStart(doLoop.getBody());
-                    auto *sym{x.name.thing.symbol};
-                    auto ty{genType(*sym)};
-                    // TODO: should push this cast down to the uses
-                    auto cvt{builder->create<fir::ConvertOp>(
-                        toLocation(), ty, doLoop.getInductionVar())};
-                    localSymbols.pushShadowSymbol(*sym, cvt);
-                  },
-                  [&](const Pa::ScalarLogicalExpr &) {
-                    // we should never reach here
-                    M::emitError(toLocation(), "loop lacks iteration space");
-                  },
-                  [&](const Pa::LoopControl::Concurrent &x) {
-                    // FIXME: can project a multi-dimensional space
-                    doLoop = builder->create<fir::LoopOp>(
-                        toLocation(), M::Value{}, M::Value{},
-                        L::ArrayRef<M::Value>{});
-                    builder->setInsertionPointToStart(doLoop.getBody());
-                  },
-              },
-              std::get<std::optional<Pa::LoopControl>>((*s)->t)->u);
-        } else if (std::holds_alternative<const Pa::EndDoStmt *>(e.u)) {
-          // close fir.loop op
-          builder->clearInsertionPoint();
-          localSymbols.popShadowSymbol();
-        } else {
-          genFIR(e);
-        }
+    if (const auto **doConstruct{
+            std::get_if<const Pa::DoConstruct *>(&eval.u)}) {
+      if (const auto &loopControl{(*doConstruct)->GetLoopControl()}) {
+        std::visit(Co::visitors{
+                       [&](const Pa::LoopControl::Bounds &x) {
+                         M::Value lo{genFIRLoopIndex(x.lower)};
+                         M::Value hi{genFIRLoopIndex(x.upper)};
+                         auto step{x.step.has_value()
+                                       ? genExprValue(*Se::GetExpr(*x.step))
+                                       : M::Value{}};
+                         auto *sym{x.name.thing.symbol};
+                         LoopBuilder{*builder, toLocation()}.createLoop(
+                             lo, hi, step,
+                             [&](OpBuilderWrapper &handler, M::Value index) {
+                               // TODO: should push this cast down to the uses
+                               auto cvt{handler.create<fir::ConvertOp>(
+                                   genType(*sym), index)};
+                               localSymbols.pushShadowSymbol(*sym, cvt);
+                               for (auto &e : *eval.subs) {
+                                 genFIR(e);
+                               }
+                               localSymbols.popShadowSymbol();
+                             });
+                       },
+                       [&](const Pa::ScalarLogicalExpr &) {
+                         // we should never reach here
+                         M::emitError(toLocation(),
+                                      "loop lacks iteration space");
+                       },
+                       [&](const Pa::LoopControl::Concurrent &x) {
+                         // FIXME: can project a multi-dimensional space
+                         LoopBuilder{*builder, toLocation()}.createLoop(
+                             M::Value{}, M::Value{},
+                             [&](OpBuilderWrapper &, M::Value) {
+                               for (auto &e : *eval.subs) {
+                                 genFIR(e);
+                               }
+                             });
+                       },
+                   },
+                   loopControl->u);
+      } else {
+        // TODO: Infinite loop: 11.1.7.4.1 par 2
+        TODO();
       }
     } else if (std::holds_alternative<const Pa::IfConstruct *>(eval.u)) {
       // Construct fir.where
@@ -661,33 +659,33 @@ class FirConverter : public AbstractConverter {
     // Helper to get address and length from an Expr that is a character
     // variable designator
     auto getAddrAndLength{[&](const SomeExpr &charDesignatorExpr)
-                              -> CharacterOpsCreator::CharValue {
+                              -> CharacterOpsBuilder::CharValue {
       M::Value addr = genExprAddr(charDesignatorExpr);
       const auto &charExpr{
           std::get<Ev::Expr<Ev::SomeCharacter>>(charDesignatorExpr.u)};
       std::optional<Ev::Expr<Ev::SubscriptInteger>> lenExpr{charExpr.LEN()};
       assert(lenExpr && "could not get expression to compute character length");
       M::Value len{genExprValue(Ev::AsGenericExpr(std::move(*lenExpr)))};
-      return CharacterOpsCreator::CharValue{addr, len};
+      return CharacterOpsBuilder::CharValue{addr, len};
     }};
 
-    CharacterOpsCreator creator{*builder, toLocation()};
+    CharacterOpsBuilder charBuilder{*builder, toLocation()};
 
     // RHS evaluation.
     // FIXME:  Only works with rhs that are variable reference.
     // Other expression evaluation are not simple copies.
     auto rhs{getAddrAndLength(assignment.rhs)};
     // A temp is needed to evaluate rhs until proven it does not depend on lhs.
-    auto tempToEvalRhs{creator.createTemp(rhs.getCharacterType(), rhs.len)};
-    creator.genCopy(tempToEvalRhs, rhs, rhs.len);
+    auto tempToEvalRhs{charBuilder.createTemp(rhs.getCharacterType(), rhs.len)};
+    charBuilder.createCopy(tempToEvalRhs, rhs, rhs.len);
 
     // Copy the minimum of the lhs and rhs lengths and pad the lhs remainder
     auto lhs{getAddrAndLength(assignment.lhs)};
     auto cmpLen{
-        creator.create<M::CmpIOp>(M::CmpIPredicate::slt, lhs.len, rhs.len)};
-    auto copyCount{creator.create<M::SelectOp>(cmpLen, lhs.len, rhs.len)};
-    creator.genCopy(lhs, tempToEvalRhs, copyCount);
-    creator.genPadding(lhs, copyCount, lhs.len);
+        charBuilder.create<M::CmpIOp>(M::CmpIPredicate::slt, lhs.len, rhs.len)};
+    auto copyCount{charBuilder.create<M::SelectOp>(cmpLen, lhs.len, rhs.len)};
+    charBuilder.createCopy(lhs, tempToEvalRhs, copyCount);
+    charBuilder.createPadding(lhs, copyCount, lhs.len);
   }
 
   void genFIR(const Pa::AssignmentStmt &stmt) {
