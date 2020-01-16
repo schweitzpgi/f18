@@ -69,7 +69,7 @@ Or, of course, use their favorite build tool (such as ninja).
   cd build
   export CC=<my-favorite-C-compiler>
   export CXX=<my-favorite-C++-compiler>
-  cmake -GNinja ../f18-llvm-project/llvm -DCMAKE_BUILD_TYPE=Release -DLLVM_TARGETS_TO_BUILD=X86 -DLLVM_ENABLE_PROJECTS=mlir -DCMAKE_CXX_STANDARD=17 -DLLVM_BUILD_TOOLS=On -DCMAKE_INSTALL_PREFIX=<install-llvm-here> <other-arguments>
+  cmake -GNinja ../f18-llvm-project/llvm -DCMAKE_BUILD_TYPE=Release -DLLVM_TARGETS_TO_BUILD=X86 -DLLVM_ENABLE_PROJECTS=mlir -DCMAKE_CXX_STANDARD=17 -DLLVM_BUILD_TOOLS=On -DLLVM_INSTALL_UTILS=On -DCMAKE_INSTALL_PREFIX=<install-llvm-here> <other-arguments>
 ```
 
 5. Build and install
@@ -92,6 +92,11 @@ Or, of course, use their favorite build tool (such as ninja).
   cd build-flang
   cmake -GNinja ../f18 -DLLVM_DIR=<install-llvm-here> -DCMAKE_BUILD_TYPE=RelWithDebInfo -DLLVM_TARGETS_TO_BUILD=X86 -DCMAKE_CXX_STANDARD=17 -DLLVM_BUILD_TOOLS=On -DCMAKE_INSTALL_PREFIX=<install-flang-here> <other-arguments>
 ```
+Note: if you plan on running lit regression tests, you should either:
+- Use `-DLLVM_DIR=<build-llvm-here>` instead of `-DLLVM_DIR=<install-llvm-here>`
+- Or, keep `-DLLVM_DIR=<install-llvm-here>` but add `-DLLVM_EXTERNAL_LIT=<path to llvm-lit>`.
+A valid `llvm-lit` path is `<build-llvm-here>/bin/llvm-lit`.
+Note that LLVM must also have been built with `-DLLVM_INSTALL_UTILS=On` so that tools required by tests like `FileCheck` are available in `<install-llvm-here>`.
 
 8. Build and install
 
@@ -99,6 +104,16 @@ Or, of course, use their favorite build tool (such as ninja).
   ninja
   ninja install
 ```
+
+### Running regression tests
+
+Inside `build` for in-tree builds or inside `build-flang` for out-of-tree builds:
+
+```
+  ninja check-flang
+```
+
+Special CMake instructions given above are required while building out-of-tree so that lit regression tests can be run.
 
 ### Problems
 
