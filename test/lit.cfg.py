@@ -29,6 +29,13 @@ config.suffixes = ['.f', '.F', '.ff','.FOR', '.for', '.f77', '.f90', '.F90',
                    '.ff90', '.f95', '.F95', '.ff95', '.fpp', '.FPP', '.cuf',
                    '.CUF', '.f18', '.F18', '.fir' ]
 
+# test_source_root: The root path where tests are located.
+config.test_source_root = os.path.dirname(__file__)
+
+
+# test_exec_root: The root path where tests should be run.
+config.test_exec_root = os.path.join(config.flang_obj_root, 'test-lit')
+
 config.substitutions.append(('%PATH%', config.environment['PATH']))
 
 llvm_config.use_default_substitutions()
