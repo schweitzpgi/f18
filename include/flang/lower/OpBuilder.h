@@ -23,6 +23,7 @@ class StringRef;
 namespace fir {
 class CharacterType;
 class ReferenceType;
+using KindTy = int;
 } // namespace fir
 
 namespace Fortran {
@@ -62,14 +63,16 @@ public:
 
 /// Helper class that can be inherited from in order to
 /// facilitate mlir::OpBuilder usage.
-class OpBuilderHandler {
+class OpBuilderWrapper {
 public:
-  OpBuilderHandler(mlir::OpBuilder &b, mlir::Location l) : builder{b}, loc{l} {}
+  OpBuilderWrapper(mlir::OpBuilder &b, mlir::Location l) : builder{b}, loc{l} {}
+  /// Insert the location and forwards create call to the builder member.
   template <typename T, typename... Args>
   auto create(Args... args) {
     return builder.create<T>(loc, std::forward<Args>(args)...);
   }
-  mlir::Value getIntegerConstant(mlir::Type integerType, std::int64_t);
+  /// Create an integer constant of type \p type and value \p i.
+  mlir::Value createIntegerConstant(mlir::Type integerType, std::int64_t i);
 
 protected:
   mlir::OpBuilder &builder;
@@ -77,21 +80,27 @@ protected:
 };
 
 /// Facilitate lowering to fir::loop
-class LoopCreator : public OpBuilderHandler {
+class LoopBuilder : public OpBuilderWrapper {
 public:
-  LoopCreator(mlir::OpBuilder &b, mlir::Location l) : OpBuilderHandler{b, l} {}
-  LoopCreator(OpBuilderHandler &b) : OpBuilderHandler{b} {}
-  // In genLoop functions, lb, ub, and count arguments must have integer types.
-  // They will be automatically converted the IndexType if needed.
-  // Build loop [lb, ub) with step "step".
-  using BodyGenerator = std::function<void(OpBuilderHandler &, mlir::Value)>;
-  void genLoop(mlir::Value lb, mlir::Value ub, mlir::Value step,
-               const BodyGenerator &bodyGenerator);
-  /// Build loop [lb, ub) with step 1.
-  void genLoop(mlir::Value lb, mlir::Value ub,
-               const BodyGenerator &bodyGenerator);
-  /// Build loop [0, count) with step 1.
-  void genLoop(mlir::Value count, const BodyGenerator &bodyGenerator);
+  LoopBuilder(mlir::OpBuilder &b, mlir::Location l) : OpBuilderWrapper{b, l} {}
+  LoopBuilder(OpBuilderWrapper &b) : OpBuilderWrapper{b} {}
+
+  // In createLoop functions, lb, ub, and count arguments must have integer
+  // types. They will be automatically converted the IndexType if needed.
+
+  using BodyGenerator = std::function<void(OpBuilderWrapper &, mlir::Value)>;
+
+  /// Build loop [\p lb, \p ub) with step \p step.
+  /// If \p is an empty value, 1 is used for the step.
+  void createLoop(mlir::Value lb, mlir::Value ub, mlir::Value step,
+                  const BodyGenerator &bodyGenerator);
+
+  /// Build loop [\p lb,  \p ub) with step 1.
+  void createLoop(mlir::Value lb, mlir::Value ub,
+                  const BodyGenerator &bodyGenerator);
+
+  /// Build loop [0, \p count) with step 1.
+  void createLoop(mlir::Value count, const BodyGenerator &bodyGenerator);
 
 private:
   mlir::Type getIndexType();
@@ -99,11 +108,11 @@ private:
 };
 
 /// Facilitate lowering of CHARACTER operation
-class CharacterOpsCreator : public OpBuilderHandler {
+class CharacterOpsBuilder : public OpBuilderWrapper {
 public:
-  CharacterOpsCreator(mlir::OpBuilder &b, mlir::Location l)
-      : OpBuilderHandler{b, l} {}
-  CharacterOpsCreator(OpBuilderHandler &b) : OpBuilderHandler{b} {}
+  CharacterOpsBuilder(mlir::OpBuilder &b, mlir::Location l)
+      : OpBuilderWrapper{b, l} {}
+  CharacterOpsBuilder(OpBuilderWrapper &b) : OpBuilderWrapper{b} {}
   /// Interchange format to avoid inserting unbox/embox everywhere while
   /// evaluating character expressions.
   struct CharValue {
@@ -114,15 +123,55 @@ public:
     mlir::Value len;
   };
 
-  /// Copy count first characters of src into dest.
-  void genCopy(CharValue &dest, CharValue &src, mlir::Value count);
-  /// Pad str(from:to) with blanks. If to <= from, no padding is done.
-  void genPadding(CharValue &str, mlir::Value from, mlir::Value to);
-  /// allocate (on the stack) storage for character given the kind and length.
+  /// Copy the \p count first characters of \p src into \p dest.
+  void createCopy(CharValue &dest, CharValue &src, mlir::Value count);
+
+  /// Set characters of \p str at position [\p lower, \p upper) to blanks.
+  /// \p lower and \upper bounds are zero based.
+  /// If \p upper <= \p lower, no padding is done.
+  void createPadding(CharValue &str, mlir::Value lower, mlir::Value upper);
+
+  /// Allocate storage (on the stack) for character given the kind and length.
   CharValue createTemp(fir::CharacterType type, mlir::Value len);
 
 private:
-  mlir::Value getBlankConstant(fir::CharacterType type);
+  mlir::Value createBlankConstant(fir::CharacterType type);
+};
+
+/// Provide helper to generate Complex manipulations in FIR.
+class ComplexOpsBuilder : public OpBuilderWrapper {
+public:
+  // The values of part enum members are meaningful for
+  // InsertValueOp and ExtractValueOp so they are explicit.
+  enum class Part { Real = 0, Imag = 1 };
+
+  ComplexOpsBuilder(mlir::OpBuilder &b, mlir::Location l)
+      : OpBuilderWrapper{b, l} {}
+  ComplexOpsBuilder(OpBuilderWrapper &bw) : OpBuilderWrapper{bw} {}
+
+  // Type helper. They do not create MLIR operations.
+  mlir::Type getComplexPartType(mlir::Value cplx);
+  mlir::Type getComplexPartType(mlir::Type complexType);
+  mlir::Type getComplexPartType(fir::KindTy complexKind);
+
+  // Complex operation creation helper. They create MLIR operations.
+  mlir::Value createComplex(fir::KindTy kind, mlir::Value real,
+                            mlir::Value imag);
+  mlir::Value extractComplexPart(mlir::Value cplx, bool isImagPart);
+  mlir::Value insertComplexPart(mlir::Value cplx, mlir::Value part,
+                                bool isImagPart);
+
+  template <Part partId>
+  mlir::Value extract(mlir::Value cplx);
+  template <Part partId>
+  mlir::Value insert(mlir::Value cplx, mlir::Value part);
+
+  mlir::Value createComplexCompare(mlir::Value cplx1, mlir::Value cplx2,
+                                   bool eq);
+
+private:
+  template <Part partId>
+  mlir::Value createPartId();
 };
 
 /// Get the current Module

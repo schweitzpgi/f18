@@ -9,7 +9,6 @@
 #include "flang/lower/Intrinsics.h"
 #include "fir/Dialect/FIROps.h"
 #include "fir/Dialect/FIRType.h"
-#include "flang/lower/ComplexHandler.h"
 #include "flang/lower/ConvertType.h"
 #include "flang/lower/OpBuilder.h"
 #include "flang/lower/Runtime.h"
@@ -639,12 +638,12 @@ M::Value IntrinsicLibrary::Implementation::genConjg(Context &genCtxt,
   M::Type resType{genCtxt.getResultType()};
   assert(resType == genCtxt.arguments[0].getType());
   M::OpBuilder &builder{*genCtxt.builder};
-  ComplexHandler cplxHandler{builder, genCtxt.loc};
+  ComplexOpsBuilder cplxHandler{builder, genCtxt.loc};
 
   M::Value cplx = genCtxt.arguments[0];
-  M::Value imag = cplxHandler.extract<ComplexHandler::Part::Imag>(cplx);
+  M::Value imag = cplxHandler.extract<ComplexOpsBuilder::Part::Imag>(cplx);
   M::Value negImag = genCtxt.builder->create<fir::NegfOp>(genCtxt.loc, imag);
-  return cplxHandler.insert<ComplexHandler::Part::Imag>(cplx, negImag);
+  return cplxHandler.insert<ComplexOpsBuilder::Part::Imag>(cplx, negImag);
 }
 
 // MERGE
