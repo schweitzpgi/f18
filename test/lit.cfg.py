@@ -54,6 +54,10 @@ config.test_exec_root = os.path.join(config.flang_obj_root, 'test')
 # Tweak the PATH to include the tools dir.
 llvm_config.with_environment('PATH', config.flang_tools_dir, append_path=True)
 llvm_config.with_environment('PATH', config.llvm_tools_dir, append_path=True)
+# For out-of-tree builds, path to bbc and tco needs to be added
+
+if config.llvm_tools_dir != config.flang_llvm_tools_dir :
+  llvm_config.with_environment('PATH', config.flang_llvm_tools_dir, append_path=True)
 
 # For builds with FIR, set path for tco and enable related tests
 if config.flang_llvm_tools_dir != "" :
