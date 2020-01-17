@@ -104,14 +104,11 @@ static M::FuncOp getOutputRuntimeFunction(M::OpBuilder &builder, M::Type type) {
 /// Lower print statement assuming a dummy runtime interface for now.
 void lowerPrintStatement(M::OpBuilder &builder, M::Location loc,
                          M::ValueRange args) {
-  M::ModuleOp module{getModule(&builder)};
-  M::MLIRContext *mlirContext{module.getContext()};
-
   M::FuncOp beginFunc{
       getIORuntimeFunction<IOAction::BeginExternalList>(builder)};
 
   // Initiate io
-  M::Type externalUnitType{M::IntegerType::get(32, mlirContext)};
+  M::Type externalUnitType{builder.getIntegerType(32)};
   M::Value defaultUnit{builder.create<M::ConstantOp>(
       loc, builder.getIntegerAttr(externalUnitType, 1))};
   llvm::SmallVector<M::Value, 1> beginArgs{defaultUnit};
@@ -121,7 +118,7 @@ void lowerPrintStatement(M::OpBuilder &builder, M::Location loc,
   // Call data transfer runtime function
   for (M::Value arg : args) {
     llvm::SmallVector<M::Value, 1> operands{cookie, arg};
-    M::FuncOp outputFunc{getOutputRuntimeFunction(builder, arg->getType())};
+    M::FuncOp outputFunc{getOutputRuntimeFunction(builder, arg.getType())};
     builder.create<M::CallOp>(loc, outputFunc, operands);
   }
 

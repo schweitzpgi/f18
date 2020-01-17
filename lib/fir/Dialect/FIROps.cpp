@@ -62,9 +62,9 @@ M::Type AllocMemOp::wrapResultType(M::Type intype) {
 
 /// Get the result types packed in a tuple tuple
 M::Type BoxDimsOp::getTupleType() {
-  L::SmallVector<M::Type, 3> triple{getResult(0)->getType(),
-                                    getResult(1)->getType(),
-                                    getResult(2)->getType()};
+  L::SmallVector<M::Type, 3> triple{getResult(0).getType(),
+                                    getResult(1).getType(),
+                                    getResult(2).getType()};
   return M::TupleType::get(triple, getContext());
 }
 
@@ -77,7 +77,7 @@ void printCallOp(M::OpAsmPrinter &p, fir::CallOp &op) {
   if (isDirect)
     p << callee.getValue();
   else
-    p << *op.getOperand(0);
+    p << op.getOperand(0);
   p << '(';
   p.printOperands(L::drop_begin(op.getOperands(), isDirect ? 0 : 1));
   p << ')';
@@ -201,7 +201,7 @@ void printCmpOp(OpAsmPrinter &p, OPTY op) {
   p.printOperand(op.rhs());
   p.printOptionalAttrDict(op.getAttrs(),
                           /*elidedAttrs=*/{OPTY::getPredicateAttrName()});
-  p << " : " << op.lhs()->getType();
+  p << " : " << op.lhs().getType();
 }
 
 void printCmpfOp(OpAsmPrinter &p, CmpfOp op) { printCmpOp(p, op); }
@@ -493,8 +493,8 @@ fir::LoopOp getForInductionVarOwner(M::Value val) {
   auto ivArg = val.dyn_cast<M::BlockArgument>();
   if (!ivArg)
     return fir::LoopOp();
-  assert(ivArg->getOwner() && "unlinked block argument");
-  auto *containingInst = ivArg->getOwner()->getParentOp();
+  assert(ivArg.getOwner() && "unlinked block argument");
+  auto *containingInst = ivArg.getOwner()->getParentOp();
   return dyn_cast_or_null<fir::LoopOp>(containingInst);
 }
 
@@ -592,9 +592,9 @@ void printBinaryOp(Operation *op, OpAsmPrinter &p) {
   assert(op->getNumOperands() == 2 && "binary op must have two operands");
   assert(op->getNumResults() == 1 && "binary op must have one result");
 
-  p << op->getName() << ' ' << *op->getOperand(0) << ", " << *op->getOperand(1);
+  p << op->getName() << ' ' << op->getOperand(0) << ", " << op->getOperand(1);
   p.printOptionalAttrDict(op->getAttrs());
-  p << " : " << op->getResult(0)->getType();
+  p << " : " << op->getResult(0).getType();
 }
 
 /// Generic pretty-printer of an unary operation
@@ -602,9 +602,9 @@ void printUnaryOp(Operation *op, OpAsmPrinter &p) {
   assert(op->getNumOperands() == 1 && "unary op must have one operand");
   assert(op->getNumResults() == 1 && "unary op must have one result");
 
-  p << op->getName() << ' ' << *op->getOperand(0);
+  p << op->getName() << ' ' << op->getOperand(0);
   p.printOptionalAttrDict(op->getAttrs());
-  p << " : " << op->getResult(0)->getType();
+  p << " : " << op->getResult(0).getType();
 }
 
 bool isReferenceLike(M::Type type) {
