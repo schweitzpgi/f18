@@ -1113,14 +1113,12 @@ class FirConverter : public AbstractConverter {
   // TODO: should these be moved to convert-expr?
   template <M::CmpIPredicate ICMPOPC>
   M::Value genCompare(M::Value lhs, M::Value rhs) {
-    auto lty{lhs->getType()};
-    assert(lty == rhs->getType());
-    if (lty.isIntOrIndex()) {
-      return builder->create<M::CmpIOp>(lhs->getLoc(), ICMPOPC, lhs, rhs);
-    }
-    if (fir::LogicalType::kindof(lty.getKind())) {
-      return builder->create<M::CmpIOp>(lhs->getLoc(), ICMPOPC, lhs, rhs);
-    }
+    auto lty{lhs.getType()};
+    assert(lty == rhs.getType());
+    if (lty.isIntOrIndex())
+      return builder->create<M::CmpIOp>(lhs.getLoc(), ICMPOPC, lhs, rhs);
+    if (fir::LogicalType::kindof(lty.getKind()))
+      return builder->create<M::CmpIOp>(lhs.getLoc(), ICMPOPC, lhs, rhs);
     if (fir::CharacterType::kindof(lty.getKind())) {
       // FIXME
       // return builder->create<M::CallOp>(lhs->getLoc(), );
@@ -1128,6 +1126,7 @@ class FirConverter : public AbstractConverter {
     M::emitError(toLocation(), "cannot generate operation on this type");
     return {};
   }
+
   M::Value genGE(M::Value lhs, M::Value rhs) {
     return genCompare<M::CmpIPredicate::sge>(lhs, rhs);
   }
@@ -1138,7 +1137,7 @@ class FirConverter : public AbstractConverter {
     return genCompare<M::CmpIPredicate::eq>(lhs, rhs);
   }
   M::Value genAND(M::Value lhs, M::Value rhs) {
-    return builder->create<M::AndOp>(lhs->getLoc(), lhs, rhs);
+    return builder->create<M::AndOp>(lhs.getLoc(), lhs, rhs);
   }
 
 private:
