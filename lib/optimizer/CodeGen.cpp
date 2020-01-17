@@ -517,7 +517,7 @@ struct BoxAddrOpConversion : public FIROpConversion<BoxAddrOp> {
     auto a = operands[0];
     auto loc = boxaddr.getLoc();
     auto ty = convertType(boxaddr.getType());
-    if (auto argty = boxaddr.val()->getType().dyn_cast<BoxType>()) {
+    if (auto argty = boxaddr.val().getType().dyn_cast<BoxType>()) {
       auto c0 = genConstantOffset(loc, rewriter, 0);
       auto pty = unwrap(ty).getPointerTo();
       auto p = genGEP(loc, unwrap(pty), rewriter, a, c0, c0);
@@ -574,7 +574,7 @@ struct BoxDimsOpConversion : public FIROpConversion<BoxDimsOp> {
                                  M::LLVM::ConstantOp c0, M::LLVM::ConstantOp c7,
                                  M::Value dim, int off,
                                  M::ConversionPatternRewriter &rewriter) const {
-    auto ty = convertType(boxdims.getResult(off)->getType());
+    auto ty = convertType(boxdims.getResult(off).getType());
     auto pty = unwrap(ty).getPointerTo();
     auto c = genConstantOffset(loc, rewriter, off);
     auto p = genGEP(loc, pty, rewriter, a, c0, c7, dim, c);
@@ -756,7 +756,7 @@ struct CallOpConversion : public FIROpConversion<fir::CallOp> {
     auto call = M::cast<fir::CallOp>(op);
     L::SmallVector<M::Type, 4> resultTys;
     for (auto r : call.getResults())
-      resultTys.push_back(convertType(r->getType()));
+      resultTys.push_back(convertType(r.getType()));
     rewriter.replaceOpWithNewOp<M::LLVM::CallOp>(call, resultTys, operands,
                                                  call.getAttrs());
     return matchSuccess();
@@ -776,7 +776,7 @@ struct CmpcOpConversion : public FIROpConversion<fir::CmpcOp> {
                   M::ConversionPatternRewriter &rewriter) const override {
     auto cmp = M::cast<fir::CmpcOp>(op);
     auto ctxt = cmp.getContext();
-    auto kind = cmp.lhs()->getType().cast<fir::CplxType>().getFKind();
+    auto kind = cmp.lhs().getType().cast<fir::CplxType>().getFKind();
     auto ty = convertType(fir::RealType::get(ctxt, kind));
     auto loc = cmp.getLoc();
     auto pos0 = M::ArrayAttr::get(rewriter.getI32IntegerAttr(0), ctxt);
@@ -827,9 +827,9 @@ struct ConvertOpConversion : public FIROpConversion<ConvertOp> {
   matchAndRewrite(M::Operation *op, OperandTy operands,
                   M::ConversionPatternRewriter &rewriter) const override {
     auto convert = M::cast<ConvertOp>(op);
-    auto fromTy_ = convertType(convert.value()->getType());
+    auto fromTy_ = convertType(convert.value().getType());
     auto fromTy = unwrap(fromTy_);
-    auto toTy_ = convertType(convert.res()->getType());
+    auto toTy_ = convertType(convert.res().getType());
     auto toTy = unwrap(toTy_);
     auto *fromLLVMTy = fromTy.getUnderlyingType();
     auto *toLLVMTy = toTy.getUnderlyingType();
@@ -960,7 +960,7 @@ struct EmboxOpConversion : public FIROpConversion<EmboxOp> {
     auto ty = unwrap(convertType(embox.getType()));
     auto alloca = genAllocaWithType(loc, ty, 24, defaultAlign, rewriter);
     auto c0 = genConstantOffset(loc, rewriter, 0);
-    auto rty = unwrap(operands[0]->getType()).getPointerTo();
+    auto rty = unwrap(operands[0].getType()).getPointerTo();
     auto f0p = genGEP(loc, rty, rewriter, alloca, c0, c0);
     auto f0p_ = rewriter.create<M::LLVM::BitcastOp>(loc, rty, f0p);
     rewriter.create<M::LLVM::StoreOp>(loc, operands[0], f0p_);
@@ -1041,7 +1041,7 @@ struct EmboxProcOpConversion : public FIROpConversion<EmboxProcOp> {
 /// return true if all `Value`s in `operands` are `ConstantOp`s
 bool allConstants(OperandTy operands) {
   for (auto opnd : operands) {
-    if (auto defop = opnd->getDefiningOp())
+    if (auto defop = opnd.getDefiningOp())
       if (dyn_cast<M::LLVM::ConstantOp>(defop) ||
           dyn_cast<M::ConstantOp>(defop))
         continue;
@@ -1051,10 +1051,10 @@ bool allConstants(OperandTy operands) {
 }
 
 M::Attribute getValue(M::Value value) {
-  assert(value->getDefiningOp());
-  if (auto v = dyn_cast<M::LLVM::ConstantOp>(value->getDefiningOp()))
+  assert(value.getDefiningOp());
+  if (auto v = dyn_cast<M::LLVM::ConstantOp>(value.getDefiningOp()))
     return v.value();
-  if (auto v = dyn_cast<M::ConstantOp>(value->getDefiningOp()))
+  if (auto v = dyn_cast<M::ConstantOp>(value.getDefiningOp()))
     return v.value();
   assert(false && "must be a constant op");
   return {};
@@ -1111,7 +1111,7 @@ struct InsertValueOpConversion : public FIROpConversion<InsertValueOp> {
 /// return true if all `Value`s in `operands` are not `FieldIndexOp`s
 bool noFieldIndexOps(M::Operation::operand_range operands) {
   for (auto opnd : operands) {
-    if (auto defop = opnd->getDefiningOp())
+    if (auto defop = opnd.getDefiningOp())
       if (dyn_cast<FieldIndexOp>(defop))
         return false;
   }
@@ -1132,10 +1132,10 @@ struct CoordinateOpConversion : public FIROpConversion<CoordinateOp> {
     auto c0 = genConstantIndex(loc, lowering.indexType(), rewriter, 0);
 
     // The base can be a boxed reference or a raw reference
-    if (auto boxTy = coor.ref()->getType().dyn_cast<BoxType>()) {
+    if (auto boxTy = coor.ref().getType().dyn_cast<BoxType>()) {
       if (coor.getNumOperands() == 2) {
         auto coorPtr = *coor.coor().begin();
-        auto *s = coorPtr->getDefiningOp();
+        auto s = coorPtr.getDefiningOp();
         if (dyn_cast_or_null<LenParamIndexOp>(s)) {
           auto &lenParam = operands[1]; // byte offset
           auto bc = rewriter.create<M::LLVM::BitcastOp>(loc, voidPtrTy(), base);
@@ -1162,7 +1162,7 @@ struct CoordinateOpConversion : public FIROpConversion<CoordinateOp> {
     }
 
     // lower the field index ops by walking the indices
-    auto bty = coor.ref()->getType().cast<BoxType>();
+    auto bty = coor.ref().getType().cast<BoxType>();
     M::Type baseTy = ReferenceType::get(bty.getEleTy());
     L::SmallVector<M::Value, 8> args{c0};
     args.append(coor.coor().begin(), coor.coor().end());
@@ -1172,7 +1172,7 @@ struct CoordinateOpConversion : public FIROpConversion<CoordinateOp> {
     unsigned pos = 0;
     for (unsigned i = 0, sz = offs.size(); i != sz; ++i) {
       assert(pos <= i);
-      if (auto *defop = args[i]->getDefiningOp())
+      if (auto defop = args[i].getDefiningOp())
         if (auto field = dyn_cast<FieldIndexOp>(defop)) {
           auto memTy = unwrap(convertType(baseTy)).getPointerTo();
           M::Value gep = retval;
@@ -1218,7 +1218,7 @@ struct CoordinateOpConversion : public FIROpConversion<CoordinateOp> {
 
   int64_t getIntValue(M::Value val) const {
     if (val)
-      if (auto *defop = val->getDefiningOp())
+      if (auto defop = val.getDefiningOp())
         if (auto constOp = dyn_cast<M::ConstantIntOp>(defop))
           return constOp.getValue();
     assert(false && "must be a constant");
@@ -1459,7 +1459,7 @@ struct SelectCaseOpConversion : public FIROpConversion<SelectCaseOp> {
     auto caseAttr = selectcase.getAttrOfType<M::ArrayAttr>(attrName);
     auto cases = caseAttr.getValue();
     // Type can be CHARACTER, INTEGER, or LOGICAL (C1145)
-    auto ty = selectcase.getSelector()->getType();
+    auto ty = selectcase.getSelector().getType();
     (void)ty;
     auto &selector = operands[0];
     unsigned nextOp = 1;
@@ -1530,7 +1530,7 @@ void selectMatchAndRewrite(FIRToLLVMTypeConverter &lowering, M::Operation *op,
   auto attrName = OP::AttrName;
   auto caseAttr = select.template getAttrOfType<M::ArrayAttr>(attrName);
   auto cases = caseAttr.getValue();
-  auto ty = select.getSelector()->getType();
+  auto ty = select.getSelector().getType();
   auto ity = lowering.convertType(ty);
   auto &selector = operands[0];
   auto loc = select.getLoc();
@@ -1632,8 +1632,8 @@ struct UnboxCharOpConversion : public FIROpConversion<UnboxCharOp> {
     auto unboxchar = M::cast<UnboxCharOp>(op);
     auto *ctx = unboxchar.getContext();
     auto loc = unboxchar.getLoc();
-    auto &tuple = operands[0];
-    auto ty = unwrap(tuple->getType());
+    auto tuple = operands[0];
+    auto ty = unwrap(tuple.getType());
     M::Value ptr = genExtractValueWithIndex(loc, tuple, ty, rewriter, ctx, 0);
     M::Value len = genExtractValueWithIndex(loc, tuple, ty, rewriter, ctx, 1);
     std::vector<M::Value> repls = {ptr, len};
@@ -1665,8 +1665,8 @@ struct UnboxOpConversion : public FIROpConversion<UnboxOp> {
                   M::ConversionPatternRewriter &rewriter) const override {
     auto unbox = M::cast<UnboxOp>(op);
     auto loc = unbox.getLoc();
-    auto &tuple = operands[0];
-    auto ty = unwrap(tuple->getType());
+    auto tuple = operands[0];
+    auto ty = unwrap(tuple.getType());
     auto oty = lowering.offsetType();
     auto c0 = rewriter.create<M::LLVM::ConstantOp>(
         loc, oty, rewriter.getI32IntegerAttr(0));
@@ -1695,8 +1695,8 @@ struct UnboxProcOpConversion : public FIROpConversion<UnboxProcOp> {
     auto unboxproc = M::cast<UnboxProcOp>(op);
     auto *ctx = unboxproc.getContext();
     auto loc = unboxproc.getLoc();
-    auto &tuple = operands[0];
-    auto ty = unwrap(tuple->getType());
+    auto tuple = operands[0];
+    auto ty = unwrap(tuple.getType());
     M::Value ptr = genExtractValueWithIndex(loc, tuple, ty, rewriter, ctx, 0);
     M::Value host = genExtractValueWithIndex(loc, tuple, ty, rewriter, ctx, 1);
     std::vector<M::Value> repls = {ptr, host};

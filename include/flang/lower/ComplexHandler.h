@@ -43,7 +43,7 @@ public:
   }
   mlir::Type getComplexPartType(mlir::Value cplx) {
     assert(cplx != nullptr);
-    return getComplexPartType(cplx->getType());
+    return getComplexPartType(cplx.getType());
   }
 
   template <Part partId>
@@ -54,7 +54,7 @@ public:
   template <Part partId>
   mlir::Value insert(mlir::Value cplx, mlir::Value part) {
     assert(cplx != nullptr);
-    return builder.create<fir::InsertValueOp>(loc, cplx->getType(), cplx, part,
+    return builder.create<fir::InsertValueOp>(loc, cplx.getType(), cplx, part,
                                               getPartId<partId>());
   }
 
