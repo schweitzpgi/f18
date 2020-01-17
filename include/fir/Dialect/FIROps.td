@@ -909,6 +909,13 @@ def fir_EmboxCharOp : fir_Op<"emboxchar", [NoSideEffect]>,
     parameter, the value of which may only be known at runtime.  Therefore,
     a variable of type CHARACTER has both its data reference as well as a
     LEN type parameter.
+
+      CHARACTER(LEN=10) :: var
+
+      %4 = ...         : !fir.ref<!fir.array<10:!fir.char<1>>>
+      %5 = constant 10 : i32
+      %6 = fir.emboxchar %4, %5 : (!fir.ref<!fir.array<10:!fir.char<1>>>,
+                                   i32) -> !fir.boxchar<1>
   }];
 
   let parser = [{
