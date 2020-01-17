@@ -339,3 +339,116 @@ fir.dispatch_table @dispatch_tbl {
   // CHECK: fir.dt_entry "method", @method_impl
   fir.dt_entry "method", @method_impl
 }
+
+// CHECK-LABEL: @compare_real
+func @compare_real(%a : !fir.real<16>, %b : !fir.real<16>) {
+  // CHECK: fir.cmpf "false", %{{.*}}, %{{.*}} : !fir.real<16>
+  // CHECK: fir.cmpf "oeq", %{{.*}}, %{{.*}} : !fir.real<16>
+  // CHECK: fir.cmpf "ogt", %{{.*}}, %{{.*}} : !fir.real<16>
+  // CHECK: fir.cmpf "oge", %{{.*}}, %{{.*}} : !fir.real<16>
+  %d0 = fir.cmpf "false", %a, %b : !fir.real<16>
+  %d1 = fir.cmpf "oeq", %a, %b : !fir.real<16>
+  %d2 = fir.cmpf "ogt", %a, %b : !fir.real<16>
+  %d3 = fir.cmpf "oge", %a, %b : !fir.real<16>
+  // CHECK: fir.cmpf "olt", %{{.*}}, %{{.*}} : !fir.real<16>
+  // CHECK: fir.cmpf "ole", %{{.*}}, %{{.*}} : !fir.real<16>
+  // CHECK: fir.cmpf "one", %{{.*}}, %{{.*}} : !fir.real<16>
+  // CHECK: fir.cmpf "ord", %{{.*}}, %{{.*}} : !fir.real<16>
+  %a0 = fir.cmpf "olt", %a, %b : !fir.real<16>
+  %a1 = fir.cmpf "ole", %a, %b : !fir.real<16>
+  %a2 = fir.cmpf "one", %a, %b : !fir.real<16>
+  %a3 = fir.cmpf "ord", %a, %b : !fir.real<16>
+  // CHECK: fir.cmpf "ueq", %{{.*}}, %{{.*}} : !fir.real<16>
+  // CHECK: fir.cmpf "ugt", %{{.*}}, %{{.*}} : !fir.real<16>
+  // CHECK: fir.cmpf "uge", %{{.*}}, %{{.*}} : !fir.real<16>
+  // CHECK: fir.cmpf "ult", %{{.*}}, %{{.*}} : !fir.real<16>
+  %b0 = fir.cmpf "ueq", %a, %b : !fir.real<16>
+  %b1 = fir.cmpf "ugt", %a, %b : !fir.real<16>
+  %b2 = fir.cmpf "uge", %a, %b : !fir.real<16>
+  %b3 = fir.cmpf "ult", %a, %b : !fir.real<16>
+  // CHECK: fir.cmpf "ule", %{{.*}}, %{{.*}} : !fir.real<16>
+  // CHECK: fir.cmpf "une", %{{.*}}, %{{.*}} : !fir.real<16>
+  // CHECK: fir.cmpf "uno", %{{.*}}, %{{.*}} : !fir.real<16>
+  // CHECK: fir.cmpf "true", %{{.*}}, %{{.*}} : !fir.real<16>
+  %c0 = fir.cmpf "ule", %a, %b : !fir.real<16>
+  %c1 = fir.cmpf "une", %a, %b : !fir.real<16>
+  %c2 = fir.cmpf "uno", %a, %b : !fir.real<16>
+  %c3 = fir.cmpf "true", %a, %b : !fir.real<16>
+  return
+}
+
+// CHECK-LABEL: @compare_complex
+func @compare_complex(%a : !fir.complex<16>, %b : !fir.complex<16>) {
+  // CHECK: fir.cmpc "false", %{{.*}}, %{{.*}} : !fir.complex<16>
+  // CHECK: fir.cmpc "oeq", %{{.*}}, %{{.*}} : !fir.complex<16>
+  // CHECK: fir.cmpc "ogt", %{{.*}}, %{{.*}} : !fir.complex<16>
+  // CHECK: fir.cmpc "oge", %{{.*}}, %{{.*}} : !fir.complex<16>
+  %d0 = fir.cmpc "false", %a, %b : !fir.complex<16>
+  %d1 = fir.cmpc "oeq", %a, %b : !fir.complex<16>
+  %d2 = fir.cmpc "ogt", %a, %b : !fir.complex<16>
+  %d3 = fir.cmpc "oge", %a, %b : !fir.complex<16>
+  // CHECK: fir.cmpc "olt", %{{.*}}, %{{.*}} : !fir.complex<16>
+  // CHECK: fir.cmpc "ole", %{{.*}}, %{{.*}} : !fir.complex<16>
+  // CHECK: fir.cmpc "one", %{{.*}}, %{{.*}} : !fir.complex<16>
+  // CHECK: fir.cmpc "ord", %{{.*}}, %{{.*}} : !fir.complex<16>
+  %a0 = fir.cmpc "olt", %a, %b : !fir.complex<16>
+  %a1 = fir.cmpc "ole", %a, %b : !fir.complex<16>
+  %a2 = fir.cmpc "one", %a, %b : !fir.complex<16>
+  %a3 = fir.cmpc "ord", %a, %b : !fir.complex<16>
+  // CHECK: fir.cmpc "ueq", %{{.*}}, %{{.*}} : !fir.complex<16>
+  // CHECK: fir.cmpc "ugt", %{{.*}}, %{{.*}} : !fir.complex<16>
+  // CHECK: fir.cmpc "uge", %{{.*}}, %{{.*}} : !fir.complex<16>
+  // CHECK: fir.cmpc "ult", %{{.*}}, %{{.*}} : !fir.complex<16>
+  %b0 = fir.cmpc "ueq", %a, %b : !fir.complex<16>
+  %b1 = fir.cmpc "ugt", %a, %b : !fir.complex<16>
+  %b2 = fir.cmpc "uge", %a, %b : !fir.complex<16>
+  %b3 = fir.cmpc "ult", %a, %b : !fir.complex<16>
+  // CHECK: fir.cmpc "ule", %{{.*}}, %{{.*}} : !fir.complex<16>
+  // CHECK: fir.cmpc "une", %{{.*}}, %{{.*}} : !fir.complex<16>
+  // CHECK: fir.cmpc "uno", %{{.*}}, %{{.*}} : !fir.complex<16>
+  // CHECK: fir.cmpc "true", %{{.*}}, %{{.*}} : !fir.complex<16>
+  %c0 = fir.cmpc "ule", %a, %b : !fir.complex<16>
+  %c1 = fir.cmpc "une", %a, %b : !fir.complex<16>
+  %c2 = fir.cmpc "uno", %a, %b : !fir.complex<16>
+  %c3 = fir.cmpc "true", %a, %b : !fir.complex<16>
+  return
+}
+
+// CHECK-LABEL: @arith_real
+func @arith_real(%a : !fir.real<16>, %b : !fir.real<16>) -> !fir.real<16> {
+  %c1 = constant 1.0 : f32
+  %0 = fir.convert %c1 : (f32) -> !fir.real<16>
+  // CHECK: %[[R1:.*]] = fir.negf %{{.*}} : !fir.real<16>
+  // CHECK: fir.addf %{{.*}}, %{{.*}} : !fir.real<16>
+  // CHECK: %[[R3:.*]] = fir.subf %{{.*}}, %{{.*}} : !fir.real<16>
+  // CHECK: fir.mulf %[[R1]], %[[R3]] : !fir.real<16>
+  // CHECK: fir.divf %{{.*}}, %{{.*}} : !fir.real<16>
+  %1 = fir.negf %a : !fir.real<16>
+  %2 = fir.addf %0, %1 : !fir.real<16>
+  %3 = fir.subf %2, %b : !fir.real<16>
+  %4 = fir.mulf %1, %3 : !fir.real<16>
+  %5 = fir.divf %4, %a : !fir.real<16>
+  return %5 : !fir.real<16>
+}
+
+// CHECK-LABEL: @arith_complex
+func @arith_complex(%a : !fir.complex<16>, %b : !fir.complex<16>) -> !fir.complex<16> {
+  // CHECK: fir.negc %{{.*}} : !fir.complex<16>
+  // CHECK: fir.addc %{{.*}}, %{{.*}} : !fir.complex<16>
+  // CHECK: fir.subc %{{.*}}, %{{.*}} : !fir.complex<16>
+  // CHECK: fir.mulc %{{.*}}, %{{.*}} : !fir.complex<16>
+  // CHECK: fir.divc %{{.*}}, %{{.*}} : !fir.complex<16>
+  %1 = fir.negc %a : !fir.complex<16>
+  %2 = fir.addc %b, %1 : !fir.complex<16>
+  %3 = fir.subc %2, %b : !fir.complex<16>
+  %4 = fir.mulc %1, %3 : !fir.complex<16>
+  %5 = fir.divc %4, %a : !fir.complex<16>
+  return %5 : !fir.complex<16>
+}
+
+// CHECK-LABEL: @character_literal
+func @character_literal() -> !fir.char<1> {
+  // CHECK: fir.constant "Hello, World!" : !fir.char<1>
+  %0 = fir.constant "Hello, World!" : !fir.char<1>
+  return %0 : !fir.char<1>
+}
