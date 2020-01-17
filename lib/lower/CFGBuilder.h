@@ -6,8 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef FORTRAN_LOWER_BRIDGE_CFG_BUILDER_H_
-#define FORTRAN_LOWER_BRIDGE_CFG_BUILDER_H_
+#ifndef FORTRAN_LOWER_CFG_BUILDER_H_
+#define FORTRAN_LOWER_CFG_BUILDER_H_
 
 /// Traverse the AST and complete the CFG by drawing the arcs, pruning unused
 /// potential targets, making implied jumps explicit, etc.
