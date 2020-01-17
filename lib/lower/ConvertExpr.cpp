@@ -216,11 +216,11 @@ class ExprLowering {
 
   M::Value gen(Se::SymbolRef sym) {
     // FIXME: not all symbols are local
-    M::Value addr = createTemporary(getLoc(), builder, symMap,
-                                    converter.genType(sym), &*sym);
+    auto addr{createTemporary(getLoc(), builder, symMap, converter.genType(sym),
+                              &*sym)};
     assert(addr && "failed generating symbol address");
     // Get address from descriptor if symbol has one.
-    auto type{addr->getType()};
+    auto type{addr.getType()};
     if (auto boxCharType{type.dyn_cast<fir::BoxCharType>()}) {
       auto refType{fir::ReferenceType::get(boxCharType.getEleTy())};
       auto lenType{mlir::IntegerType::get(64, builder.getContext())};
@@ -231,11 +231,12 @@ class ExprLowering {
     }
     return addr;
   }
+
   M::Value gendef(Se::SymbolRef sym) { return gen(sym); }
 
   M::Value genval(Se::SymbolRef sym) {
     auto var = gen(sym);
-    if (fir::isReferenceLike(var->getType())) {
+    if (fir::isReferenceLike(var.getType())) {
       return builder.create<fir::LoadOp>(getLoc(), var);
     }
     return var;
@@ -250,7 +251,7 @@ class ExprLowering {
   M::Value genval(Ev::DescriptorInquiry const &desc) {
     auto descRef{symMap.lookupSymbol(desc.base().GetLastSymbol())};
     assert(descRef && "no mlir::Value associated to Symbol");
-    auto descType{descRef->getType()};
+    auto descType{descRef.getType()};
     M::Value res{};
     switch (desc.field()) {
     case Ev::DescriptorInquiry::Field::Len:
@@ -659,7 +660,7 @@ class ExprLowering {
     for (auto &subsc : aref.subscript()) {
       args.push_back(genval(subsc));
     }
-    auto ty{genSubType(base->getType(), args.size())};
+    auto ty{genSubType(base.getType(), args.size())};
     ty = fir::ReferenceType::get(ty);
     return builder.create<fir::CoordinateOp>(getLoc(), ty, base, args);
   }
@@ -745,7 +746,7 @@ class ExprLowering {
         if (const Se::Symbol * sym{Ev::UnwrapWholeSymbolDataRef(*expr)}) {
           M::Value argRef{symMap.lookupSymbol(*sym)};
           assert(argRef && "could not get symbol reference");
-          argTypes.push_back(argRef->getType());
+          argTypes.push_back(argRef.getType());
           operands.push_back(argRef);
         } else {
           // TODO create temps for expressions
@@ -784,11 +785,11 @@ class ExprLowering {
     auto result{std::visit([&](const auto &e) { return genval(e); }, exp.u)};
     // Handle the `i1` to `fir.logical` conversions as needed.
     if (result) {
-      M::Type type{result->getType()};
+      M::Type type{result.getType()};
       if (type.isa<fir::LogicalType>()) {
         if (genLogicalAsI1) {
-          M::Type i1Type{M::IntegerType::get(1, builder.getContext())};
-          result = builder.create<fir::ConvertOp>(getLoc(), i1Type, result);
+          result = builder.create<fir::ConvertOp>(getLoc(), builder.getI1Type(),
+                                                  result);
         }
       } else if (type.isa<M::IntegerType>()) {
         if (!genLogicalAsI1) {
@@ -867,9 +868,8 @@ M::Value Br::createTemporary(M::Location loc, M::OpBuilder &builder,
                              const Se::Symbol *symbol) {
   if (symbol)
     if (auto val = symMap.lookupSymbol(*symbol)) {
-      if (auto op = val->getDefiningOp()) {
+      if (auto op = val.getDefiningOp())
         return op->getResult(0);
-      }
       return val;
     }
   auto insPt(builder.saveInsertionPoint());
