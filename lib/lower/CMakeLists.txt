@@ -13,7 +13,7 @@ add_library(FortranLower
 )
 
 target_link_libraries(FortranLower
-  FIRDialect
+  FIR
   MLIRAffineOps
   MLIRLLVMIR
   MLIRStandardOps
