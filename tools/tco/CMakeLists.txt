@@ -22,7 +22,7 @@ set(EXE_LIBS
   MLIRAnalysis
   MLIRLoopToStandard
   MLIREDSC
-  MLIRLinalg
+  MLIRLinalgOps
   MLIRParser
   MLIRStandardToLLVM
   MLIRSupport
