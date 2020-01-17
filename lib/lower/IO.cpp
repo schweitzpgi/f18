@@ -7,14 +7,18 @@
 //===----------------------------------------------------------------------===//
 
 #include "flang/lower/IO.h"
+#include "../../runtime/io-api.h"
 #include "../parser/parse-tree.h"
 #include "../semantics/tools.h"
+#include "RTBuilder.h"
 #include "flang/lower/Bridge.h"
 #include "flang/lower/OpBuilder.h"
 #include "flang/lower/Runtime.h"
 #include "mlir/Dialect/StandardOps/Ops.h"
 #include "mlir/IR/Builders.h"
-#include <cassert>
+
+#define NAMIFY_HELPER(X) #X
+#define NAMIFY(X) NAMIFY_HELPER(IONAME(X))
 
 namespace Br = Fortran::lower;
 namespace M = mlir;
@@ -23,7 +27,53 @@ namespace Pa = Fortran::parser;
 using namespace Fortran;
 using namespace Fortran::lower;
 
+#define TODO() assert(false && "not yet implemented")
+
 namespace {
+
+#define mkIOKey(X) mkKey(IONAME(X))
+
+/// Static table of IO runtime calls
+///
+/// This logical map contains the name and type builder function for each IO
+/// runtime function listed in the tuple. This table is fully constructed at
+/// compile-time. Use the `mkIOKey` macro to access the table.
+static constexpr std::tuple<
+    mkIOKey(BeginExternalListOutput), mkIOKey(BeginExternalListInput),
+    mkIOKey(BeginExternalFormattedOutput), mkIOKey(BeginExternalFormattedInput),
+    mkIOKey(BeginUnformattedOutput), mkIOKey(BeginUnformattedInput),
+    mkIOKey(EndIoStatement), mkIOKey(OutputInteger64), mkIOKey(InputInteger64),
+    mkIOKey(OutputReal64), mkIOKey(InputReal64), mkIOKey(OutputReal32),
+    mkIOKey(InputReal64), mkIOKey(OutputComplex64), mkIOKey(OutputComplex32),
+    mkIOKey(BeginClose), mkIOKey(OutputAscii), mkIOKey(InputAscii),
+    mkIOKey(OutputLogical), mkIOKey(InputLogical), mkIOKey(BeginFlush),
+    mkIOKey(BeginBackspace), mkIOKey(BeginEndfile), mkIOKey(BeginRewind),
+    mkIOKey(BeginOpenUnit), mkIOKey(BeginOpenNewUnit),
+    mkIOKey(BeginInquireUnit), mkIOKey(BeginInquireFile),
+    mkIOKey(BeginInquireIoLength), mkIOKey(EnableHandlers), mkIOKey(SetAdvance),
+    mkIOKey(SetBlank), mkIOKey(SetDecimal), mkIOKey(SetDelim), mkIOKey(SetPad),
+    mkIOKey(SetPos), mkIOKey(SetRec), mkIOKey(SetRound), mkIOKey(SetSign),
+    mkIOKey(SetAccess), mkIOKey(SetAction), mkIOKey(SetAsynchronous),
+    mkIOKey(SetEncoding), mkIOKey(SetEncoding), mkIOKey(SetForm),
+    mkIOKey(SetPosition), mkIOKey(SetRecl), mkIOKey(SetStatus),
+    mkIOKey(SetFile), mkIOKey(GetNewUnit), mkIOKey(GetSize),
+    mkIOKey(GetIoLength), mkIOKey(GetIoMsg), mkIOKey(InquireCharacter),
+    mkIOKey(InquireLogical), mkIOKey(InquirePendingId),
+    mkIOKey(InquireInteger64)>
+    newIOTable;
+
+/// Helper function to retrieve the name of the IO function given the key `A`
+template <typename A>
+static constexpr const char *getName() {
+  return std::get<A>(newIOTable).name;
+}
+
+/// Helper function to retrieve the type model signature builder of the IO
+/// function as defined by the key `A`
+template <typename A>
+static constexpr FuncTypeBuilderFunc getTypeModel() {
+  return std::get<A>(newIOTable).getTypeModel();
+}
 
 /// Define actions to sort runtime functions. One actions
 /// may be associated to one or more runtime function.
@@ -54,13 +104,13 @@ using IOA = IOAction;
 /// The array need to be sorted on the Actions.
 /// Experimental runtime for now.
 static constexpr IORuntimeDescription ioRuntimeTable[]{
-    {IOA::BeginExternalList, "__F18IOa_BeginExternalListOutput",
-     RType::IOCookie, Args::create<RType::i32>()},
-    {IOA::Output, "__F18IOa_OutputInteger64", RT::voidTy,
+    {IOA::BeginExternalList, NAMIFY(BeginExternalListOutput), RType::IOCookie,
+     Args::create<RType::i32>()},
+    {IOA::Output, NAMIFY(OutputInteger64), RT::voidTy,
      Args::create<RType::IOCookie, RType::i64>()},
-    {IOA::Output, "__F18IOa_OutputReal64", RT::voidTy,
+    {IOA::Output, NAMIFY(OutputReal64), RT::voidTy,
      Args::create<RType::IOCookie, RType::f64>()},
-    {IOA::EndIO, "__F18IOa_EndIOStatement", RT::voidTy,
+    {IOA::EndIO, NAMIFY(EndIOStatement), RT::voidTy,
      Args::create<RType::IOCookie>()},
 };
 
@@ -101,11 +151,25 @@ static M::FuncOp getOutputRuntimeFunction(M::OpBuilder &builder, M::Type type) {
   return {};
 }
 
+template <typename E>
+M::FuncOp getIORuntimeFunc(M::OpBuilder &builder) {
+  auto module = getModule(&builder);
+  auto name = getName<E>();
+  auto func = getNamedFunction(module, name);
+  if (func)
+    return func;
+  auto funTy = getTypeModel<E>()(builder.getContext());
+  func = createFunction(module, name, funTy);
+  func.setAttr("fir.runtime", builder.getUnitAttr());
+  func.setAttr("fir.io", builder.getUnitAttr());
+  return func;
+}
+
 /// Lower print statement assuming a dummy runtime interface for now.
-void lowerPrintStatement(M::OpBuilder &builder, M::Location loc,
+void lowerPrintStatement(M::OpBuilder &builder, M::Location loc, int format,
                          M::ValueRange args) {
   M::FuncOp beginFunc{
-      getIORuntimeFunction<IOAction::BeginExternalList>(builder)};
+      getIORuntimeFunc<mkIOKey(BeginExternalListOutput)>(builder)};
 
   // Initiate io
   M::Type externalUnitType{builder.getIntegerType(32)};
@@ -123,36 +187,37 @@ void lowerPrintStatement(M::OpBuilder &builder, M::Location loc,
   }
 
   // Terminate IO
-  M::FuncOp endIOFunc{getIORuntimeFunction<IOAction::EndIO>(builder)};
+  M::FuncOp endIOFunc{getIORuntimeFunc<mkIOKey(EndIoStatement)>(builder)};
   llvm::SmallVector<M::Value, 1> endArgs{cookie};
   builder.create<M::CallOp>(loc, endIOFunc, endArgs);
 }
 
+/// FIXME: this is a stub; process the format and return it
+int lowerFormat(const Pa::Format &format) { return 0; }
+
 } // namespace
 
 void Br::genBackspaceStatement(AbstractConverter &, const Pa::BackspaceStmt &) {
-  assert(false);
+  TODO();
 }
 
 void Br::genCloseStatement(AbstractConverter &, const Pa::CloseStmt &) {
-  assert(false);
+  TODO();
 }
 
 void Br::genEndfileStatement(AbstractConverter &, const Pa::EndfileStmt &) {
-  assert(false);
+  TODO();
 }
 
 void Br::genFlushStatement(AbstractConverter &, const Pa::FlushStmt &) {
-  assert(false);
+  TODO();
 }
 
 void Br::genInquireStatement(AbstractConverter &, const Pa::InquireStmt &) {
-  assert(false);
+  TODO();
 }
 
-void Br::genOpenStatement(AbstractConverter &, const Pa::OpenStmt &) {
-  assert(false);
-}
+void Br::genOpenStatement(AbstractConverter &, const Pa::OpenStmt &) { TODO(); }
 
 void Br::genPrintStatement(Br::AbstractConverter &converter,
                            const Pa::PrintStmt &stmt) {
@@ -162,21 +227,19 @@ void Br::genPrintStatement(Br::AbstractConverter &converter,
       auto loc{converter.genLocation(pe->source)};
       args.push_back(converter.genExprValue(*semantics::GetExpr(*pe), &loc));
     } else {
-      assert(false); // TODO implied do
+      TODO(); // TODO implied do
     }
   }
   lowerPrintStatement(converter.getOpBuilder(), converter.getCurrentLocation(),
-                      args);
+                      lowerFormat(std::get<Pa::Format>(stmt.t)), args);
 }
 
-void Br::genReadStatement(AbstractConverter &, const Pa::ReadStmt &) {
-  assert(false);
-}
+void Br::genReadStatement(AbstractConverter &, const Pa::ReadStmt &) { TODO(); }
 
 void Br::genRewindStatement(AbstractConverter &, const Pa::RewindStmt &) {
-  assert(false);
+  TODO();
 }
 
 void Br::genWriteStatement(AbstractConverter &, const Pa::WriteStmt &) {
-  assert(false);
+  TODO();
 }
