@@ -505,7 +505,7 @@ static M::FunctionType getFunctionType(M::Type resultType,
   L::SmallVector<M::Type, 2> argumentTypes;
   for (auto &arg : arguments) {
     assert(arg != nullptr); // TODO think about optionals
-    argumentTypes.push_back(arg->getType());
+    argumentTypes.push_back(arg.getType());
   }
   return M::FunctionType::get(argumentTypes, resultType,
                               getModule(&builder).getContext());
@@ -637,7 +637,7 @@ M::Value IntrinsicLibrary::Implementation::genConjg(Context &genCtxt,
                                                     MathRuntimeLibrary &) {
   assert(genCtxt.arguments.size() == 1);
   M::Type resType{genCtxt.getResultType()};
-  assert(resType == genCtxt.arguments[0]->getType());
+  assert(resType == genCtxt.arguments[0].getType());
   M::OpBuilder &builder{*genCtxt.builder};
   ComplexHandler cplxHandler{builder, genCtxt.loc};
 
@@ -672,7 +672,7 @@ static M::Value createExtremumCompare(M::Location loc, M::OpBuilder &builder,
   static constexpr auto orderedCmp{extremum == Extremum::Max
                                        ? fir::CmpFPredicate::OGT
                                        : fir::CmpFPredicate::OLT};
-  auto type{left->getType()};
+  auto type{left.getType()};
   M::Value result;
   if (type.isa<M::FloatType>() || type.isa<fir::RealType>()) {
     // Note: the signaling/quit aspect of the result required by IEEE
