@@ -299,7 +299,7 @@ def fir_LoadOp : fir_OneResultOp<"load", []>,
         mlir::emitError(result.location, "LoadOp has null argument");
         return;
       }
-      fir::ReferenceType refTy = refVal->getType().cast<fir::ReferenceType>();
+      fir::ReferenceType refTy = refVal.getType().cast<fir::ReferenceType>();
       result.addOperands(refVal);
       result.addTypes(refTy.getEleTy());
     }]
@@ -324,7 +324,7 @@ def fir_LoadOp : fir_OneResultOp<"load", []>,
     p << getOperationName() << ' ';
     p.printOperand(memref());
     p.printOptionalAttrDict(getAttrs(), {});
-    p << " : " << memref()->getType();
+    p << " : " << memref().getType();
   }];
 
   let extraClassDeclaration = [{
@@ -364,7 +364,7 @@ def fir_StoreOp : fir_Op<"store", []>,
     p << " to ";
     p.printOperand(memref());
     p.printOptionalAttrDict(getAttrs(), {});
-    p << " : " << memref()->getType();
+    p << " : " << memref().getType();
   }];
 
   let extraClassDeclaration = [{
@@ -453,7 +453,7 @@ def fir_FreeMemOp : fir_Op<"freemem", []>,
     p << getOperationName() << ' ';
     p.printOperand(heapref());
     p.printOptionalAttrDict(getAttrs(), {});
-    p << " : " << getOperand()->getType();
+    p << " : " << getOperand().getType();
   }];
 }
 
@@ -531,7 +531,7 @@ class fir_IntegralSwitchTerminatorOp<string mnemonic,
   let printer = [{
     p << getOperationName() << ' ';
     p.printOperand(getSelector());
-    p << " : " << getSelector()->getType() << " [";
+    p << " : " << getSelector().getType() << " [";
     auto cases = getAttrOfType<M::ArrayAttr>(AttrName).getValue();
     for (unsigned i = 0, count = getNumConditions(); i != count; ++i) {
       if (i)
@@ -549,9 +549,9 @@ class fir_IntegralSwitchTerminatorOp<string mnemonic,
   }];
 
   let verifier = [{
-    if (!(getSelector()->getType().isa<M::IntegerType>() ||
-          getSelector()->getType().isa<M::IndexType>() ||
-          getSelector()->getType().isa<fir::IntType>()))
+    if (!(getSelector().getType().isa<M::IntegerType>() ||
+          getSelector().getType().isa<M::IndexType>() ||
+          getSelector().getType().isa<fir::IntType>()))
       return emitOpError("must be an integer");
     auto cases = getAttrOfType<M::ArrayAttr>(AttrName).getValue();
     for (unsigned i = 0, count = getNumConditions(); i != count; ++i) {
@@ -665,7 +665,7 @@ def fir_SelectCaseOp : fir_SwitchTerminatorOp<"select_case"> {
   let printer = [{
     p << getOperationName() << ' ';
     p.printOperand(getSelector());
-    p << " : " << getSelector()->getType() << " [";
+    p << " : " << getSelector().getType() << " [";
     auto cases = getAttrOfType<M::ArrayAttr>(AttrName).getValue();
     for (unsigned i = 0, count = getNumConditions(); i != count; ++i) {
       if (i)
@@ -686,11 +686,11 @@ def fir_SelectCaseOp : fir_SwitchTerminatorOp<"select_case"> {
   }];
 
   let verifier = [{
-    if (!(getSelector()->getType().isa<M::IntegerType>() ||
-          getSelector()->getType().isa<M::IndexType>() ||
-          getSelector()->getType().isa<fir::IntType>() ||
-          getSelector()->getType().isa<fir::LogicalType>() ||
-          getSelector()->getType().isa<fir::CharacterType>()))
+    if (!(getSelector().getType().isa<M::IntegerType>() ||
+          getSelector().getType().isa<M::IndexType>() ||
+          getSelector().getType().isa<fir::IntType>() ||
+          getSelector().getType().isa<fir::LogicalType>() ||
+          getSelector().getType().isa<fir::CharacterType>()))
       return emitOpError("must be an integer, character, or logical");
     for (unsigned i = 0, count = getNumConditions(); i != count; ++i) {
       // TODO: add checks!
@@ -757,7 +757,7 @@ def fir_SelectTypeOp : fir_SwitchTerminatorOp<"select_type"> {
   let printer = [{
     p << getOperationName() << ' ';
     p.printOperand(getSelector());
-    p << " : " << getSelector()->getType() << " [";
+    p << " : " << getSelector().getType() << " [";
     auto cases = getAttrOfType<M::ArrayAttr>(AttrName).getValue();
     for (unsigned i = 0, count = getNumConditions(); i != count; ++i) {
       if (i)
@@ -770,7 +770,7 @@ def fir_SelectTypeOp : fir_SwitchTerminatorOp<"select_type"> {
   }];
 
   let verifier = [{
-    if (!(getSelector()->getType().isa<fir::BoxType>()))
+    if (!(getSelector().getType().isa<fir::BoxType>()))
       return emitOpError("must be a boxed type");
     auto cases = getAttrOfType<M::ArrayAttr>(AttrName).getValue();
     for (unsigned i = 0, count = getNumConditions(); i != count; ++i) {
@@ -934,7 +934,7 @@ def fir_EmboxCharOp : fir_Op<"emboxchar", [NoSideEffect]>,
   }];
 
   let verifier = [{
-    auto eleTy = elementTypeOf(memref()->getType());
+    auto eleTy = elementTypeOf(memref().getType());
     if (!eleTy.dyn_cast<CharacterType>())
       return M::failure();
     return M::success();
@@ -1006,7 +1006,7 @@ def fir_EmboxProcOp : fir_Op<"emboxproc", [NoSideEffect]>,
     }
     p << " : (" << getAttr("functype");
     if (h)
-      p << ", " << h->getType();
+      p << ", " << h.getType();
     p << ") -> " << getType();
   }];
 
@@ -1251,11 +1251,11 @@ def fir_CoordinateOp : fir_Op<"coordinate_of", [NoSideEffect]>,
   let verifier = [{
     // Recovering a LEN type parameter only makes sense from a boxed value
     for (auto co : coor())
-      if (auto *s = co->getDefiningOp())
+      if (auto *s = co.getDefiningOp())
         if (dyn_cast_or_null<LenParamIndexOp>(s)) {
           if (getNumOperands() != 2)
             return emitOpError("len_param_index must be last argument");
-          if (!ref()->getType().dyn_cast<BoxType>())
+          if (!ref().getType().dyn_cast<BoxType>())
             return emitOpError("len_param_index must be used on box type");
         }
     return M::success();
@@ -1357,7 +1357,7 @@ def fir_FieldIndexOp : fir_OneResultOp<"field_index", [NoSideEffect]>,
       for (auto op : lenparams()) {
         p << sep;
         if (op)
-          p.printType(op->getType());
+          p.printType(op.getType());
         else
           p << "()";
         sep = ", ";
@@ -1517,8 +1517,8 @@ def fir_LoopOp : fir_Op<"loop", [ImplicitFirTerminator]> {
   let parser = [{ return parseLoopOp(parser, result); }];
 
   let printer = [{
-    p << getOperationName() << ' ' << *getInductionVar() << " = "
-      << *lowerBound() << " to " << *upperBound();
+    p << getOperationName() << ' ' << getInductionVar() << " = "
+      << lowerBound() << " to " << upperBound();
     auto s = optstep();
     if (s.begin() != s.end()) {
       p << " step ";
@@ -1534,7 +1534,7 @@ def fir_LoopOp : fir_Op<"loop", [ImplicitFirTerminator]> {
   let verifier = [{
     auto step = optstep();
     if (step.begin() != step.end()) {
-      auto *s = (*step.begin())->getDefiningOp();
+      auto *s = (*step.begin()).getDefiningOp();
       if (auto cst = dyn_cast_or_null<M::ConstantIndexOp>(s))
         if (cst.getValue() == 0)
           return emitOpError("constant step operand must be nonzero");
@@ -1544,7 +1544,7 @@ def fir_LoopOp : fir_Op<"loop", [ImplicitFirTerminator]> {
     // variable.
     auto *body = getBody();
     if (body->getNumArguments() != 1 ||
-        !body->getArgument(0)->getType().isIndex())
+        !body->getArgument(0).getType().isIndex())
       return emitOpError("expected body to have a single index argument for "
                          "the induction variable");
     return M::success();
@@ -1585,7 +1585,7 @@ def fir_WhereOp : fir_Op<"where", [ImplicitFirTerminator]> {
   let parser = [{ return parseWhereOp(parser, result); }];
 
   let printer = [{
-    p << getOperationName() << ' ' << *condition();
+    p << getOperationName() << ' ' << condition();
     p.printRegion(whereRegion(), /*printEntryBlockArgs=*/false,
         /*printBlockTerminators=*/false);
 

@@ -38,12 +38,12 @@ namespace {
 
 template <typename LOAD, typename STORE, typename ALLOCA>
 bool isAllocaPromotable(ALLOCA &ae) {
-  for (auto &use : ae.getResult()->getUses()) {
+  for (auto &use : ae.getResult().getUses()) {
     auto *op = use.getOwner();
     if (auto load = M::dyn_cast<LOAD>(op)) {
       // do nothing
     } else if (auto stor = M::dyn_cast<STORE>(op)) {
-      if (stor.getOperand(0)->getDefiningOp() == op) {
+      if (stor.getOperand(0).getDefiningOp() == op) {
         return false;
       }
     } else {
@@ -78,7 +78,7 @@ struct AllocaInfo {
     // As we scan the uses of the alloca instruction, keep track of stores,
     // and decide whether all of the loads and stores to the alloca are within
     // the same basic block.
-    for (auto UI = AI.getResult()->use_begin(), E = AI.getResult()->use_end();
+    for (auto UI = AI.getResult().use_begin(), E = AI.getResult().use_end();
          UI != E;) {
       auto *User = UI->getOwner();
       UI++;
@@ -127,10 +127,10 @@ struct LargeBlockInfo {
 
   static bool isInterestingInstruction(M::Operation &I) {
     if (M::isa<LOAD>(I)) {
-      if (auto *op = I.getOperand(0)->getDefiningOp())
+      if (auto op = I.getOperand(0).getDefiningOp())
         return M::isa<ALLOCA>(op);
     } else if (M::isa<STORE>(I)) {
-      if (auto *op = I.getOperand(1)->getDefiningOp())
+      if (auto op = I.getOperand(1).getDefiningOp())
         return M::isa<ALLOCA>(op);
     }
     return false;
@@ -197,7 +197,7 @@ struct MemToReg : public M::FunctionPass<MemToReg<LOAD, STORE, ALLOCA, UNDEF>> {
     // Clear out usingBlocks.  We will reconstruct it here if needed.
     Info.usingBlocks.clear();
 
-    for (auto UI = AI.getResult()->use_begin(), E = AI.getResult()->use_end();
+    for (auto UI = AI.getResult().use_begin(), E = AI.getResult().use_end();
          UI != E;) {
       auto *UserInst = UI->getOwner();
       UI++;
@@ -262,7 +262,7 @@ struct MemToReg : public M::FunctionPass<MemToReg<LOAD, STORE, ALLOCA, UNDEF>> {
         L::SmallVector<std::pair<unsigned, M::Operation *>, 64>;
     StoresByIndexTy storesByIndex;
 
-    for (auto U = AI.getResult()->use_begin(), E = AI.getResult()->use_end();
+    for (auto U = AI.getResult().use_begin(), E = AI.getResult().use_end();
          U != E; U++)
       if (STORE SI = M::dyn_cast<STORE>(U->getOwner()))
         storesByIndex.emplace_back(LBI.getInstructionIndex(SI),
@@ -274,7 +274,7 @@ struct MemToReg : public M::FunctionPass<MemToReg<LOAD, STORE, ALLOCA, UNDEF>> {
 
     // Walk all of the loads from this alloca, replacing them with the nearest
     // store above them, if any.
-    for (auto UI = AI.getResult()->use_begin(), E = AI.getResult()->use_end();
+    for (auto UI = AI.getResult().use_begin(), E = AI.getResult().use_end();
          UI != E;) {
       auto LI = M::dyn_cast<LOAD>(UI->getOwner());
       UI++;
@@ -319,7 +319,7 @@ struct MemToReg : public M::FunctionPass<MemToReg<LOAD, STORE, ALLOCA, UNDEF>> {
     // Remove the (now dead) stores and alloca.
     while (!AI.use_empty()) {
       auto ae = AI.getResult();
-      for (auto ai = ae->user_begin(), E = ae->user_end(); ai != E; ai++)
+      for (auto ai = ae.user_begin(), E = ae.user_end(); ai != E; ai++)
         if (STORE si = M::dyn_cast<STORE>(*ai)) {
           si.erase();
           LBI.deleteValue(si);
@@ -353,7 +353,7 @@ struct MemToReg : public M::FunctionPass<MemToReg<LOAD, STORE, ALLOCA, UNDEF>> {
       // live-in.
       for (M::Block::iterator I = BB->begin();; ++I) {
         if (STORE SI = M::dyn_cast<STORE>(I)) {
-          if (SI.getOperand(1)->getDefiningOp() != AI)
+          if (SI.getOperand(1).getDefiningOp() != AI)
             continue;
 
           // We found a store to the alloca before a load.  The alloca is not
@@ -368,7 +368,7 @@ struct MemToReg : public M::FunctionPass<MemToReg<LOAD, STORE, ALLOCA, UNDEF>> {
         if (auto LI = M::dyn_cast<LOAD>(I))
           // Okay, we found a load before a store to the alloca.  It is actually
           // live into this block.
-          if (LI.getOperand()->getDefiningOp() == AI)
+          if (LI.getOperand().getDefiningOp() == AI)
             break;
       }
     }
@@ -422,7 +422,7 @@ struct MemToReg : public M::FunctionPass<MemToReg<LOAD, STORE, ALLOCA, UNDEF>> {
     for (; i < size; ++i) {
       if (i == ai)
         continue;
-      auto opTy = dest->getArgument(i)->getType();
+      auto opTy = dest->getArgument(i).getType();
       auto typedUndef = builder->create<UNDEF>(loc, opTy);
       opers[i] = typedUndef;
     }
@@ -430,8 +430,8 @@ struct MemToReg : public M::FunctionPass<MemToReg<LOAD, STORE, ALLOCA, UNDEF>> {
   }
 
   static void eraseIfNoUse(M::Value val) {
-    if (val->use_begin() == val->use_end()) {
-      val->getDefiningOp()->erase();
+    if (val.use_begin() == val.use_end()) {
+      val.getDefiningOp()->erase();
     }
   }
 
@@ -541,7 +541,7 @@ struct MemToReg : public M::FunctionPass<MemToReg<LOAD, STORE, ALLOCA, UNDEF>> {
       II++;
 
       if (auto LI = M::dyn_cast<LOAD>(opn)) {
-        auto *srcOpn = LI.getOperand()->getDefiningOp();
+        auto *srcOpn = LI.getOperand().getDefiningOp();
         if (!srcOpn)
           continue;
 
@@ -557,7 +557,7 @@ struct MemToReg : public M::FunctionPass<MemToReg<LOAD, STORE, ALLOCA, UNDEF>> {
         LI.replaceAllUsesWith(IncomingVals[ai->second]);
         LI.erase();
       } else if (auto SI = M::dyn_cast<STORE>(opn)) {
-        auto *dstOpn = SI.getOperand(1)->getDefiningOp();
+        auto *dstOpn = SI.getOperand(1).getDefiningOp();
         if (!dstOpn)
           continue;
 
