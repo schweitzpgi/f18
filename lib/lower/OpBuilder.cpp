@@ -188,7 +188,7 @@ mlir::Type B::ComplexOpsBuilder::getComplexPartType(mlir::Type complexType) {
 }
 mlir::Type B::ComplexOpsBuilder::getComplexPartType(mlir::Value cplx) {
   assert(cplx != nullptr);
-  return getComplexPartType(cplx->getType());
+  return getComplexPartType(cplx.getType());
 }
 
 mlir::Value B::ComplexOpsBuilder::createComplex(fir::KindTy kind,
@@ -217,7 +217,7 @@ template mlir::Value B::ComplexOpsBuilder::extract<CplxPart::Imag>(mlir::Value);
 template <CplxPart partId>
 mlir::Value B::ComplexOpsBuilder::insert(mlir::Value cplx, mlir::Value part) {
   assert(cplx != nullptr);
-  return create<fir::InsertValueOp>(cplx->getType(), cplx, part,
+  return create<fir::InsertValueOp>(cplx.getType(), cplx, part,
                                     createPartId<partId>());
 }
 template mlir::Value B::ComplexOpsBuilder::insert<CplxPart::Real>(mlir::Value,
