@@ -1,4 +1,4 @@
-//===-- lib/optimizer/StdConverter.cpp --------------------------*- C++ -*-===//
+//===-- lib/optimizer/StdConverter.cpp ------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -53,6 +53,7 @@ public:
     case L::Type::TypeID::HalfTyID:
       return M::FloatType::getF16(ctx);
 #if 0
+    // FIXME: there is no BF16 type in LLVM yet
     case L::Type::TypeID:: FIXME TyID:
       return M::FloatType::getBF16(ctx);
 #endif
@@ -69,7 +70,6 @@ public:
 
   /// Convert some FIR types to MLIR standard dialect types
   M::Type convertType(M::Type t) override {
-#if 0
     // To lower types, we have to convert everything that uses these types...
     if (auto cplx = t.dyn_cast<CplxType>())
       return M::ComplexType::get(kindToRealType(kindMap, cplx.getFKind()));
@@ -77,7 +77,6 @@ public:
       return M::IntegerType::get(integer.getFKind() * 8, integer.getContext());
     if (auto real = t.dyn_cast<RealType>())
       return kindToRealType(kindMap, real.getFKind());
-#endif
     return t;
   }
 
@@ -89,14 +88,16 @@ private:
 template <typename FromOp>
 class FIROpConversion : public M::ConversionPattern {
 public:
-  explicit FIROpConversion(M::MLIRContext *ctx, FIRToStdTypeConverter &lowering)
-      : ConversionPattern(FromOp::getOperationName(), 1, ctx),
-        lowering(lowering) {}
+  explicit FIROpConversion(
+      M::MLIRContext *ctx /*, FIRToStdTypeConverter &lowering*/)
+      : ConversionPattern(FromOp::getOperationName(), 1,
+                          ctx) /*, lowering(lowering)*/
+  {}
 
 protected:
-  M::Type convertType(M::Type ty) const { return lowering.convertType(ty); }
+  // M::Type convertType(M::Type ty) const { return lowering.convertType(ty); }
 
-  FIRToStdTypeConverter &lowering;
+  // FIRToStdTypeConverter &lowering;
 };
 
 /// SelectTypeOp converted to an if-then-else chain
@@ -182,19 +183,21 @@ public:
       return;
 
     auto *context{&getContext()};
-    FIRToStdTypeConverter typeConverter{kindMap};
+    // FIRToStdTypeConverter typeConverter{kindMap};
     M::OwningRewritePatternList patterns;
-    patterns.insert<SelectTypeOpConversion>(context, typeConverter);
+    // patterns.insert<SelectTypeOpConversion>(context, typeConverter);
+    patterns.insert<SelectTypeOpConversion>(context);
     M::populateAffineToStdConversionPatterns(patterns, context);
-    M::populateFuncOpTypeConversionPattern(patterns, context, typeConverter);
+    // M::populateFuncOpTypeConversionPattern(patterns, context, typeConverter);
     M::ConversionTarget target{*context};
     target.addLegalDialect<M::StandardOpsDialect, fir::FIROpsDialect>();
-    target.addDynamicallyLegalOp<M::FuncOp>([&](M::FuncOp op) {
-      return typeConverter.isSignatureLegal(op.getType());
-    });
+    // target.addDynamicallyLegalOp<M::FuncOp>([&](M::FuncOp op) {
+    //  return typeConverter.isSignatureLegal(op.getType());
+    //});
     target.addIllegalOp<SelectTypeOp>();
     if (M::failed(M::applyPartialConversion(
-            getModule(), target, std::move(patterns), &typeConverter))) {
+            // getModule(), target, std::move(patterns), &typeConverter))) {
+            getModule(), target, std::move(patterns)))) {
       M::emitError(M::UnknownLoc::get(context),
                    "error in converting to standard dialect\n");
       signalPassFailure();
