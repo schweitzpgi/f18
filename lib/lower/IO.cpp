@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "flang/lower/IO.h"
+#include "../../runtime/io-api.h"
 #include "../parser/parse-tree.h"
 #include "../semantics/tools.h"
 #include "flang/lower/Bridge.h"
@@ -16,12 +17,17 @@
 #include "mlir/IR/Builders.h"
 #include <cassert>
 
+#define NAMIFY_HELPER(X) #X
+#define NAMIFY(X) NAMIFY_HELPER(IONAME(X))
+
 namespace Br = Fortran::lower;
 namespace M = mlir;
 namespace Pa = Fortran::parser;
 
 using namespace Fortran;
 using namespace Fortran::lower;
+
+#define TODO() assert(false && "not yet implemented")
 
 namespace {
 
@@ -54,13 +60,13 @@ using IOA = IOAction;
 /// The array need to be sorted on the Actions.
 /// Experimental runtime for now.
 static constexpr IORuntimeDescription ioRuntimeTable[]{
-    {IOA::BeginExternalList, "__F18IOa_BeginExternalListOutput",
-     RType::IOCookie, Args::create<RType::i32>()},
-    {IOA::Output, "__F18IOa_OutputInteger64", RT::voidTy,
+    {IOA::BeginExternalList, NAMIFY(BeginExternalListOutput), RType::IOCookie,
+     Args::create<RType::i32>()},
+    {IOA::Output, NAMIFY(OutputInteger64), RT::voidTy,
      Args::create<RType::IOCookie, RType::i64>()},
-    {IOA::Output, "__F18IOa_OutputReal64", RT::voidTy,
+    {IOA::Output, NAMIFY(OutputReal64), RT::voidTy,
      Args::create<RType::IOCookie, RType::f64>()},
-    {IOA::EndIO, "__F18IOa_EndIOStatement", RT::voidTy,
+    {IOA::EndIO, NAMIFY(EndIOStatement), RT::voidTy,
      Args::create<RType::IOCookie>()},
 };
 
@@ -102,7 +108,7 @@ static M::FuncOp getOutputRuntimeFunction(M::OpBuilder &builder, M::Type type) {
 }
 
 /// Lower print statement assuming a dummy runtime interface for now.
-void lowerPrintStatement(M::OpBuilder &builder, M::Location loc,
+void lowerPrintStatement(M::OpBuilder &builder, M::Location loc, int format,
                          M::ValueRange args) {
   M::FuncOp beginFunc{
       getIORuntimeFunction<IOAction::BeginExternalList>(builder)};
@@ -128,31 +134,32 @@ void lowerPrintStatement(M::OpBuilder &builder, M::Location loc,
   builder.create<M::CallOp>(loc, endIOFunc, endArgs);
 }
 
+/// FIXME: this is a stub; process the format and return it
+int lowerFormat(const Pa::Format &format) { return 0; }
+
 } // namespace
 
 void Br::genBackspaceStatement(AbstractConverter &, const Pa::BackspaceStmt &) {
-  assert(false);
+  TODO();
 }
 
 void Br::genCloseStatement(AbstractConverter &, const Pa::CloseStmt &) {
-  assert(false);
+  TODO();
 }
 
 void Br::genEndfileStatement(AbstractConverter &, const Pa::EndfileStmt &) {
-  assert(false);
+  TODO();
 }
 
 void Br::genFlushStatement(AbstractConverter &, const Pa::FlushStmt &) {
-  assert(false);
+  TODO();
 }
 
 void Br::genInquireStatement(AbstractConverter &, const Pa::InquireStmt &) {
-  assert(false);
+  TODO();
 }
 
-void Br::genOpenStatement(AbstractConverter &, const Pa::OpenStmt &) {
-  assert(false);
-}
+void Br::genOpenStatement(AbstractConverter &, const Pa::OpenStmt &) { TODO(); }
 
 void Br::genPrintStatement(Br::AbstractConverter &converter,
                            const Pa::PrintStmt &stmt) {
@@ -162,21 +169,19 @@ void Br::genPrintStatement(Br::AbstractConverter &converter,
       auto loc{converter.genLocation(pe->source)};
       args.push_back(converter.genExprValue(*semantics::GetExpr(*pe), &loc));
     } else {
-      assert(false); // TODO implied do
+      TODO(); // TODO implied do
     }
   }
   lowerPrintStatement(converter.getOpBuilder(), converter.getCurrentLocation(),
-                      args);
+                      lowerFormat(std::get<Pa::Format>(stmt.t)), args);
 }
 
-void Br::genReadStatement(AbstractConverter &, const Pa::ReadStmt &) {
-  assert(false);
-}
+void Br::genReadStatement(AbstractConverter &, const Pa::ReadStmt &) { TODO(); }
 
 void Br::genRewindStatement(AbstractConverter &, const Pa::RewindStmt &) {
-  assert(false);
+  TODO();
 }
 
 void Br::genWriteStatement(AbstractConverter &, const Pa::WriteStmt &) {
-  assert(false);
+  TODO();
 }
