@@ -41,13 +41,13 @@ using namespace Fortran::lower;
 
 namespace {
 
-L::cl::opt<bool> ClDumpPreFir("fdebug-dump-pre-fir", L::cl::init(false),
-                              L::cl::desc("dump the IR tree prior to FIR"));
+L::cl::opt<bool> dumpBeforeFir("fdebug-dump-pre-fir", L::cl::init(false),
+                               L::cl::desc("dump the IR tree prior to FIR"));
 
 L::cl::opt<bool>
-    ClDisableToDoAssert("disable-burnside-todo",
-                        L::cl::desc("disable burnside bridge asserts"),
-                        L::cl::init(false), L::cl::Hidden);
+    disableToDoAssertions("disable-burnside-todo",
+                          L::cl::desc("disable burnside bridge asserts"),
+                          L::cl::init(false), L::cl::Hidden);
 
 #undef TODO
 #define TODO() assert(false && "not implemented yet")
@@ -69,7 +69,7 @@ constexpr static bool isStopStmt(const Pa::StopStmt &stm) {
 #undef TODO
 #define TODO()                                                                 \
   {                                                                            \
-    if (ClDisableToDoAssert)                                                   \
+    if (disableToDoAssertions)                                                 \
       M::emitError(toLocation(), __FILE__)                                     \
           << ":" << __LINE__ << " not implemented";                            \
     else                                                                       \
@@ -1203,7 +1203,7 @@ void Br::BurnsideBridge::lower(const Pa::Program &prg,
                                fir::NameUniquer &uniquer) {
   AST::Program *ast{Br::createAST(prg)};
   Br::annotateControl(*ast);
-  if (ClDumpPreFir) {
+  if (dumpBeforeFir) {
     Br::dumpAST(L::errs(), *ast);
   }
   FirConverter converter{*this, uniquer};
