@@ -15,6 +15,7 @@
 #include <cassert>
 
 namespace Fortran::lower {
+
 mlir::Type RuntimeStaticDescription::getMLIRType(TypeCode t,
                                                  mlir::MLIRContext *context) {
   switch (t) {
@@ -52,9 +53,8 @@ mlir::FunctionType RuntimeStaticDescription::getMLIRFunctionType(
   if (resultTypeCode.has_value()) {
     mlir::Type resMLIRType{getMLIRType(*resultTypeCode, context)};
     return mlir::FunctionType::get(argMLIRTypes, resMLIRType, context);
-  } else {
-    return mlir::FunctionType::get(argMLIRTypes, {}, context);
   }
+  return mlir::FunctionType::get(argMLIRTypes, {}, context);
 }
 
 mlir::FuncOp
@@ -79,10 +79,12 @@ public:
       : RuntimeStaticDescription{s, r, a}, key{k} {}
   Key key;
 };
+
 using RT = RuntimeStaticDescription;
 using RType = typename RT::TypeCode;
 using Args = typename RT::TypeCodeVector;
 using RTC = RuntimeEntryCode;
+
 static constexpr RuntimeEntryDescription runtimeTable[]{
     {RTC::StopStatement, "StopStatement", RT::voidTy,
      Args::create<RType::i32, RType::boolean, RType::boolean>()},

@@ -49,6 +49,7 @@ struct StaticVectorStorage {
   static constexpr const T *start{&values[0]};
   static constexpr const T *end{start + sizeof...(v)};
 };
+
 template <typename T>
 struct StaticVectorStorage<T> {
   static constexpr const T *start{nullptr}, *end{nullptr};
@@ -80,7 +81,6 @@ struct StaticVector {
 /// these descriptions in a meaningful way.
 /// It is constexpr constructible so that static tables of such descriptions can
 /// be safely stored as global variables without requiring global constructors.
-
 class RuntimeStaticDescription {
 public:
   /// Define possible runtime function argument/return type used in signature
