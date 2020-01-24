@@ -618,6 +618,7 @@ M::FuncOp createFuncOp(M::Location loc, M::ModuleOp module, StringRef name,
   if (auto f = module.lookupSymbol<M::FuncOp>(name))
     return f;
   M::OpBuilder modBuilder(module.getBodyRegion());
+  modBuilder.setInsertionPoint(modBuilder.getInsertionBlock()->getTerminator());
   return modBuilder.create<M::FuncOp>(loc, name, type, attrs);
 }
 

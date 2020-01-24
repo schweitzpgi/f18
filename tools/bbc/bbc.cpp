@@ -60,8 +60,7 @@ cl::opt<std::string> InputFilename(cl::Positional, cl::Required,
 
 cl::opt<std::string> OutputFilename("o",
                                     cl::desc("Specify the output filename"),
-                                    cl::value_desc("filename"),
-                                    cl::init("a.mlir"));
+                                    cl::value_desc("filename"), cl::init("-"));
 
 cl::list<std::string> IncludeDirs("I", cl::desc("include search paths"));
 
@@ -138,33 +137,30 @@ void convertFortranSourceToMLIR(
   fir::KindMapping kindMap{&burnside.getMLIRContext()};
   burnside.lower(parseTree, nameUniquer);
   mlir::ModuleOp mlirModule = burnside.getModule();
-  mlir::PassManager pm = mlirModule.getContext();
 
-  pm.addPass(fir::createMemToRegPass());
-  pm.addPass(fir::createCSEPass());
-  pm.addPass(fir::createLowerToLoopPass());
-  pm.addPass(fir::createFIRToStdPass(kindMap));
-  pm.addPass(mlir::createLowerToCFGPass());
-
-  if (EmitLLVM) {
-    pm.addPass(fir::createFIRToLLVMPass(nameUniquer));
-    std::error_code ec;
-    llvm::ToolOutputFile out(OutputFilename + ".ll", ec,
-                             llvm::sys::fs::OF_None);
-    if (ec) {
-      errs() << "can't open output file " + OutputFilename + ".ll";
-      return;
-    }
-    pm.addPass(fir::createLLVMDialectToLLVMPass(out.os()));
+  std::error_code ec;
+  llvm::ToolOutputFile out(OutputFilename, ec, llvm::sys::fs::OF_None);
+  if (ec) {
+    errs() << "can't open output file " + OutputFilename;
+    return;
   }
 
-  if (mlir::succeeded(pm.run(mlirModule))) {
-    std::error_code ec;
-    raw_fd_ostream out(OutputFilename, ec);
-    if (!ec)
-      mlirModule.print(out);
+  if (EmitLLVM) {
+    mlir::PassManager pm = mlirModule.getContext();
+    pm.addPass(fir::createMemToRegPass());
+    pm.addPass(fir::createCSEPass());
+    pm.addPass(fir::createLowerToLoopPass());
+    pm.addPass(fir::createFIRToStdPass(kindMap));
+    pm.addPass(mlir::createLowerToCFGPass());
+    pm.addPass(fir::createFIRToLLVMPass(nameUniquer));
+
+    pm.addPass(fir::createLLVMDialectToLLVMPass(out.os()));
+    if (!mlir::succeeded(pm.run(mlirModule))) {
+      errs() << "oops, pass manager reported failure\n";
+      return;
+    }
   } else {
-    errs() << "oops, pass manager reported failure\n";
+    mlirModule.print(out.os());
   }
 }
 
