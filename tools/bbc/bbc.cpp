@@ -58,9 +58,14 @@ namespace {
 cl::opt<std::string> InputFilename(cl::Positional, cl::Required,
                                    cl::desc("<input file>"));
 
-cl::opt<std::string> OutputFilename("o",
-                                    cl::desc("Specify the output filename"),
-                                    cl::value_desc("filename"), cl::init("-"));
+cl::opt<std::string>
+    FIROutputFilename("o", cl::desc("Specify the FIR output filename"),
+                      cl::value_desc("filename"), cl::init("-"));
+
+cl::opt<std::string>
+    LLVMOutputFilename("ll-file",
+                       cl::desc("Specify the LLVM IR output filename"),
+                       cl::value_desc("filename"), cl::init("-"));
 
 cl::list<std::string> IncludeDirs("I", cl::desc("include search paths"));
 
@@ -71,6 +76,9 @@ cl::opt<std::string> ModuleSuffix("module-suffix",
                                   cl::init(".mod"));
 
 cl::opt<bool> EmitLLVM("emit-llvm", cl::desc("emit LLVM IR"), cl::init(false));
+cl::opt<bool> RunFirPasses("fir-passes",
+                           cl::desc("Run transformation passes on FIR"),
+                           cl::init(false));
 
 // vestigal struct that should be deleted
 struct DriverOptions {
@@ -139,28 +147,38 @@ void convertFortranSourceToMLIR(
   mlir::ModuleOp mlirModule = burnside.getModule();
 
   std::error_code ec;
-  llvm::ToolOutputFile out(OutputFilename, ec, llvm::sys::fs::OF_None);
+  llvm::ToolOutputFile out(FIROutputFilename, ec, llvm::sys::fs::OF_None);
   if (ec) {
-    errs() << "can't open output file " + OutputFilename;
+    errs() << "can't open output file " + FIROutputFilename;
     return;
   }
 
-  if (EmitLLVM) {
-    mlir::PassManager pm = mlirModule.getContext();
+  mlir::PassManager pm = mlirModule.getContext();
+
+  if (RunFirPasses) {
     pm.addPass(fir::createMemToRegPass());
     pm.addPass(fir::createCSEPass());
     pm.addPass(fir::createLowerToLoopPass());
     pm.addPass(fir::createFIRToStdPass(kindMap));
     pm.addPass(mlir::createLowerToCFGPass());
-    pm.addPass(fir::createFIRToLLVMPass(nameUniquer));
+  }
 
-    pm.addPass(fir::createLLVMDialectToLLVMPass(out.os()));
-    if (!mlir::succeeded(pm.run(mlirModule))) {
-      errs() << "oops, pass manager reported failure\n";
+  if (EmitLLVM) {
+    std::error_code ec;
+    llvm::ToolOutputFile llOut(LLVMOutputFilename, ec, llvm::sys::fs::OF_None);
+    if (ec) {
+      errs() << "can't open output file " + LLVMOutputFilename;
       return;
     }
-  } else {
+    pm.addPass(fir::createFIRToLLVMPass(nameUniquer));
+    pm.addPass(fir::createLLVMDialectToLLVMPass(llOut.os()));
+  }
+
+  if (mlir::succeeded(pm.run(mlirModule))) {
     mlirModule.print(out.os());
+  } else {
+    errs() << "oops, pass manager reported failure\n";
+    return;
   }
 }
 
