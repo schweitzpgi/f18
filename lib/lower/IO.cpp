@@ -31,6 +31,34 @@ using namespace Fortran::lower;
 
 namespace {
 
+/// Static table of IO runtime calls
+///
+/// This logical map contains the name and type builder function for each IO
+/// runtime function listed in the tuple. This table is fully constructed at
+/// compile-time. Use the `mkKey` macro to access the table.
+static constexpr std::tuple<mkKey(IONAME(BeginExternalListOutput)),
+                            mkKey(IONAME(EndIoStatement)),
+                            mkKey(IONAME(OutputInteger64)),
+                            mkKey(IONAME(OutputReal64)),
+                            mkKey(IONAME(OutputReal32)),
+                            mkKey(IONAME(OutputComplex64)),
+                            mkKey(IONAME(OutputComplex32)),
+                            mkKey(IONAME(SetAdvance))>
+    newIOTable;
+
+/// Helper function to retrieve the name of the IO function given the key `A`
+template <typename A>
+static constexpr const char *getName() {
+  return std::get<A>(newIOTable).name;
+}
+
+/// Helper function to retrieve the type model signature builder of the IO
+/// function as defined by the key `A`
+template <typename A>
+static constexpr FuncTypeBuilderFunc getTypeModel() {
+  return std::get<A>(newIOTable).getTypeModel();
+}
+
 /// Define actions to sort runtime functions. One actions
 /// may be associated to one or more runtime function.
 /// Actions are the keys in the StaticMultimapView used to
@@ -72,9 +100,6 @@ static constexpr IORuntimeDescription ioRuntimeTable[]{
 
 static constexpr IORuntimeMap ioRuntimeMap{ioRuntimeTable};
 
-// New table
-static constexpr std::tuple<mkKey(IONAME(SetAdvance))> newIOTable;
-
 /// This helper can be used to access io runtime functions that
 /// are mapped to an IOAction that must be mapped to one and
 /// exactly one runtime function. This constraint is enforced
@@ -110,11 +135,25 @@ static M::FuncOp getOutputRuntimeFunction(M::OpBuilder &builder, M::Type type) {
   return {};
 }
 
+template <typename E>
+M::FuncOp getIORuntimeFunc(M::OpBuilder &builder) {
+  auto module = getModule(&builder);
+  auto name = getName<E>();
+  auto func = getNamedFunction(module, name);
+  if (func)
+    return func;
+  auto funTy = getTypeModel<E>()(builder.getContext());
+  func = createFunction(module, name, funTy);
+  func.setAttr("fir.runtime", builder.getUnitAttr());
+  func.setAttr("fir.io", builder.getUnitAttr());
+  return func;
+}
+
 /// Lower print statement assuming a dummy runtime interface for now.
 void lowerPrintStatement(M::OpBuilder &builder, M::Location loc, int format,
                          M::ValueRange args) {
   M::FuncOp beginFunc{
-      getIORuntimeFunction<IOAction::BeginExternalList>(builder)};
+      getIORuntimeFunc<mkKey(IONAME(BeginExternalListOutput))>(builder)};
 
   // Initiate io
   M::Type externalUnitType{builder.getIntegerType(32)};
@@ -132,7 +171,7 @@ void lowerPrintStatement(M::OpBuilder &builder, M::Location loc, int format,
   }
 
   // Terminate IO
-  M::FuncOp endIOFunc{getIORuntimeFunction<IOAction::EndIO>(builder)};
+  M::FuncOp endIOFunc{getIORuntimeFunc<mkKey(IONAME(EndIoStatement))>(builder)};
   llvm::SmallVector<M::Value, 1> endArgs{cookie};
   builder.create<M::CallOp>(loc, endIOFunc, endArgs);
 }
@@ -140,14 +179,6 @@ void lowerPrintStatement(M::OpBuilder &builder, M::Location loc, int format,
 /// FIXME: this is a stub; process the format and return it
 int lowerFormat(const Pa::Format &format) { return 0; }
 
-template <typename A>
-static constexpr const char *getName() {
-  return std::get<A>(newIOTable).name;
-}
-template <typename A>
-static constexpr TypeBuilderFunc getTypeModel() {
-  return std::get<A>(newIOTable).getTypeModel();
-}
 } // namespace
 
 void Br::genBackspaceStatement(AbstractConverter &, const Pa::BackspaceStmt &) {
@@ -195,10 +226,4 @@ void Br::genRewindStatement(AbstractConverter &, const Pa::RewindStmt &) {
 
 void Br::genWriteStatement(AbstractConverter &, const Pa::WriteStmt &) {
   TODO();
-}
-
-// FIXME: force instantiation to test
-const char *getName0() { return getName<mkKey(IONAME(SetAdvance))>(); }
-TypeBuilderFunc getBuildThing0() {
-  return getTypeModel<mkKey(IONAME(SetAdvance))>();
 }
