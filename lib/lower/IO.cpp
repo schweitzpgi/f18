@@ -10,12 +10,12 @@
 #include "../../runtime/io-api.h"
 #include "../parser/parse-tree.h"
 #include "../semantics/tools.h"
+#include "RTBuilder.h"
 #include "flang/lower/Bridge.h"
 #include "flang/lower/OpBuilder.h"
 #include "flang/lower/Runtime.h"
 #include "mlir/Dialect/StandardOps/Ops.h"
 #include "mlir/IR/Builders.h"
-#include <cassert>
 
 #define NAMIFY_HELPER(X) #X
 #define NAMIFY(X) NAMIFY_HELPER(IONAME(X))
@@ -71,6 +71,9 @@ static constexpr IORuntimeDescription ioRuntimeTable[]{
 };
 
 static constexpr IORuntimeMap ioRuntimeMap{ioRuntimeTable};
+
+// New table
+static constexpr std::tuple<mkKey(IONAME(SetAdvance))> newIOTable;
 
 /// This helper can be used to access io runtime functions that
 /// are mapped to an IOAction that must be mapped to one and
@@ -137,6 +140,14 @@ void lowerPrintStatement(M::OpBuilder &builder, M::Location loc, int format,
 /// FIXME: this is a stub; process the format and return it
 int lowerFormat(const Pa::Format &format) { return 0; }
 
+template <typename A>
+static constexpr const char *getName() {
+  return std::get<A>(newIOTable).name;
+}
+template <typename A>
+static constexpr TypeBuilderFunc getTypeModel() {
+  return std::get<A>(newIOTable).getTypeModel();
+}
 } // namespace
 
 void Br::genBackspaceStatement(AbstractConverter &, const Pa::BackspaceStmt &) {
@@ -184,4 +195,10 @@ void Br::genRewindStatement(AbstractConverter &, const Pa::RewindStmt &) {
 
 void Br::genWriteStatement(AbstractConverter &, const Pa::WriteStmt &) {
   TODO();
+}
+
+// FIXME: force instantiation to test
+const char *getName0() { return getName<mkKey(IONAME(SetAdvance))>(); }
+TypeBuilderFunc getBuildThing0() {
+  return getTypeModel<mkKey(IONAME(SetAdvance))>();
 }
