@@ -7,7 +7,7 @@ add_llvm_library(FIRTransforms
 add_dependencies(FIRTransforms FIROpsIncGen)
 
 target_link_libraries(FIRTransforms
-  FIRDialect
+  FIR
 )
 
 install (TARGETS FIRTransforms
