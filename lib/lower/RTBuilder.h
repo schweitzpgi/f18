@@ -20,6 +20,7 @@
 #include "fir/Dialect/FIRType.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/StandardTypes.h"
+#include "llvm/ADT/SmallVector.h"
 #include <cstddef>
 #include <functional>
 
@@ -94,6 +95,16 @@ static constexpr TypeBuilderFunc getModel() {
   } else if constexpr (std::is_same_v<std::decay_t<T>, const char *>) {
     return [](mlir::MLIRContext *c) {
       return fir::ReferenceType::get(mlir::IntegerType::get(8, c));
+    };
+  } else if constexpr (std::is_same_v<T, const runtime::Descriptor &>) {
+    return [](mlir::MLIRContext *c) {
+      return fir::BoxType::get(mlir::NoneType::get(c));
+    };
+  } else if constexpr (std::is_same_v<T, const runtime::NamelistGroup &>) {
+    return [](mlir::MLIRContext *c) {
+      // FIXME: a namelist group must be some well-defined data structure, use a
+      // tuple as a proxy for the moment
+      return mlir::TupleType::get(llvm::None, c);
     };
   } else {
     return errorNoBuilderForType<T>{}; // intentionally force compile-time error
