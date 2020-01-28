@@ -7,10 +7,10 @@
 //===----------------------------------------------------------------------===//
 
 #include "flang/lower/Mangler.h"
-#include "../common/reference.h"
-#include "../semantics/tools.h"
+#include "flang/common/reference.h"
 #include "flang/lower/Utils.h"
 #include "flang/optimizer/InternalNames.h"
+#include "flang/semantics/tools.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/Optional.h"
 #include "llvm/ADT/SmallVector.h"

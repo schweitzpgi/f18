@@ -8,12 +8,12 @@
 
 #include "flang/lower/IO.h"
 #include "../../runtime/io-api.h"
-#include "../parser/parse-tree.h"
-#include "../semantics/tools.h"
 #include "RTBuilder.h"
 #include "flang/lower/Bridge.h"
 #include "flang/lower/OpBuilder.h"
 #include "flang/lower/Runtime.h"
+#include "flang/parser/parse-tree.h"
+#include "flang/semantics/tools.h"
 #include "mlir/Dialect/StandardOps/Ops.h"
 #include "mlir/IR/Builders.h"
 
