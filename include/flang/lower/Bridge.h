@@ -5,6 +5,14 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
+///
+/// \file
+/// Implements lowering. Convert Fortran source to
+/// [MLIR](https://github.com/tensorflow/mlir).
+///
+/// [Coding style](https://llvm.org/docs/CodingStandards.html)
+///
+//===----------------------------------------------------------------------===//
 
 #ifndef FORTRAN_LOWER_BRIDGE_H_
 #define FORTRAN_LOWER_BRIDGE_H_
@@ -13,11 +21,6 @@
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/Module.h"
 #include <memory>
-
-/// Implement the burnside bridge from Fortran to
-/// [MLIR](https://github.com/tensorflow/mlir).
-///
-/// [Coding style](https://llvm.org/docs/CodingStandards.html)
 
 namespace Fortran {
 namespace common {
@@ -38,7 +41,7 @@ struct Program;
 } // namespace parser
 namespace semantics {
 class Symbol;
-}
+} // namespace semantics
 } // namespace Fortran
 
 namespace llvm {
@@ -67,9 +70,16 @@ public:
   /// Generate the address of the location holding the expression
   virtual mlir::Value genExprAddr(const SomeExpr &,
                                   mlir::Location *loc = nullptr) = 0;
+  mlir::Value genExprAddr(const SomeExpr *someExpr, mlir::Location loc) {
+    return genExprAddr(*someExpr, &loc);
+  }
+
   /// Generate the computations of the expression to produce a value
   virtual mlir::Value genExprValue(const SomeExpr &,
                                    mlir::Location *loc = nullptr) = 0;
+  mlir::Value genExprValue(const SomeExpr *someExpr, mlir::Location loc) {
+    return genExprValue(*someExpr, &loc);
+  }
 
   //
   // Types
