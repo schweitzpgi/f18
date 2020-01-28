@@ -9,7 +9,7 @@
 #ifndef FORTRAN_LOWER_BRIDGE_H_
 #define FORTRAN_LOWER_BRIDGE_H_
 
-#include "flang/lib/common/Fortran.h"
+#include "flang/common/Fortran.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/Module.h"
 #include <memory>
