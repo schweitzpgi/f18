@@ -11,7 +11,7 @@
 #include "fir/Dialect/FIRDialect.h"
 #include "fir/Dialect/FIROpsSupport.h"
 #include "fir/Dialect/FIRType.h"
-#include "flang/optimizer/KindMapping.h"
+#include "fir/KindMapping.h"
 #include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
 #include "mlir/Dialect/StandardOps/Ops.h"
 #include "mlir/IR/StandardTypes.h"
