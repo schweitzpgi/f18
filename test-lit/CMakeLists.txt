@@ -9,6 +9,7 @@ if (FLANG_BUILT_STANDALONE)
 else()
  set(FLANG_LLVM_TOOLS_DIR  ${LLVM_BINARY_DIR}/bin)
 endif()
+set(FLANG_INTRINSIC_MODULES_DIR ${FLANG_BINARY_DIR}/tools/f18/include)
 
 configure_lit_site_cfg(
   ${CMAKE_CURRENT_SOURCE_DIR}/lit.site.cfg.py.in

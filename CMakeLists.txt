@@ -142,7 +142,7 @@ if( CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR )
     set(LLVM_INCLUDE_TESTS ON)
   endif()
 
-  include_directories("${LLVM_BINARY_DIR}/include" "${LLVM_MAIN_INCLUDE_DIR}")
+  include_directories(SYSTEM "${LLVM_BINARY_DIR}/include" "${LLVM_MAIN_INCLUDE_DIR}")
   link_directories("${LLVM_LIBRARY_DIR}")
   set(MLIR_BINARY_DIR ${LLVM_BINARY_DIR})
 
