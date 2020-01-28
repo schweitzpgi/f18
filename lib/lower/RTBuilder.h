@@ -37,6 +37,7 @@ struct errorNoBuilderForType;
 template <typename T>
 static constexpr TypeBuilderFunc getModel() {
   using namespace std::placeholders;
+  using Iostat = typename runtime::io::Iostat;
   if constexpr (std::is_same_v<T, int>) {
     return [](mlir::MLIRContext *c) {
       return mlir::IntegerType::get(8 * sizeof(int), c);
