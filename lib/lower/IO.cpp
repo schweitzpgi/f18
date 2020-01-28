@@ -196,7 +196,7 @@ void lowerPrintStatement(M::OpBuilder &builder, M::Location loc, int format,
     M::FuncOp outputFunc{getOutputRuntimeFunction(builder, arg.getType())};
     builder.create<M::CallOp>(loc, outputFunc, operands);
   }
-  endIO(builder, loc, cookie);
+  genEndIO(builder, loc, cookie);
 }
 
 int lowerFormat(const Pa::Format &format) {
@@ -213,11 +213,12 @@ M::Value lowerPositionOrFlush(M::OpBuilder &builder, M::Location loc,
 
 /// Generate IO calls for any of the "position or flush" like IO statements.
 /// This is templatized with a statement type `S` and a key `K` for genericity.
-template <typename S, typename K>
+template <typename K, typename S>
 void genPosOrFlushLikeStmt(AbstractConverter &converter, const S &stmt) {
   auto builder = converter.getOpBuilder();
   auto loc = converter.getCurrentLocation();
   auto beginFunc = getIORuntimeFunc<K>(builder);
+  (void)beginFunc; // FIXME
   auto cookie = lowerPositionOrFlush(builder, loc, stmt.v);
   genEndIO(builder, converter.getCurrentLocation(), cookie);
 }
