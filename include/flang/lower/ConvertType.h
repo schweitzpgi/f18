@@ -17,7 +17,7 @@
 ///
 /// [Coding style](https://llvm.org/docs/CodingStandards.html)
 
-#include "flang/lib/common/Fortran.h"
+#include "flang/common/Fortran.h"
 #include "mlir/IR/Types.h"
 
 namespace mlir {
