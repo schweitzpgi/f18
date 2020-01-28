@@ -1,4 +1,4 @@
-//===-- lib/optimizer/StdConverter.cpp ------------------------------------===//
+//===-- StdConverter.cpp --------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -22,59 +22,56 @@
 // This module performs the conversion of some FIR operations.
 // Convert some FIR types to standard dialect?
 
-namespace L = llvm;
-namespace M = mlir;
-
-using namespace fir;
-
-static L::cl::opt<bool>
+static llvm::cl::opt<bool>
     ClDisableFirToStd("disable-fir2std",
-                      L::cl::desc("disable FIR to standard pass"),
-                      L::cl::init(false), L::cl::Hidden);
+                      llvm::cl::desc("disable FIR to standard pass"),
+                      llvm::cl::init(false), llvm::cl::Hidden);
 
+namespace fir {
 namespace {
 
-using SmallVecResult = L::SmallVector<M::Value, 4>;
-using OperandTy = L::ArrayRef<M::Value>;
-using AttributeTy = L::ArrayRef<M::NamedAttribute>;
+using SmallVecResult = llvm::SmallVector<mlir::Value, 4>;
+using OperandTy = llvm::ArrayRef<mlir::Value>;
+using AttributeTy = llvm::ArrayRef<mlir::NamedAttribute>;
 
 /// FIR to standard type converter
 /// This converts a subset of FIR types to standard types
-class FIRToStdTypeConverter : public M::TypeConverter {
+class FIRToStdTypeConverter : public mlir::TypeConverter {
 public:
   using TypeConverter::TypeConverter;
 
   explicit FIRToStdTypeConverter(KindMapping &kindMap) : kindMap{kindMap} {}
 
   // convert front-end REAL kind value to a std dialect type, if possible
-  static M::Type kindToRealType(KindMapping &kindMap, KindTy kind) {
+  static mlir::Type kindToRealType(KindMapping &kindMap, KindTy kind) {
     auto *ctx = kindMap.getContext();
     switch (kindMap.getRealTypeID(kind)) {
-    case L::Type::TypeID::HalfTyID:
-      return M::FloatType::getF16(ctx);
+    case llvm::Type::TypeID::HalfTyID:
+      return mlir::FloatType::getF16(ctx);
 #if 0
     // FIXME: there is no BF16 type in LLVM yet
-    case L::Type::TypeID:: FIXME TyID:
-      return M::FloatType::getBF16(ctx);
+    case llvm::Type::TypeID:: FIXME TyID:
+      return mlir::FloatType::getBF16(ctx);
 #endif
-    case L::Type::TypeID::FloatTyID:
-      return M::FloatType::getF32(ctx);
-    case L::Type::TypeID::DoubleTyID:
-      return M::FloatType::getF64(ctx);
-    case L::Type::TypeID::X86_FP80TyID: // MLIR does not support yet
-    case L::Type::TypeID::FP128TyID:    // MLIR does not support yet
+    case llvm::Type::TypeID::FloatTyID:
+      return mlir::FloatType::getF32(ctx);
+    case llvm::Type::TypeID::DoubleTyID:
+      return mlir::FloatType::getF64(ctx);
+    case llvm::Type::TypeID::X86_FP80TyID: // MLIR does not support yet
+    case llvm::Type::TypeID::FP128TyID:    // MLIR does not support yet
     default:
-      return fir::RealType::get(ctx, kind);
+      return RealType::get(ctx, kind);
     }
   }
 
   /// Convert some FIR types to MLIR standard dialect types
-  M::Type convertType(M::Type t) override {
+  mlir::Type convertType(mlir::Type t) override {
     // To lower types, we have to convert everything that uses these types...
     if (auto cplx = t.dyn_cast<CplxType>())
-      return M::ComplexType::get(kindToRealType(kindMap, cplx.getFKind()));
+      return mlir::ComplexType::get(kindToRealType(kindMap, cplx.getFKind()));
     if (auto integer = t.dyn_cast<IntType>())
-      return M::IntegerType::get(integer.getFKind() * 8, integer.getContext());
+      return mlir::IntegerType::get(integer.getFKind() * 8,
+                                    integer.getContext());
     if (auto real = t.dyn_cast<RealType>())
       return kindToRealType(kindMap, real.getFKind());
     return t;
@@ -86,16 +83,17 @@ private:
 
 /// FIR conversion pattern template
 template <typename FromOp>
-class FIROpConversion : public M::ConversionPattern {
+class FIROpConversion : public mlir::ConversionPattern {
 public:
   explicit FIROpConversion(
-      M::MLIRContext *ctx /*, FIRToStdTypeConverter &lowering*/)
+      mlir::MLIRContext *ctx /*, FIRToStdTypeConverter &lowering*/)
       : ConversionPattern(FromOp::getOperationName(), 1,
                           ctx) /*, lowering(lowering)*/
   {}
 
 protected:
-  // M::Type convertType(M::Type ty) const { return lowering.convertType(ty); }
+  // mlir::Type convertType(mlir::Type ty) const { return
+  // lowering.convertType(ty); }
 
   // FIRToStdTypeConverter &lowering;
 };
@@ -106,55 +104,56 @@ protected:
 struct SelectTypeOpConversion : public FIROpConversion<SelectTypeOp> {
   using FIROpConversion::FIROpConversion;
 
-  M::PatternMatchResult
-  matchAndRewrite(M::Operation *op, OperandTy operands,
-                  L::ArrayRef<M::Block *> destinations,
-                  L::ArrayRef<OperandTy> destOperands,
-                  M::ConversionPatternRewriter &rewriter) const override {
-    auto selectType = M::cast<SelectTypeOp>(op);
+  mlir::PatternMatchResult
+  matchAndRewrite(mlir::Operation *op, OperandTy operands,
+                  llvm::ArrayRef<mlir::Block *> destinations,
+                  llvm::ArrayRef<OperandTy> destOperands,
+                  mlir::ConversionPatternRewriter &rewriter) const override {
+    auto selectType = mlir::cast<SelectTypeOp>(op);
     auto conds = selectType.getNumConditions();
     auto attrName = SelectTypeOp::AttrName;
-    auto caseAttr = selectType.getAttrOfType<M::ArrayAttr>(attrName);
+    auto caseAttr = selectType.getAttrOfType<mlir::ArrayAttr>(attrName);
     auto cases = caseAttr.getValue();
     // Selector must be of type !fir.box<T>
     auto &selector = operands[0];
     auto loc = selectType.getLoc();
-    auto mod = op->getParentOfType<M::ModuleOp>();
+    auto mod = op->getParentOfType<mlir::ModuleOp>();
     for (unsigned t = 0; t != conds; ++t) {
       auto &attr = cases[t];
-      if (auto a = attr.dyn_cast_or_null<fir::ExactTypeAttr>()) {
+      if (auto a = attr.dyn_cast_or_null<ExactTypeAttr>()) {
         genTypeLadderStep(loc, true, selector, a.getType(), destinations[t],
                           destOperands[t], mod, rewriter);
         continue;
       }
-      if (auto a = attr.dyn_cast_or_null<fir::SubclassAttr>()) {
+      if (auto a = attr.dyn_cast_or_null<SubclassAttr>()) {
         genTypeLadderStep(loc, false, selector, a.getType(), destinations[t],
                           destOperands[t], mod, rewriter);
         continue;
       }
-      assert(attr.dyn_cast_or_null<M::UnitAttr>());
+      assert(attr.dyn_cast_or_null<mlir::UnitAttr>());
       assert((t + 1 == conds) && "unit must be last");
-      rewriter.replaceOpWithNewOp<M::BranchOp>(selectType, destinations[t],
-                                               M::ValueRange{destOperands[t]});
+      rewriter.replaceOpWithNewOp<mlir::BranchOp>(
+          selectType, destinations[t], mlir::ValueRange{destOperands[t]});
     }
     return matchSuccess();
   }
 
-  static void genTypeLadderStep(M::Location loc, bool exactTest,
-                                M::Value selector, M::Type ty, M::Block *dest,
-                                OperandTy destOps, M::ModuleOp module,
-                                M::ConversionPatternRewriter &rewriter) {
-    M::Type tydesc = fir::TypeDescType::get(ty);
-    auto tyattr = M::TypeAttr::get(ty);
-    M::Value t = rewriter.create<GenTypeDescOp>(loc, tydesc, tyattr);
-    M::Type selty = fir::BoxType::get(rewriter.getNoneType());
-    M::Value csel = rewriter.create<ConvertOp>(loc, selty, selector);
-    M::Type tty = fir::ReferenceType::get(rewriter.getNoneType());
-    M::Value ct = rewriter.create<ConvertOp>(loc, tty, t);
-    std::vector<M::Value> actuals = {csel, ct};
+  static void genTypeLadderStep(mlir::Location loc, bool exactTest,
+                                mlir::Value selector, mlir::Type ty,
+                                mlir::Block *dest, OperandTy destOps,
+                                mlir::ModuleOp module,
+                                mlir::ConversionPatternRewriter &rewriter) {
+    mlir::Type tydesc = TypeDescType::get(ty);
+    auto tyattr = mlir::TypeAttr::get(ty);
+    mlir::Value t = rewriter.create<GenTypeDescOp>(loc, tydesc, tyattr);
+    mlir::Type selty = BoxType::get(rewriter.getNoneType());
+    mlir::Value csel = rewriter.create<ConvertOp>(loc, selty, selector);
+    mlir::Type tty = ReferenceType::get(rewriter.getNoneType());
+    mlir::Value ct = rewriter.create<ConvertOp>(loc, tty, t);
+    std::vector<mlir::Value> actuals = {csel, ct};
     auto fty = rewriter.getI1Type();
-    std::vector<M::Type> argTy = {selty, tty};
-    L::StringRef funName =
+    std::vector<mlir::Type> argTy = {selty, tty};
+    llvm::StringRef funName =
         exactTest ? "FIXME_exact_type_match" : "FIXME_isa_type_test";
     createFuncOp(rewriter.getUnknownLoc(), module, funName,
                  rewriter.getFunctionType(argTy, fty));
@@ -162,19 +161,19 @@ struct SelectTypeOpConversion : public FIROpConversion<SelectTypeOp> {
     // runtime type of the selector is an exact match to a derived type or (2)
     // testing if the runtime type of the selector is a derived type or one of
     // that derived type's subtypes.
-    auto cmp = rewriter.create<M::CallOp>(
+    auto cmp = rewriter.create<mlir::CallOp>(
         loc, fty, rewriter.getSymbolRefAttr(funName), actuals);
     auto *thisBlock = rewriter.getInsertionBlock();
     auto *newBlock = rewriter.createBlock(dest);
     rewriter.setInsertionPointToEnd(thisBlock);
-    rewriter.create<M::CondBranchOp>(loc, cmp.getResult(0), dest, destOps,
-                                     newBlock, OperandTy{});
+    rewriter.create<mlir::CondBranchOp>(loc, cmp.getResult(0), dest, destOps,
+                                        newBlock, OperandTy{});
     rewriter.setInsertionPointToEnd(newBlock);
   }
 };
 
 /// Convert affine dialect, fir.select_type to standard dialect
-class FIRToStdLoweringPass : public M::FunctionPass<FIRToStdLoweringPass> {
+class FIRToStdLoweringPass : public mlir::FunctionPass<FIRToStdLoweringPass> {
 public:
   explicit FIRToStdLoweringPass(KindMapping &kindMap) : kindMap{kindMap} {}
 
@@ -184,36 +183,37 @@ public:
 
     auto *context{&getContext()};
     // FIRToStdTypeConverter typeConverter{kindMap};
-    M::OwningRewritePatternList patterns;
+    mlir::OwningRewritePatternList patterns;
     // patterns.insert<SelectTypeOpConversion>(context, typeConverter);
     patterns.insert<SelectTypeOpConversion>(context);
-    M::populateAffineToStdConversionPatterns(patterns, context);
-    // M::populateFuncOpTypeConversionPattern(patterns, context, typeConverter);
-    M::ConversionTarget target{*context};
-    target.addLegalDialect<M::StandardOpsDialect, fir::FIROpsDialect>();
-    // target.addDynamicallyLegalOp<M::FuncOp>([&](M::FuncOp op) {
+    mlir::populateAffineToStdConversionPatterns(patterns, context);
+    // mlir::populateFuncOpTypeConversionPattern(patterns, context,
+    // typeConverter);
+    mlir::ConversionTarget target{*context};
+    target.addLegalDialect<mlir::StandardOpsDialect, FIROpsDialect>();
+    // target.addDynamicallyLegalOp<mlir::FuncOp>([&](mlir::FuncOp op) {
     //  return typeConverter.isSignatureLegal(op.getType());
     //});
     target.addIllegalOp<SelectTypeOp>();
-    if (M::failed(M::applyPartialConversion(
+    if (mlir::failed(mlir::applyPartialConversion(
             // getModule(), target, std::move(patterns), &typeConverter))) {
             getModule(), target, std::move(patterns)))) {
-      M::emitError(M::UnknownLoc::get(context),
-                   "error in converting to standard dialect\n");
+      mlir::emitError(mlir::UnknownLoc::get(context),
+                      "error in converting to standard dialect\n");
       signalPassFailure();
     }
   }
 
-  M::ModuleOp getModule() {
-    return getFunction().getParentOfType<M::ModuleOp>();
+  mlir::ModuleOp getModule() {
+    return getFunction().getParentOfType<mlir::ModuleOp>();
   }
 
 private:
   KindMapping &kindMap;
 };
-
 } // namespace
 
-std::unique_ptr<M::Pass> fir::createFIRToStdPass(fir::KindMapping &kindMap) {
+std::unique_ptr<mlir::Pass> createFIRToStdPass(KindMapping &kindMap) {
   return std::make_unique<FIRToStdLoweringPass>(kindMap);
 }
+} // namespace fir
