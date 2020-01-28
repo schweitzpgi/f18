@@ -7,9 +7,9 @@
 //===----------------------------------------------------------------------===//
 
 #include "flang/lower/Mangler.h"
+#include "fir/InternalNames.h"
 #include "flang/common/reference.h"
 #include "flang/lower/Utils.h"
-#include "flang/optimizer/InternalNames.h"
 #include "flang/semantics/tools.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/Optional.h"
