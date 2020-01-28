@@ -5,6 +5,14 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
+///
+/// \file
+/// This file defines some C++17 template classes that are used to convert the
+/// signatures of plain old C functions into a model that can be used to
+/// generate MLIR calls to those functions. This can be used to autogenerate
+/// tables at compiler compile-time to call runtime support code.
+///
+//===----------------------------------------------------------------------===//
 
 #ifndef FORTRAN_LOWER_RT_BUILDER_H_
 #define FORTRAN_LOWER_RT_BUILDER_H_
