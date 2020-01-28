@@ -26,6 +26,7 @@ namespace Pa = Fortran::parser;
 
 using namespace Fortran;
 using namespace Fortran::lower;
+using namespace Fortran::runtime::io;
 
 #define TODO() assert(false && "not yet implemented")
 
@@ -33,34 +34,43 @@ namespace {
 
 #define mkIOKey(X) mkKey(IONAME(X))
 
-using namespace runtime::io;
 /// Static table of IO runtime calls
 ///
 /// This logical map contains the name and type builder function for each IO
 /// runtime function listed in the tuple. This table is fully constructed at
 /// compile-time. Use the `mkIOKey` macro to access the table.
 static constexpr std::tuple<
-    mkIOKey(BeginExternalListOutput), mkIOKey(BeginExternalListInput),
-    mkIOKey(BeginExternalFormattedOutput), mkIOKey(BeginExternalFormattedInput),
-    mkIOKey(BeginUnformattedOutput), mkIOKey(BeginUnformattedInput),
-    mkIOKey(EndIoStatement), mkIOKey(OutputInteger64), mkIOKey(InputInteger64),
-    mkIOKey(OutputReal64), mkIOKey(InputReal64), mkIOKey(OutputReal32),
-    mkIOKey(InputReal64), mkIOKey(OutputComplex64), mkIOKey(OutputComplex32),
-    mkIOKey(BeginClose), mkIOKey(OutputAscii), mkIOKey(InputAscii),
-    mkIOKey(OutputLogical), mkIOKey(InputLogical), mkIOKey(BeginFlush),
-    mkIOKey(BeginBackspace), mkIOKey(BeginEndfile), mkIOKey(BeginRewind),
-    mkIOKey(BeginOpenUnit), mkIOKey(BeginOpenNewUnit),
-    mkIOKey(BeginInquireUnit), mkIOKey(BeginInquireFile),
-    mkIOKey(BeginInquireIoLength), mkIOKey(EnableHandlers), mkIOKey(SetAdvance),
-    mkIOKey(SetBlank), mkIOKey(SetDecimal), mkIOKey(SetDelim), mkIOKey(SetPad),
-    mkIOKey(SetPos), mkIOKey(SetRec), mkIOKey(SetRound), mkIOKey(SetSign),
+    mkIOKey(BeginInternalArrayListOutput), mkIOKey(BeginInternalArrayListInput),
+    mkIOKey(BeginInternalArrayFormattedOutput),
+    mkIOKey(BeginInternalArrayFormattedInput), mkIOKey(BeginInternalListOutput),
+    mkIOKey(BeginInternalListInput), mkIOKey(BeginInternalFormattedOutput),
+    mkIOKey(BeginInternalFormattedInput), mkIOKey(BeginInternalNamelistOutput),
+    mkIOKey(BeginInternalNamelistInput), mkIOKey(BeginExternalListOutput),
+    mkIOKey(BeginExternalListInput), mkIOKey(BeginExternalFormattedOutput),
+    mkIOKey(BeginExternalFormattedInput), mkIOKey(BeginUnformattedOutput),
+    mkIOKey(BeginUnformattedInput), mkIOKey(BeginExternalNamelistOutput),
+    mkIOKey(BeginExternalNamelistInput), mkIOKey(BeginAsynchronousOutput),
+    mkIOKey(BeginAsynchronousInput), mkIOKey(BeginWait), mkIOKey(BeginWaitAll),
+    mkIOKey(BeginClose), mkIOKey(BeginFlush), mkIOKey(BeginBackspace),
+    mkIOKey(BeginEndfile), mkIOKey(BeginRewind), mkIOKey(BeginOpenUnit),
+    mkIOKey(BeginOpenNewUnit), mkIOKey(BeginInquireUnit),
+    mkIOKey(BeginInquireFile), mkIOKey(BeginInquireIoLength),
+    mkIOKey(EnableHandlers), mkIOKey(SetAdvance), mkIOKey(SetBlank),
+    mkIOKey(SetDecimal), mkIOKey(SetDelim), mkIOKey(SetPad), mkIOKey(SetPos),
+    mkIOKey(SetRec), mkIOKey(SetRound), mkIOKey(SetSign),
+    mkIOKey(OutputDescriptor), mkIOKey(InputDescriptor),
+    mkIOKey(OutputUnformattedBlock), mkIOKey(InputUnformattedBlock),
+    mkIOKey(OutputInteger64), mkIOKey(InputInteger64), mkIOKey(OutputReal32),
+    mkIOKey(InputReal32), mkIOKey(OutputReal64), mkIOKey(InputReal64),
+    mkIOKey(OutputComplex64), mkIOKey(OutputComplex32), mkIOKey(OutputAscii),
+    mkIOKey(InputAscii), mkIOKey(OutputLogical), mkIOKey(InputLogical),
     mkIOKey(SetAccess), mkIOKey(SetAction), mkIOKey(SetAsynchronous),
     mkIOKey(SetEncoding), mkIOKey(SetEncoding), mkIOKey(SetForm),
     mkIOKey(SetPosition), mkIOKey(SetRecl), mkIOKey(SetStatus),
     mkIOKey(SetFile), mkIOKey(GetNewUnit), mkIOKey(GetSize),
     mkIOKey(GetIoLength), mkIOKey(GetIoMsg), mkIOKey(InquireCharacter),
     mkIOKey(InquireLogical), mkIOKey(InquirePendingId),
-    mkIOKey(InquireInteger64)>
+    mkIOKey(InquireInteger64), mkIOKey(EndIoStatement)>
     newIOTable;
 
 /// Helper function to retrieve the name of the IO function given the key `A`
@@ -169,11 +179,11 @@ M::FuncOp getIORuntimeFunc(M::OpBuilder &builder) {
 }
 
 /// Generate a call to end an IO statement
-void genEndIO(M::OpBuilder &builder, M::Location loc, M::Value cookie) {
+M::Value genEndIO(M::OpBuilder &builder, M::Location loc, M::Value cookie) {
   // Terminate IO
   M::FuncOp endIOFunc{getIORuntimeFunc<mkIOKey(EndIoStatement)>(builder)};
   llvm::SmallVector<M::Value, 1> endArgs{cookie};
-  builder.create<M::CallOp>(loc, endIOFunc, endArgs);
+  return builder.create<M::CallOp>(loc, endIOFunc, endArgs).getResult(0);
 }
 
 /// Lower print statement assuming a dummy runtime interface for now.
@@ -206,10 +216,48 @@ int lowerFormat(const Pa::Format &format) {
   TODO();
 }
 
-M::Value lowerPositionOrFlush(M::OpBuilder &builder, M::Location loc,
+llvm::SmallVector<M::Value, 4>
+lowerBeginArgsPositionOrFlush(AbstractConverter &converter, M::Location loc,
                               const std::list<Pa::PositionOrFlushSpec> &specs) {
-  TODO();
-  return {};
+  llvm::SmallVector<M::Value, 4> args;
+  // 1. find the unit number expression and append it
+  for (auto &sp : specs)
+    if (auto *un = std::get_if<Pa::FileUnitNumber>(&sp.u)) {
+      auto *expr{semantics::GetExpr(un->v)};
+      args.push_back(converter.genExprValue(*expr, &loc));
+      break;
+    }
+  // 2 & 3. add the filename and line as extracted from `loc`
+  // FIXME
+  return args;
+}
+
+/// 3 of the 4 cases in a position (or flush) spec concern the error handling of
+/// the statement. We handle those 3 cases here.
+void lowerErrorHandlingPositionOrFlush(
+    AbstractConverter &converter, M::Location loc,
+    const std::list<Pa::PositionOrFlushSpec> &specs, M::Value endRes) {
+  for (auto &sp : specs) {
+    std::visit(common::visitors{
+                   [](const Pa::FileUnitNumber &) {
+                     // this is passed to the BeginFoo function
+                     // do nothing here
+                   },
+                   [](const Pa::MsgVariable &var) {
+                     /* call GetIoMsg, passing it `var` */
+                     (void)var; // FIXME
+                   },
+                   [](const Pa::StatVariable &var) {
+                     /* store `endRes` to the variable `var` */
+                     (void)var; // FIXME
+                   },
+                   [](const Pa::ErrLabel &label) {
+                     /* FIXME: use `endRes` value for a `fir.switch` op */
+                     (void)label; // FIXME
+                   },
+               },
+               sp.u);
+  }
 }
 
 /// Generate IO calls for any of the "position or flush" like IO statements.
@@ -219,9 +267,12 @@ void genPosOrFlushLikeStmt(AbstractConverter &converter, const S &stmt) {
   auto builder = converter.getOpBuilder();
   auto loc = converter.getCurrentLocation();
   auto beginFunc = getIORuntimeFunc<K>(builder);
-  (void)beginFunc; // FIXME
-  auto cookie = lowerPositionOrFlush(builder, loc, stmt.v);
-  genEndIO(builder, converter.getCurrentLocation(), cookie);
+  auto args = lowerBeginArgsPositionOrFlush(converter, loc, stmt.v);
+  auto call = builder.create<M::CallOp>(loc, beginFunc, args);
+  // FIXME: add call to EnableHandlers as apropos
+  auto cookie = call.getResult(0);
+  auto endVal = genEndIO(builder, converter.getCurrentLocation(), cookie);
+  lowerErrorHandlingPositionOrFlush(converter, loc, stmt.v, endVal);
 }
 
 } // namespace
