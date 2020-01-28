@@ -37,26 +37,47 @@ struct errorNoBuilderForType;
 template <typename T>
 static constexpr TypeBuilderFunc getModel() {
   using namespace std::placeholders;
-  if constexpr (std::is_same_v<std::decay_t<T>, int>) {
+  if constexpr (std::is_same_v<T, int>) {
     return [](mlir::MLIRContext *c) {
       return mlir::IntegerType::get(8 * sizeof(int), c);
     };
-  } else if constexpr (std::is_same_v<std::decay_t<T>, std::int64_t>) {
+  } else if constexpr (std::is_same_v<T, int &>) {
+    return [](mlir::MLIRContext *c) {
+      return fir::ReferenceType::get(
+          mlir::IntegerType::get(8 * sizeof(int), c));
+    };
+  } else if constexpr (std::is_same_v<T, std::int64_t>) {
     return [](mlir::MLIRContext *c) { return mlir::IntegerType::get(64, c); };
+  } else if constexpr (std::is_same_v<T, std::int64_t &>) {
+    return [](mlir::MLIRContext *c) {
+      return fir::ReferenceType::get(mlir::IntegerType::get(64, c));
+    };
   } else if constexpr (std::is_same_v<std::decay_t<T>, std::size_t>) {
     return [](mlir::MLIRContext *c) {
       return mlir::IntegerType::get(8 * sizeof(std::size_t), c);
     };
-  } else if constexpr (std::is_same_v<std::decay_t<T>, double>) {
+  } else if constexpr (std::is_same_v<T, double>) {
     return [](mlir::MLIRContext *c) { return mlir::FloatType::getF64(c); };
-  } else if constexpr (std::is_same_v<std::decay_t<T>, float>) {
+  } else if constexpr (std::is_same_v<T, double &>) {
+    return [](mlir::MLIRContext *c) {
+      return fir::ReferenceType::get(mlir::FloatType::getF64(c));
+    };
+  } else if constexpr (std::is_same_v<T, float>) {
     return [](mlir::MLIRContext *c) { return mlir::FloatType::getF32(c); };
+  } else if constexpr (std::is_same_v<T, float &>) {
+    return [](mlir::MLIRContext *c) {
+      return fir::ReferenceType::get(mlir::FloatType::getF32(c));
+    };
   } else if constexpr (std::is_same_v<std::decay_t<T>, Iostat>) {
     return [](mlir::MLIRContext *c) {
       return mlir::IntegerType::get(8 * sizeof(Iostat), c);
     };
-  } else if constexpr (std::is_same_v<std::decay_t<T>, bool>) {
+  } else if constexpr (std::is_same_v<T, bool>) {
     return [](mlir::MLIRContext *c) { return mlir::IntegerType::get(1, c); };
+  } else if constexpr (std::is_same_v<T, bool &>) {
+    return [](mlir::MLIRContext *c) {
+      return fir::ReferenceType::get(mlir::IntegerType::get(1, c));
+    };
   } else if constexpr (std::is_same_v<std::decay_t<T>,
                                       runtime::io::IoStatementState *>) {
     return [](mlir::MLIRContext *c) {
