@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "flang/lower/ConvertType.h"
+#include "../../runtime/io-api.h"
 #include "fir/Dialect/FIRType.h"
 #include "flang/lower/Bridge.h"
 #include "flang/lower/Utils.h"
@@ -486,4 +487,81 @@ M::Type Br::getSequenceRefType(M::Type refType) {
   auto elementType{type.getEleTy()};
   fir::SequenceType::Shape shape{fir::SequenceType::getUnknownExtent()};
   return fir::ReferenceType::get(fir::SequenceType::get(shape, elementType));
+}
+
+// Models of C (language) types. These models are used to construct the FIR
+// signatures of runtime support routines.
+
+mlir::Type Br::getModelForInt(mlir::MLIRContext *context) {
+  return mlir::IntegerType::get(8 * sizeof(int), context);
+}
+
+mlir::Type Br::getModelForIntRef(mlir::MLIRContext *context) {
+  return fir::ReferenceType::get(getModelForInt(context));
+}
+
+mlir::Type Br::getModelForIostat(mlir::MLIRContext *context) {
+  return mlir::IntegerType::get(8 * sizeof(runtime::io::Iostat), context);
+}
+
+mlir::Type Br::getModelForCharPtr(mlir::MLIRContext *context) {
+  return fir::ReferenceType::get(mlir::IntegerType::get(8, context));
+}
+
+mlir::Type Br::getModelForConstCharPtr(mlir::MLIRContext *context) {
+  return getModelForCharPtr(context);
+}
+
+mlir::Type Br::getModelForInt64(mlir::MLIRContext *context) {
+  return mlir::IntegerType::get(64, context);
+}
+
+mlir::Type Br::getModelForInt64Ref(mlir::MLIRContext *context) {
+  return fir::ReferenceType::get(getModelForInt64(context));
+}
+
+mlir::Type Br::getModelForSize(mlir::MLIRContext *context) {
+  return mlir::IntegerType::get(8 * sizeof(std::size_t), context);
+}
+
+mlir::Type Br::getModelForCookie(mlir::MLIRContext *context) {
+  return fir::ReferenceType::get(mlir::IntegerType::get(8, context));
+}
+
+mlir::Type Br::getModelForDouble(mlir::MLIRContext *context) {
+  return mlir::FloatType::getF64(context);
+}
+
+mlir::Type Br::getModelForDoubleRef(mlir::MLIRContext *context) {
+  return fir::ReferenceType::get(getModelForDouble(context));
+}
+
+mlir::Type Br::getModelForFloat(mlir::MLIRContext *context) {
+  return mlir::FloatType::getF32(context);
+}
+
+mlir::Type Br::getModelForFloatRef(mlir::MLIRContext *context) {
+  return fir::ReferenceType::get(getModelForFloat(context));
+}
+
+mlir::Type Br::getModelForBool(mlir::MLIRContext *context) {
+  return mlir::IntegerType::get(1, context);
+}
+
+mlir::Type Br::getModelForBoolRef(mlir::MLIRContext *context) {
+  return fir::ReferenceType::get(getModelForBool(context));
+}
+
+mlir::Type Br::getModelForDescriptor(mlir::MLIRContext *context) {
+  return fir::BoxType::get(mlir::NoneType::get(context));
+}
+
+mlir::Type Br::getModelForNamelistGroup(mlir::MLIRContext *context) {
+  // FIXME: a namelist group must be some well-defined data structure, use a
+  // tuple as a proxy for the moment
+  return mlir::TupleType::get(llvm::None, context);
+}
+
+mlir::Type Br::getModelForVoid(mlir::MLIRContext *context) {
+  return mlir::NoneType::get(context);
 }
