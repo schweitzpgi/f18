@@ -7,12 +7,12 @@
 //===----------------------------------------------------------------------===//
 
 #include "flang/lower/ConvertType.h"
-#include "../semantics/expression.h"
-#include "../semantics/tools.h"
-#include "../semantics/type.h"
 #include "fir/Dialect/FIRType.h"
 #include "flang/lower/Bridge.h"
 #include "flang/lower/Utils.h"
+#include "flang/semantics/expression.h"
+#include "flang/semantics/tools.h"
+#include "flang/semantics/type.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Location.h"
 #include "mlir/IR/MLIRContext.h"
