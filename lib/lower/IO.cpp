@@ -31,19 +31,35 @@ using namespace Fortran::lower;
 
 namespace {
 
+#define mkIOKey(X) mkKey(IONAME(X))
+
 /// Static table of IO runtime calls
 ///
 /// This logical map contains the name and type builder function for each IO
 /// runtime function listed in the tuple. This table is fully constructed at
-/// compile-time. Use the `mkKey` macro to access the table.
-static constexpr std::tuple<mkKey(IONAME(BeginExternalListOutput)),
-                            mkKey(IONAME(EndIoStatement)),
-                            mkKey(IONAME(OutputInteger64)),
-                            mkKey(IONAME(OutputReal64)),
-                            mkKey(IONAME(OutputReal32)),
-                            mkKey(IONAME(OutputComplex64)),
-                            mkKey(IONAME(OutputComplex32)),
-                            mkKey(IONAME(SetAdvance))>
+/// compile-time. Use the `mkIOKey` macro to access the table.
+static constexpr std::tuple<
+    mkIOKey(BeginExternalListOutput), mkIOKey(BeginExternalListInput),
+    mkIOKey(BeginExternalFormattedOutput), mkIOKey(BeginExternalFormattedInput),
+    mkIOKey(BeginUnformattedOutput), mkIOKey(BeginUnformattedInput),
+    mkIOKey(EndIoStatement), mkIOKey(OutputInteger64), mkIOKey(InputInteger64),
+    mkIOKey(OutputReal64), mkIOKey(InputReal64), mkIOKey(OutputReal32),
+    mkIOKey(InputReal64), mkIOKey(OutputComplex64), mkIOKey(OutputComplex32),
+    mkIOKey(BeginClose), mkIOKey(OutputAscii), mkIOKey(InputAscii),
+    mkIOKey(OutputLogical), mkIOKey(InputLogical), mkIOKey(BeginFlush),
+    mkIOKey(BeginBackspace), mkIOKey(BeginEndfile), mkIOKey(BeginRewind),
+    mkIOKey(BeginOpenUnit), mkIOKey(BeginOpenNewUnit),
+    mkIOKey(BeginInquireUnit), mkIOKey(BeginInquireFile),
+    mkIOKey(BeginInquireIoLength), mkIOKey(EnableHandlers), mkIOKey(SetAdvance),
+    mkIOKey(SetBlank), mkIOKey(SetDecimal), mkIOKey(SetDelim), mkIOKey(SetPad),
+    mkIOKey(SetPos), mkIOKey(SetRec), mkIOKey(SetRound), mkIOKey(SetSign),
+    mkIOKey(SetAccess), mkIOKey(SetAction), mkIOKey(SetAsynchronous),
+    mkIOKey(SetEncoding), mkIOKey(SetEncoding), mkIOKey(SetForm),
+    mkIOKey(SetPosition), mkIOKey(SetRecl), mkIOKey(SetStatus),
+    mkIOKey(SetFile), mkIOKey(GetNewUnit), mkIOKey(GetSize),
+    mkIOKey(GetIoLength), mkIOKey(GetIoMsg), mkIOKey(InquireCharacter),
+    mkIOKey(InquireLogical), mkIOKey(InquirePendingId),
+    mkIOKey(InquireInteger64)>
     newIOTable;
 
 /// Helper function to retrieve the name of the IO function given the key `A`
@@ -153,7 +169,7 @@ M::FuncOp getIORuntimeFunc(M::OpBuilder &builder) {
 void lowerPrintStatement(M::OpBuilder &builder, M::Location loc, int format,
                          M::ValueRange args) {
   M::FuncOp beginFunc{
-      getIORuntimeFunc<mkKey(IONAME(BeginExternalListOutput))>(builder)};
+      getIORuntimeFunc<mkIOKey(BeginExternalListOutput)>(builder)};
 
   // Initiate io
   M::Type externalUnitType{builder.getIntegerType(32)};
@@ -171,7 +187,7 @@ void lowerPrintStatement(M::OpBuilder &builder, M::Location loc, int format,
   }
 
   // Terminate IO
-  M::FuncOp endIOFunc{getIORuntimeFunc<mkKey(IONAME(EndIoStatement))>(builder)};
+  M::FuncOp endIOFunc{getIORuntimeFunc<mkIOKey(EndIoStatement)>(builder)};
   llvm::SmallVector<M::Value, 1> endArgs{cookie};
   builder.create<M::CallOp>(loc, endIOFunc, endArgs);
 }
