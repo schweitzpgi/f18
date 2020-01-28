@@ -61,7 +61,7 @@ static constexpr TypeBuilderFunc getModel() {
     return [](mlir::MLIRContext *c) {
       return fir::ReferenceType::get(mlir::IntegerType::get(64, c));
     };
-  } else if constexpr (std::is_same_v<std::decay_t<T>, std::size_t>) {
+  } else if constexpr (std::is_same_v<T, std::size_t>) {
     return [](mlir::MLIRContext *c) {
       return mlir::IntegerType::get(8 * sizeof(std::size_t), c);
     };
@@ -77,7 +77,7 @@ static constexpr TypeBuilderFunc getModel() {
     return [](mlir::MLIRContext *c) {
       return fir::ReferenceType::get(mlir::FloatType::getF32(c));
     };
-  } else if constexpr (std::is_same_v<std::decay_t<T>, runtime::io::Iostat>) {
+  } else if constexpr (std::is_same_v<T, runtime::io::Iostat>) {
     return [](mlir::MLIRContext *c) {
       return mlir::IntegerType::get(8 * sizeof(runtime::io::Iostat), c);
     };
@@ -87,12 +87,12 @@ static constexpr TypeBuilderFunc getModel() {
     return [](mlir::MLIRContext *c) {
       return fir::ReferenceType::get(mlir::IntegerType::get(1, c));
     };
-  } else if constexpr (std::is_same_v<std::decay_t<T>,
-                                      runtime::io::IoStatementState *>) {
+  } else if constexpr (std::is_same_v<T, runtime::io::IoStatementState *>) {
+    // a Cookie
     return [](mlir::MLIRContext *c) {
       return fir::ReferenceType::get(mlir::IntegerType::get(8, c));
     };
-  } else if constexpr (std::is_same_v<std::decay_t<T>, const char *>) {
+  } else if constexpr (std::is_same_v<T, const char *>) {
     return [](mlir::MLIRContext *c) {
       return fir::ReferenceType::get(mlir::IntegerType::get(8, c));
     };
