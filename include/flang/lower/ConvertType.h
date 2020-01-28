@@ -116,6 +116,25 @@ mlir::Type convertReal(mlir::MLIRContext *ctxt, int KIND);
 // a memory reference to a sequence type.
 mlir::Type getSequenceRefType(mlir::Type referenceType);
 
+// Models for C (language) types
+
+mlir::Type getModelForInt(mlir::MLIRContext *c);
+mlir::Type getModelForIntRef(mlir::MLIRContext *c);
+mlir::Type getModelForIostat(mlir::MLIRContext *c);
+mlir::Type getModelForConstCharPtr(mlir::MLIRContext *c);
+mlir::Type getModelForInt64(mlir::MLIRContext *c);
+mlir::Type getModelForInt64Ref(mlir::MLIRContext *c);
+mlir::Type getModelForSize(mlir::MLIRContext *c);
+mlir::Type getModelForCookie(mlir::MLIRContext *c);
+mlir::Type getModelForDouble(mlir::MLIRContext *c);
+mlir::Type getModelForDoubleRef(mlir::MLIRContext *c);
+mlir::Type getModelForFloat(mlir::MLIRContext *c);
+mlir::Type getModelForFloatRef(mlir::MLIRContext *c);
+mlir::Type getModelForBool(mlir::MLIRContext *c);
+mlir::Type getModelForBoolRef(mlir::MLIRContext *c);
+mlir::Type getModelForDescriptor(mlir::MLIRContext *c);
+mlir::Type getModelForNamelistGroup(mlir::MLIRContext *c);
+
 } // namespace lower
 } // namespace Fortran
 
