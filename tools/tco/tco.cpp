@@ -12,9 +12,9 @@
 //===----------------------------------------------------------------------===//
 
 #include "fir/Dialect/FIRDialect.h"
+#include "fir/InternalNames.h"
+#include "fir/KindMapping.h"
 #include "flang/optimizer/CodeGen/CodeGen.h"
-#include "flang/optimizer/InternalNames.h"
-#include "flang/optimizer/KindMapping.h"
 #include "flang/optimizer/Transforms/Passes.h"
 #include "flang/optimizer/Transforms/StdConverter.h"
 #include "mlir/Conversion/LoopToStandard/ConvertLoopToStandard.h"
