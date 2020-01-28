@@ -8,12 +8,12 @@
 
 #include "flang/lower/IO.h"
 #include "../../runtime/io-api.h"
-#include "../parser/parse-tree.h"
-#include "../semantics/tools.h"
 #include "RTBuilder.h"
 #include "flang/lower/Bridge.h"
 #include "flang/lower/OpBuilder.h"
 #include "flang/lower/Runtime.h"
+#include "flang/parser/parse-tree.h"
+#include "flang/semantics/tools.h"
 #include "mlir/Dialect/StandardOps/Ops.h"
 #include "mlir/IR/Builders.h"
 
@@ -33,6 +33,7 @@ namespace {
 
 #define mkIOKey(X) mkKey(IONAME(X))
 
+using namespace runtime::io;
 /// Static table of IO runtime calls
 ///
 /// This logical map contains the name and type builder function for each IO
