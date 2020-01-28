@@ -1,4 +1,4 @@
-//===-- lower/IO.cpp ------------------------------------------------------===//
+//===-- IO.cpp -- I/O statement lowering ----------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -8,7 +8,9 @@
 
 #include "flang/lower/IO.h"
 #include "../../runtime/io-api.h"
+#include "NSAliases.h"
 #include "RTBuilder.h"
+#include "fir/Dialect/FIROps.h"
 #include "flang/lower/Bridge.h"
 #include "flang/lower/OpBuilder.h"
 #include "flang/lower/Runtime.h"
@@ -20,16 +22,10 @@
 #define NAMIFY_HELPER(X) #X
 #define NAMIFY(X) NAMIFY_HELPER(IONAME(X))
 
-namespace Br = Fortran::lower;
-namespace M = mlir;
-namespace Pa = Fortran::parser;
-
-using namespace Fortran;
-using namespace Fortran::lower;
-using namespace Fortran::runtime::io;
-
 #define TODO() assert(false && "not yet implemented")
 
+using namespace Io;
+namespace Fortran::lower {
 namespace {
 
 #define mkIOKey(X) mkKey(IONAME(X))
@@ -149,14 +145,13 @@ static M::FuncOp getOutputRuntimeFunction(M::OpBuilder &builder, M::Type type) {
   static_assert(!descriptionRange.empty());
 
   M::MLIRContext *context{getModule(&builder).getContext()};
-  llvm::SmallVector<M::Type, 2> argTypes{
+  L::SmallVector<M::Type, 2> argTypes{
       IORuntimeDescription::getIOCookieType(context), type};
 
   M::FunctionType seekedType{M::FunctionType::get(argTypes, {}, context)};
   for (const auto &description : descriptionRange) {
-    if (description.getMLIRFunctionType(context) == seekedType) {
+    if (description.getMLIRFunctionType(context) == seekedType)
       return description.getFuncOp(builder);
-    }
   }
   assert(false && "IO output runtime function not defined for this type");
   return {};
@@ -166,7 +161,7 @@ static M::FuncOp getOutputRuntimeFunction(M::OpBuilder &builder, M::Type type) {
 /// replaces getIORuntimeFunction.
 template <typename E>
 M::FuncOp getIORuntimeFunc(M::OpBuilder &builder) {
-  auto module = getModule(&builder);
+  M::ModuleOp module{getModule(&builder)};
   auto name = getName<E>();
   auto func = getNamedFunction(module, name);
   if (func)
@@ -182,7 +177,7 @@ M::FuncOp getIORuntimeFunc(M::OpBuilder &builder) {
 M::Value genEndIO(M::OpBuilder &builder, M::Location loc, M::Value cookie) {
   // Terminate IO
   M::FuncOp endIOFunc{getIORuntimeFunc<mkIOKey(EndIoStatement)>(builder)};
-  llvm::SmallVector<M::Value, 1> endArgs{cookie};
+  L::SmallVector<M::Value, 1> endArgs{cookie};
   return builder.create<M::CallOp>(loc, endIOFunc, endArgs).getResult(0);
 }
 
@@ -196,14 +191,14 @@ void lowerPrintStatement(M::OpBuilder &builder, M::Location loc, int format,
   M::Type externalUnitType{builder.getIntegerType(32)};
   M::Value defaultUnit{builder.create<M::ConstantOp>(
       loc, builder.getIntegerAttr(externalUnitType, 1))};
-  llvm::SmallVector<M::Value, 1> beginArgs{defaultUnit};
+  L::SmallVector<M::Value, 1> beginArgs{defaultUnit};
   M::Value cookie{
       builder.create<M::CallOp>(loc, beginFunc, beginArgs).getResult(0)};
 
   // Call data transfer runtime function
   for (M::Value arg : args) {
     // FIXME: this loop is still using the older table
-    llvm::SmallVector<M::Value, 1> operands{cookie, arg};
+    L::SmallVector<M::Value, 1> operands{cookie, arg};
     M::FuncOp outputFunc{getOutputRuntimeFunction(builder, arg.getType())};
     builder.create<M::CallOp>(loc, outputFunc, operands);
   }
@@ -216,15 +211,15 @@ int lowerFormat(const Pa::Format &format) {
   TODO();
 }
 
-llvm::SmallVector<M::Value, 4>
+L::SmallVector<M::Value, 4>
 lowerBeginArgsPositionOrFlush(AbstractConverter &converter, M::Location loc,
                               const std::list<Pa::PositionOrFlushSpec> &specs) {
-  llvm::SmallVector<M::Value, 4> args;
+  L::SmallVector<M::Value, 4> args;
   // 1. find the unit number expression and append it
   for (auto &sp : specs)
     if (auto *un = std::get_if<Pa::FileUnitNumber>(&sp.u)) {
       auto *expr{semantics::GetExpr(un->v)};
-      args.push_back(converter.genExprValue(*expr, &loc));
+      args.push_back(converter.genExprValue(expr, loc));
       break;
     }
   // 2 & 3. add the filename and line as extracted from `loc`
@@ -234,36 +229,50 @@ lowerBeginArgsPositionOrFlush(AbstractConverter &converter, M::Location loc,
 
 /// 3 of the 4 cases in a position (or flush) spec concern the error handling of
 /// the statement. We handle those 3 cases here.
-void lowerErrorHandlingPositionOrFlush(
-    AbstractConverter &converter, M::Location loc,
-    const std::list<Pa::PositionOrFlushSpec> &specs, M::Value endRes) {
+M::Value lowerErrorHandlingPositionOrFlush(
+    AbstractConverter &converter, M::Value endRes,
+    const std::list<Pa::PositionOrFlushSpec> &specs) {
+  M::Value result;
+  auto builder{converter.getOpBuilder()};
+  auto loc = converter.getCurrentLocation();
   for (auto &sp : specs) {
-    std::visit(common::visitors{
-                   [](const Pa::FileUnitNumber &) {
-                     // this is passed to the BeginFoo function
-                     // do nothing here
-                   },
-                   [](const Pa::MsgVariable &var) {
-                     /* call GetIoMsg, passing it `var` */
-                     (void)var; // FIXME
-                   },
-                   [](const Pa::StatVariable &var) {
-                     /* store `endRes` to the variable `var` */
-                     (void)var; // FIXME
-                   },
-                   [](const Pa::ErrLabel &label) {
-                     /* FIXME: use `endRes` value for a `fir.switch` op */
-                     (void)label; // FIXME
-                   },
-               },
-               sp.u);
+    std::visit(
+        Co::visitors{
+            [](const Pa::FileUnitNumber &) {
+              // this is passed to the BeginFoo function
+              // do nothing here
+            },
+            [&](const Pa::MsgVariable &var) {
+              // call GetIoMsg, passing it the address of `var` and a length (in
+              // bytes, or?). Effectively, we have to decompose a boxchar here.
+              // TODO: this has to be a CHARACTER type, no?
+              M::Value varAddr = converter.genExprAddr(Se::GetExpr(var), loc);
+              M::FuncOp getIoMsg = getIORuntimeFunc<mkIOKey(GetIoMsg)>(builder);
+              L::SmallVector<M::Value, 1> ioMsgArgs{
+                  builder.create<fir::ConvertOp>(
+                      loc, getModelForCharPtr(builder.getContext()), varAddr)
+                  /*, FIXME add length here */};
+              builder.create<M::CallOp>(loc, getIoMsg, ioMsgArgs);
+            },
+            [&](const Pa::StatVariable &var) {
+              /* store `endRes` to the variable `var` */
+              M::Value varAddr = converter.genExprAddr(Se::GetExpr(var), loc);
+              builder.create<fir::StoreOp>(loc, endRes, varAddr);
+            },
+            [&](const Pa::ErrLabel &label) {
+              /* pass the `endRes` value for `fir.switch` op */
+              result = endRes;
+            },
+        },
+        sp.u);
   }
+  return result;
 }
 
 /// Generate IO calls for any of the "position or flush" like IO statements.
 /// This is templatized with a statement type `S` and a key `K` for genericity.
 template <typename K, typename S>
-void genPosOrFlushLikeStmt(AbstractConverter &converter, const S &stmt) {
+M::Value genPosOrFlushLikeStmt(AbstractConverter &converter, const S &stmt) {
   auto builder = converter.getOpBuilder();
   auto loc = converter.getCurrentLocation();
   auto beginFunc = getIORuntimeFunc<K>(builder);
@@ -272,32 +281,31 @@ void genPosOrFlushLikeStmt(AbstractConverter &converter, const S &stmt) {
   // FIXME: add call to EnableHandlers as apropos
   auto cookie = call.getResult(0);
   auto endVal = genEndIO(builder, converter.getCurrentLocation(), cookie);
-  lowerErrorHandlingPositionOrFlush(converter, loc, stmt.v, endVal);
+  return lowerErrorHandlingPositionOrFlush(converter, endVal, stmt.v);
 }
-
 } // namespace
 
-void Br::genBackspaceStatement(AbstractConverter &converter,
+M::Value genBackspaceStatement(AbstractConverter &converter,
                                const Pa::BackspaceStmt &stmt) {
-  genPosOrFlushLikeStmt<mkIOKey(BeginBackspace)>(converter, stmt);
+  return genPosOrFlushLikeStmt<mkIOKey(BeginBackspace)>(converter, stmt);
 }
 
-void Br::genEndfileStatement(AbstractConverter &converter,
+M::Value genEndfileStatement(AbstractConverter &converter,
                              const Pa::EndfileStmt &stmt) {
-  genPosOrFlushLikeStmt<mkIOKey(BeginEndfile)>(converter, stmt);
+  return genPosOrFlushLikeStmt<mkIOKey(BeginEndfile)>(converter, stmt);
 }
 
-void Br::genFlushStatement(AbstractConverter &converter,
+M::Value genFlushStatement(AbstractConverter &converter,
                            const Pa::FlushStmt &stmt) {
-  genPosOrFlushLikeStmt<mkIOKey(BeginFlush)>(converter, stmt);
+  return genPosOrFlushLikeStmt<mkIOKey(BeginFlush)>(converter, stmt);
 }
 
-void Br::genRewindStatement(AbstractConverter &converter,
+M::Value genRewindStatement(AbstractConverter &converter,
                             const Pa::RewindStmt &stmt) {
-  genPosOrFlushLikeStmt<mkIOKey(BeginRewind)>(converter, stmt);
+  return genPosOrFlushLikeStmt<mkIOKey(BeginRewind)>(converter, stmt);
 }
 
-void Br::genOpenStatement(AbstractConverter &converter, const Pa::OpenStmt &) {
+M::Value genOpenStatement(AbstractConverter &converter, const Pa::OpenStmt &) {
   auto builder = converter.getOpBuilder();
   M::FuncOp beginFunc;
   // if (...
@@ -305,22 +313,24 @@ void Br::genOpenStatement(AbstractConverter &converter, const Pa::OpenStmt &) {
   // else
   beginFunc = getIORuntimeFunc<mkIOKey(BeginOpenNewUnit)>(builder);
   TODO();
+  return {};
 }
 
-void Br::genCloseStatement(AbstractConverter &converter,
+M::Value genCloseStatement(AbstractConverter &converter,
                            const Pa::CloseStmt &) {
   auto builder = converter.getOpBuilder();
   M::FuncOp beginFunc{getIORuntimeFunc<mkIOKey(BeginClose)>(builder)};
   TODO();
+  return {};
 }
 
-void Br::genPrintStatement(Br::AbstractConverter &converter,
-                           const Pa::PrintStmt &stmt) {
-  llvm::SmallVector<M::Value, 4> args;
+void genPrintStatement(Br::AbstractConverter &converter,
+                       const Pa::PrintStmt &stmt) {
+  L::SmallVector<M::Value, 4> args;
   for (auto &item : std::get<std::list<Pa::OutputItem>>(stmt.t)) {
     if (auto *pe{std::get_if<Pa::Expr>(&item.u)}) {
       auto loc{converter.genLocation(pe->source)};
-      args.push_back(converter.genExprValue(*semantics::GetExpr(*pe), &loc));
+      args.push_back(converter.genExprValue(Se::GetExpr(*pe), loc));
     } else {
       TODO(); // TODO implied do
     }
@@ -329,16 +339,17 @@ void Br::genPrintStatement(Br::AbstractConverter &converter,
                       lowerFormat(std::get<Pa::Format>(stmt.t)), args);
 }
 
-void Br::genReadStatement(AbstractConverter &converter, const Pa::ReadStmt &) {
+M::Value genReadStatement(AbstractConverter &converter, const Pa::ReadStmt &) {
   auto builder = converter.getOpBuilder();
   M::FuncOp beginFunc;
   // if (...
   beginFunc = getIORuntimeFunc<mkIOKey(BeginExternalListInput)>(builder);
   // else if (...
   TODO();
+  return {};
 }
 
-void Br::genWriteStatement(AbstractConverter &converter,
+M::Value genWriteStatement(AbstractConverter &converter,
                            const Pa::WriteStmt &) {
   auto builder = converter.getOpBuilder();
   M::FuncOp beginFunc;
@@ -346,9 +357,10 @@ void Br::genWriteStatement(AbstractConverter &converter,
   beginFunc = getIORuntimeFunc<mkIOKey(BeginExternalListOutput)>(builder);
   // else if (...
   TODO();
+  return {};
 }
 
-void Br::genInquireStatement(AbstractConverter &converter,
+M::Value genInquireStatement(AbstractConverter &converter,
                              const Pa::InquireStmt &) {
   auto builder = converter.getOpBuilder();
   M::FuncOp beginFunc;
@@ -359,4 +371,6 @@ void Br::genInquireStatement(AbstractConverter &converter,
   // else
   beginFunc = getIORuntimeFunc<mkIOKey(BeginInquireIoLength)>(builder);
   TODO();
+  return {};
 }
+} // namespace Fortran::lower

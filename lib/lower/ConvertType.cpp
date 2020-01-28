@@ -492,68 +492,76 @@ M::Type Br::getSequenceRefType(M::Type refType) {
 // Models of C (language) types. These models are used to construct the FIR
 // signatures of runtime support routines.
 
-mlir::Type Br::getModelForInt(mlir::MLIRContext *c) {
-  return mlir::IntegerType::get(8 * sizeof(int), c);
+mlir::Type Br::getModelForInt(mlir::MLIRContext *context) {
+  return mlir::IntegerType::get(8 * sizeof(int), context);
 }
 
-mlir::Type Br::getModelForIntRef(mlir::MLIRContext *c) {
-  return fir::ReferenceType::get(getModelForInt(c));
+mlir::Type Br::getModelForIntRef(mlir::MLIRContext *context) {
+  return fir::ReferenceType::get(getModelForInt(context));
 }
 
-mlir::Type Br::getModelForIostat(mlir::MLIRContext *c) {
-  return mlir::IntegerType::get(8 * sizeof(runtime::io::Iostat), c);
+mlir::Type Br::getModelForIostat(mlir::MLIRContext *context) {
+  return mlir::IntegerType::get(8 * sizeof(runtime::io::Iostat), context);
 }
 
-mlir::Type Br::getModelForConstCharPtr(mlir::MLIRContext *c) {
-  return fir::ReferenceType::get(mlir::IntegerType::get(8, c));
+mlir::Type Br::getModelForCharPtr(mlir::MLIRContext *context) {
+  return fir::ReferenceType::get(mlir::IntegerType::get(8, context));
 }
 
-mlir::Type Br::getModelForInt64(mlir::MLIRContext *c) {
-  return mlir::IntegerType::get(64, c);
+mlir::Type Br::getModelForConstCharPtr(mlir::MLIRContext *context) {
+  return getModelForCharPtr(context);
 }
 
-mlir::Type Br::getModelForInt64Ref(mlir::MLIRContext *c) {
-  return fir::ReferenceType::get(getModelForInt64(c));
+mlir::Type Br::getModelForInt64(mlir::MLIRContext *context) {
+  return mlir::IntegerType::get(64, context);
 }
 
-mlir::Type Br::getModelForSize(mlir::MLIRContext *c) {
-  return mlir::IntegerType::get(8 * sizeof(std::size_t), c);
+mlir::Type Br::getModelForInt64Ref(mlir::MLIRContext *context) {
+  return fir::ReferenceType::get(getModelForInt64(context));
 }
 
-mlir::Type Br::getModelForCookie(mlir::MLIRContext *c) {
-  return fir::ReferenceType::get(mlir::IntegerType::get(8, c));
+mlir::Type Br::getModelForSize(mlir::MLIRContext *context) {
+  return mlir::IntegerType::get(8 * sizeof(std::size_t), context);
 }
 
-mlir::Type Br::getModelForDouble(mlir::MLIRContext *c) {
-  return mlir::FloatType::getF64(c);
+mlir::Type Br::getModelForCookie(mlir::MLIRContext *context) {
+  return fir::ReferenceType::get(mlir::IntegerType::get(8, context));
 }
 
-mlir::Type Br::getModelForDoubleRef(mlir::MLIRContext *c) {
-  return fir::ReferenceType::get(getModelForDouble(c));
+mlir::Type Br::getModelForDouble(mlir::MLIRContext *context) {
+  return mlir::FloatType::getF64(context);
 }
 
-mlir::Type Br::getModelForFloat(mlir::MLIRContext *c) {
-  return mlir::FloatType::getF32(c);
+mlir::Type Br::getModelForDoubleRef(mlir::MLIRContext *context) {
+  return fir::ReferenceType::get(getModelForDouble(context));
 }
 
-mlir::Type Br::getModelForFloatRef(mlir::MLIRContext *c) {
-  return fir::ReferenceType::get(getModelForFloat(c));
+mlir::Type Br::getModelForFloat(mlir::MLIRContext *context) {
+  return mlir::FloatType::getF32(context);
 }
 
-mlir::Type Br::getModelForBool(mlir::MLIRContext *c) {
-  return mlir::IntegerType::get(1, c);
+mlir::Type Br::getModelForFloatRef(mlir::MLIRContext *context) {
+  return fir::ReferenceType::get(getModelForFloat(context));
 }
 
-mlir::Type Br::getModelForBoolRef(mlir::MLIRContext *c) {
-  return fir::ReferenceType::get(getModelForBool(c));
+mlir::Type Br::getModelForBool(mlir::MLIRContext *context) {
+  return mlir::IntegerType::get(1, context);
 }
 
-mlir::Type Br::getModelForDescriptor(mlir::MLIRContext *c) {
-  return fir::BoxType::get(mlir::NoneType::get(c));
+mlir::Type Br::getModelForBoolRef(mlir::MLIRContext *context) {
+  return fir::ReferenceType::get(getModelForBool(context));
 }
 
-mlir::Type Br::getModelForNamelistGroup(mlir::MLIRContext *c) {
+mlir::Type Br::getModelForDescriptor(mlir::MLIRContext *context) {
+  return fir::BoxType::get(mlir::NoneType::get(context));
+}
+
+mlir::Type Br::getModelForNamelistGroup(mlir::MLIRContext *context) {
   // FIXME: a namelist group must be some well-defined data structure, use a
   // tuple as a proxy for the moment
-  return mlir::TupleType::get(llvm::None, c);
+  return mlir::TupleType::get(llvm::None, context);
+}
+
+mlir::Type Br::getModelForVoid(mlir::MLIRContext *context) {
+  return mlir::NoneType::get(context);
 }
