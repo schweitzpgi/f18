@@ -7,11 +7,10 @@
 //===----------------------------------------------------------------------===//
 
 #include "flang/lower/Bridge.h"
-#include "../parser/parse-tree.h"
-#include "../semantics/tools.h"
 #include "fir/Dialect/FIRDialect.h"
 #include "fir/Dialect/FIROps.h"
 #include "fir/Dialect/FIRType.h"
+#include "fir/InternalNames.h"
 #include "flang/lower/ASTBuilder.h"
 #include "flang/lower/ConvertExpr.h"
 #include "flang/lower/ConvertType.h"
@@ -20,7 +19,8 @@
 #include "flang/lower/Mangler.h"
 #include "flang/lower/OpBuilder.h"
 #include "flang/lower/Runtime.h"
-#include "flang/optimizer/InternalNames.h"
+#include "flang/parser/parse-tree.h"
+#include "flang/semantics/tools.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/StandardOps/Ops.h"
 #include "mlir/IR/Builders.h"

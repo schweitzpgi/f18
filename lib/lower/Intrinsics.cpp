@@ -392,7 +392,7 @@ private:
     if (auto f{t.dyn_cast<M::FloatType>()})
       return f.getWidth();
     // FIXME: Get width another way for fir.real/complex
-    // - use optimizer/KindMapping.h and L::Type
+    // - use fir/KindMapping.h and L::Type
     // - or use evaluate/type.h
     if (auto r{t.dyn_cast<fir::RealType>()})
       return r.getFKind() * 4;
