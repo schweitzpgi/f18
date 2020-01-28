@@ -1690,7 +1690,7 @@ def fir_DispatchOp : fir_Op<"dispatch", []>,
     }
     p << ')';
     p.printOptionalAttrDict(getAttrs(), {"fn_type", "method"});
-    llvm::SmallVector<M::Type, 2> resTy(getResultTypes());
+    auto resTy{getResultTypes()};
     llvm::SmallVector<M::Type, 8> argTy(getOperandTypes());
     p << " : " << M::FunctionType::get(argTy, resTy, getContext());
   }];
