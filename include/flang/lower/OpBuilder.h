@@ -9,7 +9,7 @@
 #ifndef FORTRAN_LOWER_BUILDER_H_
 #define FORTRAN_LOWER_BUILDER_H_
 
-#include "../../../lib/semantics/symbol.h"
+#include "flang/semantics/symbol.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Function.h"
 #include "mlir/IR/Module.h"
