@@ -72,8 +72,12 @@ static constexpr TypeBuilderFunc getModel() {
     return getModelForBoolRef;
   } else if constexpr (std::is_same_v<T, runtime::io::IoStatementState *>) {
     return getModelForCookie;
+  } else if constexpr (std::is_same_v<T, char *>) {
+    return getModelForCharPtr;
   } else if constexpr (std::is_same_v<T, const char *>) {
     return getModelForConstCharPtr;
+  } else if constexpr (std::is_same_v<T, void>) {
+    return getModelForVoid;
   } else if constexpr (std::is_same_v<T, const runtime::Descriptor &>) {
     return getModelForDescriptor;
   } else if constexpr (std::is_same_v<T, const runtime::NamelistGroup &>) {
@@ -120,7 +124,8 @@ struct RuntimeTableEntry<RuntimeTableKey<KT>, RuntimeIdentifier<Cs...>> {
 #define QuoteKey(X) #X##_rt_ident
 #define ExpandKey(X) QuoteKey(X)
 #define mkKey(X)                                                               \
-  RuntimeTableEntry<RuntimeTableKey<decltype(X)>, decltype(ExpandKey(X))>
+  Br::RuntimeTableEntry<Br::RuntimeTableKey<decltype(X)>,                      \
+                        decltype(ExpandKey(X))>
 
 } // namespace Fortran::lower
 

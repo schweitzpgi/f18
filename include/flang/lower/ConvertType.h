@@ -118,22 +118,24 @@ mlir::Type getSequenceRefType(mlir::Type referenceType);
 
 // Models for C (language) types
 
-mlir::Type getModelForInt(mlir::MLIRContext *c);
-mlir::Type getModelForIntRef(mlir::MLIRContext *c);
-mlir::Type getModelForIostat(mlir::MLIRContext *c);
-mlir::Type getModelForConstCharPtr(mlir::MLIRContext *c);
-mlir::Type getModelForInt64(mlir::MLIRContext *c);
-mlir::Type getModelForInt64Ref(mlir::MLIRContext *c);
-mlir::Type getModelForSize(mlir::MLIRContext *c);
-mlir::Type getModelForCookie(mlir::MLIRContext *c);
-mlir::Type getModelForDouble(mlir::MLIRContext *c);
-mlir::Type getModelForDoubleRef(mlir::MLIRContext *c);
-mlir::Type getModelForFloat(mlir::MLIRContext *c);
-mlir::Type getModelForFloatRef(mlir::MLIRContext *c);
-mlir::Type getModelForBool(mlir::MLIRContext *c);
-mlir::Type getModelForBoolRef(mlir::MLIRContext *c);
-mlir::Type getModelForDescriptor(mlir::MLIRContext *c);
-mlir::Type getModelForNamelistGroup(mlir::MLIRContext *c);
+mlir::Type getModelForInt(mlir::MLIRContext *);
+mlir::Type getModelForIntRef(mlir::MLIRContext *);
+mlir::Type getModelForIostat(mlir::MLIRContext *);
+mlir::Type getModelForCharPtr(mlir::MLIRContext *);
+mlir::Type getModelForConstCharPtr(mlir::MLIRContext *);
+mlir::Type getModelForInt64(mlir::MLIRContext *);
+mlir::Type getModelForInt64Ref(mlir::MLIRContext *);
+mlir::Type getModelForSize(mlir::MLIRContext *);
+mlir::Type getModelForCookie(mlir::MLIRContext *);
+mlir::Type getModelForDouble(mlir::MLIRContext *);
+mlir::Type getModelForDoubleRef(mlir::MLIRContext *);
+mlir::Type getModelForFloat(mlir::MLIRContext *);
+mlir::Type getModelForFloatRef(mlir::MLIRContext *);
+mlir::Type getModelForBool(mlir::MLIRContext *);
+mlir::Type getModelForBoolRef(mlir::MLIRContext *);
+mlir::Type getModelForDescriptor(mlir::MLIRContext *);
+mlir::Type getModelForNamelistGroup(mlir::MLIRContext *);
+mlir::Type getModelForVoid(mlir::MLIRContext *);
 
 } // namespace lower
 } // namespace Fortran

@@ -17,15 +17,12 @@
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/StringSet.h"
 
-namespace L = llvm;
-namespace M = mlir;
-
 using namespace fir;
 
 namespace {
 
 template <typename TYPE>
-TYPE parseIntSingleton(M::DialectAsmParser &parser) {
+TYPE parseIntSingleton(mlir::DialectAsmParser &parser) {
   int kind = 0;
   if (parser.parseLess() || parser.parseInteger(kind) ||
       parser.parseGreater()) {
@@ -36,18 +33,18 @@ TYPE parseIntSingleton(M::DialectAsmParser &parser) {
 }
 
 template <typename TYPE>
-TYPE parseKindSingleton(M::DialectAsmParser &parser) {
+TYPE parseKindSingleton(mlir::DialectAsmParser &parser) {
   return parseIntSingleton<TYPE>(parser);
 }
 
 template <typename TYPE>
-TYPE parseRankSingleton(M::DialectAsmParser &parser) {
+TYPE parseRankSingleton(mlir::DialectAsmParser &parser) {
   return parseIntSingleton<TYPE>(parser);
 }
 
 template <typename TYPE>
-TYPE parseTypeSingleton(M::DialectAsmParser &parser, M::Location) {
-  M::Type ty;
+TYPE parseTypeSingleton(mlir::DialectAsmParser &parser, mlir::Location) {
+  mlir::Type ty;
   if (parser.parseLess() || parser.parseType(ty) || parser.parseGreater()) {
     parser.emitError(parser.getCurrentLocation(), "type expected");
     return {};
@@ -56,14 +53,14 @@ TYPE parseTypeSingleton(M::DialectAsmParser &parser, M::Location) {
 }
 
 // `box` `<` type (',' affine-map)? `>`
-BoxType parseBox(M::DialectAsmParser &parser, M::Location loc) {
-  M::Type ofTy;
+BoxType parseBox(mlir::DialectAsmParser &parser, mlir::Location loc) {
+  mlir::Type ofTy;
   if (parser.parseLess() || parser.parseType(ofTy)) {
     parser.emitError(parser.getCurrentLocation(), "expected type parameter");
     return {};
   }
 
-  M::AffineMapAttr map;
+  mlir::AffineMapAttr map;
   if (!parser.parseOptionalComma())
     if (parser.parseAttribute(map)) {
       parser.emitError(parser.getCurrentLocation(), "expected affine map");
@@ -77,83 +74,84 @@ BoxType parseBox(M::DialectAsmParser &parser, M::Location loc) {
 }
 
 // `boxchar` `<` kind `>`
-BoxCharType parseBoxChar(M::DialectAsmParser &parser) {
+BoxCharType parseBoxChar(mlir::DialectAsmParser &parser) {
   return parseKindSingleton<BoxCharType>(parser);
 }
 
 // `boxproc` `<` return-type `>`
-BoxProcType parseBoxProc(M::DialectAsmParser &parser, M::Location loc) {
+BoxProcType parseBoxProc(mlir::DialectAsmParser &parser, mlir::Location loc) {
   return parseTypeSingleton<BoxProcType>(parser, loc);
 }
 
 // `char` `<` kind `>`
-CharacterType parseCharacter(M::DialectAsmParser &parser) {
+CharacterType parseCharacter(mlir::DialectAsmParser &parser) {
   return parseKindSingleton<CharacterType>(parser);
 }
 
 // `complex` `<` kind `>`
-CplxType parseComplex(M::DialectAsmParser &parser) {
+CplxType parseComplex(mlir::DialectAsmParser &parser) {
   return parseKindSingleton<CplxType>(parser);
 }
 
 // `dims` `<` rank `>`
-DimsType parseDims(M::DialectAsmParser &parser) {
+DimsType parseDims(mlir::DialectAsmParser &parser) {
   return parseRankSingleton<DimsType>(parser);
 }
 
 // `field`
-FieldType parseField(M::DialectAsmParser &parser) {
+FieldType parseField(mlir::DialectAsmParser &parser) {
   return FieldType::get(parser.getBuilder().getContext());
 }
 
 // `heap` `<` type `>`
-HeapType parseHeap(M::DialectAsmParser &parser, M::Location loc) {
+HeapType parseHeap(mlir::DialectAsmParser &parser, mlir::Location loc) {
   return parseTypeSingleton<HeapType>(parser, loc);
 }
 
 // `int` `<` kind `>`
-IntType parseInteger(M::DialectAsmParser &parser) {
+IntType parseInteger(mlir::DialectAsmParser &parser) {
   return parseKindSingleton<IntType>(parser);
 }
 
 // `len`
-LenType parseLen(M::DialectAsmParser &parser) {
+LenType parseLen(mlir::DialectAsmParser &parser) {
   return LenType::get(parser.getBuilder().getContext());
 }
 
 // `logical` `<` kind `>`
-LogicalType parseLogical(M::DialectAsmParser &parser) {
+LogicalType parseLogical(mlir::DialectAsmParser &parser) {
   return parseKindSingleton<LogicalType>(parser);
 }
 
 // `ptr` `<` type `>`
-PointerType parsePointer(M::DialectAsmParser &parser, M::Location loc) {
+PointerType parsePointer(mlir::DialectAsmParser &parser, mlir::Location loc) {
   return parseTypeSingleton<PointerType>(parser, loc);
 }
 
 // `real` `<` kind `>`
-RealType parseReal(M::DialectAsmParser &parser) {
+RealType parseReal(mlir::DialectAsmParser &parser) {
   return parseKindSingleton<RealType>(parser);
 }
 
 // `ref` `<` type `>`
-ReferenceType parseReference(M::DialectAsmParser &parser, M::Location loc) {
+ReferenceType parseReference(mlir::DialectAsmParser &parser,
+                             mlir::Location loc) {
   return parseTypeSingleton<ReferenceType>(parser, loc);
 }
 
 // `tdesc` `<` type `>`
-TypeDescType parseTypeDesc(M::DialectAsmParser &parser, M::Location loc) {
+TypeDescType parseTypeDesc(mlir::DialectAsmParser &parser, mlir::Location loc) {
   return parseTypeSingleton<TypeDescType>(parser, loc);
 }
 
 // `void`
-M::Type parseVoid(M::DialectAsmParser &parser) {
+mlir::Type parseVoid(mlir::DialectAsmParser &parser) {
   return parser.getBuilder().getNoneType();
 }
 
 // `array` `<` `*` | bounds (`x` bounds)* `:` type (',' affine-map)? `>`
 // bounds ::= `?` | int-lit
-SequenceType parseSequence(M::DialectAsmParser &parser, M::Location) {
+SequenceType parseSequence(mlir::DialectAsmParser &parser, mlir::Location) {
   if (parser.parseLess()) {
     parser.emitError(parser.getNameLoc(), "expecting '<'");
     return {};
@@ -168,12 +166,12 @@ SequenceType parseSequence(M::DialectAsmParser &parser, M::Location) {
     parser.emitError(parser.getNameLoc(), "expected ':'");
     return {};
   }
-  M::Type eleTy;
+  mlir::Type eleTy;
   if (parser.parseType(eleTy) || parser.parseGreater()) {
     parser.emitError(parser.getNameLoc(), "expecting element type");
     return {};
   }
-  M::AffineMapAttr map;
+  mlir::AffineMapAttr map;
   if (!parser.parseOptionalComma())
     if (parser.parseAttribute(map)) {
       parser.emitError(parser.getNameLoc(), "expecting affine map");
@@ -182,26 +180,26 @@ SequenceType parseSequence(M::DialectAsmParser &parser, M::Location) {
   return SequenceType::get(shape, eleTy, map);
 }
 
-bool verifyIntegerType(M::Type ty) {
-  return ty.dyn_cast<M::IntegerType>() || ty.dyn_cast<IntType>();
+bool verifyIntegerType(mlir::Type ty) {
+  return ty.dyn_cast<mlir::IntegerType>() || ty.dyn_cast<IntType>();
 }
 
-bool verifyRecordMemberType(M::Type ty) {
+bool verifyRecordMemberType(mlir::Type ty) {
   return !(ty.dyn_cast<BoxType>() || ty.dyn_cast<BoxCharType>() ||
            ty.dyn_cast<BoxProcType>() || ty.dyn_cast<DimsType>() ||
            ty.dyn_cast<FieldType>() || ty.dyn_cast<LenType>() ||
            ty.dyn_cast<ReferenceType>() || ty.dyn_cast<TypeDescType>());
 }
 
-bool verifySameLists(L::ArrayRef<RecordType::TypePair> a1,
-                     L::ArrayRef<RecordType::TypePair> a2) {
+bool verifySameLists(llvm::ArrayRef<RecordType::TypePair> a1,
+                     llvm::ArrayRef<RecordType::TypePair> a2) {
   // FIXME: do we need to allow for any variance here?
   return a1 == a2;
 }
 
-RecordType verifyDerived(M::DialectAsmParser &parser, RecordType derivedTy,
-                         L::ArrayRef<RecordType::TypePair> lenPList,
-                         L::ArrayRef<RecordType::TypePair> typeList) {
+RecordType verifyDerived(mlir::DialectAsmParser &parser, RecordType derivedTy,
+                         llvm::ArrayRef<RecordType::TypePair> lenPList,
+                         llvm::ArrayRef<RecordType::TypePair> typeList) {
   auto loc = parser.getNameLoc();
   if (!verifySameLists(derivedTy.getLenParamList(), lenPList) ||
       !verifySameLists(derivedTy.getTypeList(), typeList)) {
@@ -236,8 +234,8 @@ RecordType verifyDerived(M::DialectAsmParser &parser, RecordType derivedTy,
 // `type` `<` name
 //           (`(` id `:` type (`,` id `:` type)* `)`)?
 //           (`{` id `:` type (`,` id `:` type)* `}`)? '>'
-RecordType parseDerived(M::DialectAsmParser &parser, M::Location) {
-  L::StringRef name;
+RecordType parseDerived(mlir::DialectAsmParser &parser, mlir::Location) {
+  llvm::StringRef name;
   if (parser.parseLess() || parser.parseKeyword(&name)) {
     parser.emitError(parser.getNameLoc(),
                      "expected a identifier as name of derived type");
@@ -248,8 +246,8 @@ RecordType parseDerived(M::DialectAsmParser &parser, M::Location) {
   RecordType::TypeList lenParamList;
   if (!parser.parseOptionalLParen()) {
     while (true) {
-      L::StringRef lenparam;
-      M::Type intTy;
+      llvm::StringRef lenparam;
+      mlir::Type intTy;
       if (parser.parseKeyword(&lenparam) || parser.parseColon() ||
           parser.parseType(intTy)) {
         parser.emitError(parser.getNameLoc(), "expected LEN parameter list");
@@ -268,8 +266,8 @@ RecordType parseDerived(M::DialectAsmParser &parser, M::Location) {
   RecordType::TypeList typeList;
   if (!parser.parseOptionalLBrace()) {
     while (true) {
-      L::StringRef field;
-      M::Type fldTy;
+      llvm::StringRef field;
+      mlir::Type fldTy;
       if (parser.parseKeyword(&field) || parser.parseColon() ||
           parser.parseType(fldTy)) {
         parser.emitError(parser.getNameLoc(), "expected field type list");
@@ -299,7 +297,7 @@ RecordType parseDerived(M::DialectAsmParser &parser, M::Location) {
 
 // !fir.ptr<X> and !fir.heap<X> where X is !fir.ptr, !fir.heap, or !fir.ref
 // is undefined and disallowed.
-bool singleIndirectionLevel(M::Type ty) {
+bool singleIndirectionLevel(mlir::Type ty) {
   return !(ty.dyn_cast<ReferenceType>() || ty.dyn_cast<PointerType>() ||
            ty.dyn_cast<HeapType>());
 }
@@ -308,9 +306,9 @@ bool singleIndirectionLevel(M::Type ty) {
 
 // Implementation of the thin interface from dialect to type parser
 
-M::Type fir::parseFirType(FIROpsDialect *, M::DialectAsmParser &parser) {
-  L::StringRef typeNameLit;
-  if (M::failed(parser.parseKeyword(&typeNameLit)))
+mlir::Type fir::parseFirType(FIROpsDialect *, mlir::DialectAsmParser &parser) {
+  llvm::StringRef typeNameLit;
+  if (mlir::failed(parser.parseKeyword(&typeNameLit)))
     return {};
 
   auto loc = parser.getEncodedSourceLoc(parser.getNameLoc());
@@ -361,14 +359,14 @@ namespace detail {
 // Type storage classes
 
 /// `CHARACTER` storage
-struct CharacterTypeStorage : public M::TypeStorage {
+struct CharacterTypeStorage : public mlir::TypeStorage {
   using KeyTy = KindTy;
 
-  static unsigned hashKey(const KeyTy &key) { return L::hash_combine(key); }
+  static unsigned hashKey(const KeyTy &key) { return llvm::hash_combine(key); }
 
   bool operator==(const KeyTy &key) const { return key == getFKind(); }
 
-  static CharacterTypeStorage *construct(M::TypeStorageAllocator &allocator,
+  static CharacterTypeStorage *construct(mlir::TypeStorageAllocator &allocator,
                                          KindTy kind) {
     auto *storage = allocator.allocate<CharacterTypeStorage>();
     return new (storage) CharacterTypeStorage{kind};
@@ -384,16 +382,16 @@ private:
   explicit CharacterTypeStorage(KindTy kind) : kind{kind} {}
 };
 
-struct DimsTypeStorage : public M::TypeStorage {
+struct DimsTypeStorage : public mlir::TypeStorage {
   using KeyTy = unsigned;
 
-  static unsigned hashKey(const KeyTy &key) { return L::hash_combine(key); }
+  static unsigned hashKey(const KeyTy &key) { return llvm::hash_combine(key); }
 
   bool operator==(const KeyTy &key) const {
     return key == static_cast<unsigned>(getRank());
   }
 
-  static DimsTypeStorage *construct(M::TypeStorageAllocator &allocator,
+  static DimsTypeStorage *construct(mlir::TypeStorageAllocator &allocator,
                                     int rank) {
     auto *storage = allocator.allocate<DimsTypeStorage>();
     return new (storage) DimsTypeStorage{rank};
@@ -410,14 +408,14 @@ private:
 };
 
 /// The type of a derived type part reference
-struct FieldTypeStorage : public M::TypeStorage {
+struct FieldTypeStorage : public mlir::TypeStorage {
   using KeyTy = KindTy;
 
-  static unsigned hashKey(const KeyTy &) { return L::hash_combine(0); }
+  static unsigned hashKey(const KeyTy &) { return llvm::hash_combine(0); }
 
   bool operator==(const KeyTy &) const { return true; }
 
-  static FieldTypeStorage *construct(M::TypeStorageAllocator &allocator,
+  static FieldTypeStorage *construct(mlir::TypeStorageAllocator &allocator,
                                      KindTy) {
     auto *storage = allocator.allocate<FieldTypeStorage>();
     return new (storage) FieldTypeStorage{0};
@@ -429,14 +427,15 @@ private:
 };
 
 /// The type of a derived type LEN parameter reference
-struct LenTypeStorage : public M::TypeStorage {
+struct LenTypeStorage : public mlir::TypeStorage {
   using KeyTy = KindTy;
 
-  static unsigned hashKey(const KeyTy &) { return L::hash_combine(0); }
+  static unsigned hashKey(const KeyTy &) { return llvm::hash_combine(0); }
 
   bool operator==(const KeyTy &) const { return true; }
 
-  static LenTypeStorage *construct(M::TypeStorageAllocator &allocator, KindTy) {
+  static LenTypeStorage *construct(mlir::TypeStorageAllocator &allocator,
+                                   KindTy) {
     auto *storage = allocator.allocate<LenTypeStorage>();
     return new (storage) LenTypeStorage{0};
   }
@@ -447,14 +446,14 @@ private:
 };
 
 /// `LOGICAL` storage
-struct LogicalTypeStorage : public M::TypeStorage {
+struct LogicalTypeStorage : public mlir::TypeStorage {
   using KeyTy = KindTy;
 
-  static unsigned hashKey(const KeyTy &key) { return L::hash_combine(key); }
+  static unsigned hashKey(const KeyTy &key) { return llvm::hash_combine(key); }
 
   bool operator==(const KeyTy &key) const { return key == getFKind(); }
 
-  static LogicalTypeStorage *construct(M::TypeStorageAllocator &allocator,
+  static LogicalTypeStorage *construct(mlir::TypeStorageAllocator &allocator,
                                        KindTy kind) {
     auto *storage = allocator.allocate<LogicalTypeStorage>();
     return new (storage) LogicalTypeStorage{kind};
@@ -471,14 +470,14 @@ private:
 };
 
 /// `INTEGER` storage
-struct IntTypeStorage : public M::TypeStorage {
+struct IntTypeStorage : public mlir::TypeStorage {
   using KeyTy = KindTy;
 
-  static unsigned hashKey(const KeyTy &key) { return L::hash_combine(key); }
+  static unsigned hashKey(const KeyTy &key) { return llvm::hash_combine(key); }
 
   bool operator==(const KeyTy &key) const { return key == getFKind(); }
 
-  static IntTypeStorage *construct(M::TypeStorageAllocator &allocator,
+  static IntTypeStorage *construct(mlir::TypeStorageAllocator &allocator,
                                    KindTy kind) {
     auto *storage = allocator.allocate<IntTypeStorage>();
     return new (storage) IntTypeStorage{kind};
@@ -495,14 +494,14 @@ private:
 };
 
 /// `COMPLEX` storage
-struct CplxTypeStorage : public M::TypeStorage {
+struct CplxTypeStorage : public mlir::TypeStorage {
   using KeyTy = KindTy;
 
-  static unsigned hashKey(const KeyTy &key) { return L::hash_combine(key); }
+  static unsigned hashKey(const KeyTy &key) { return llvm::hash_combine(key); }
 
   bool operator==(const KeyTy &key) const { return key == getFKind(); }
 
-  static CplxTypeStorage *construct(M::TypeStorageAllocator &allocator,
+  static CplxTypeStorage *construct(mlir::TypeStorageAllocator &allocator,
                                     KindTy kind) {
     auto *storage = allocator.allocate<CplxTypeStorage>();
     return new (storage) CplxTypeStorage{kind};
@@ -519,14 +518,14 @@ private:
 };
 
 /// `REAL` storage (for reals of unsupported sizes)
-struct RealTypeStorage : public M::TypeStorage {
+struct RealTypeStorage : public mlir::TypeStorage {
   using KeyTy = KindTy;
 
-  static unsigned hashKey(const KeyTy &key) { return L::hash_combine(key); }
+  static unsigned hashKey(const KeyTy &key) { return llvm::hash_combine(key); }
 
   bool operator==(const KeyTy &key) const { return key == getFKind(); }
 
-  static RealTypeStorage *construct(M::TypeStorageAllocator &allocator,
+  static RealTypeStorage *construct(mlir::TypeStorageAllocator &allocator,
                                     KindTy kind) {
     auto *storage = allocator.allocate<RealTypeStorage>();
     return new (storage) RealTypeStorage{kind};
@@ -543,49 +542,49 @@ private:
 };
 
 /// Boxed object (a Fortran descriptor)
-struct BoxTypeStorage : public M::TypeStorage {
-  using KeyTy = std::tuple<M::Type, M::AffineMapAttr>;
+struct BoxTypeStorage : public mlir::TypeStorage {
+  using KeyTy = std::tuple<mlir::Type, mlir::AffineMapAttr>;
 
   static unsigned hashKey(const KeyTy &key) {
-    auto hashVal{L::hash_combine(std::get<M::Type>(key))};
-    return L::hash_combine(hashVal,
-                           L::hash_combine(std::get<M::AffineMapAttr>(key)));
+    auto hashVal{llvm::hash_combine(std::get<mlir::Type>(key))};
+    return llvm::hash_combine(
+        hashVal, llvm::hash_combine(std::get<mlir::AffineMapAttr>(key)));
   }
 
   bool operator==(const KeyTy &key) const {
-    return std::get<M::Type>(key) == getElementType() &&
-           std::get<M::AffineMapAttr>(key) == getLayoutMap();
+    return std::get<mlir::Type>(key) == getElementType() &&
+           std::get<mlir::AffineMapAttr>(key) == getLayoutMap();
   }
 
-  static BoxTypeStorage *construct(M::TypeStorageAllocator &allocator,
+  static BoxTypeStorage *construct(mlir::TypeStorageAllocator &allocator,
                                    const KeyTy &key) {
     auto *storage = allocator.allocate<BoxTypeStorage>();
-    return new (storage)
-        BoxTypeStorage{std::get<M::Type>(key), std::get<M::AffineMapAttr>(key)};
+    return new (storage) BoxTypeStorage{std::get<mlir::Type>(key),
+                                        std::get<mlir::AffineMapAttr>(key)};
   }
 
-  M::Type getElementType() const { return eleTy; }
-  M::AffineMapAttr getLayoutMap() const { return map; }
+  mlir::Type getElementType() const { return eleTy; }
+  mlir::AffineMapAttr getLayoutMap() const { return map; }
 
 protected:
-  M::Type eleTy;
-  M::AffineMapAttr map;
+  mlir::Type eleTy;
+  mlir::AffineMapAttr map;
 
 private:
   BoxTypeStorage() = delete;
-  explicit BoxTypeStorage(M::Type eleTy, M::AffineMapAttr map)
+  explicit BoxTypeStorage(mlir::Type eleTy, mlir::AffineMapAttr map)
       : eleTy{eleTy}, map{map} {}
 };
 
 /// Boxed CHARACTER object type
-struct BoxCharTypeStorage : public M::TypeStorage {
+struct BoxCharTypeStorage : public mlir::TypeStorage {
   using KeyTy = KindTy;
 
-  static unsigned hashKey(const KeyTy &key) { return L::hash_combine(key); }
+  static unsigned hashKey(const KeyTy &key) { return llvm::hash_combine(key); }
 
   bool operator==(const KeyTy &key) const { return key == getFKind(); }
 
-  static BoxCharTypeStorage *construct(M::TypeStorageAllocator &allocator,
+  static BoxCharTypeStorage *construct(mlir::TypeStorageAllocator &allocator,
                                        KindTy kind) {
     auto *storage = allocator.allocate<BoxCharTypeStorage>();
     return new (storage) BoxCharTypeStorage{kind};
@@ -594,7 +593,7 @@ struct BoxCharTypeStorage : public M::TypeStorage {
   KindTy getFKind() const { return kind; }
 
   // a !fir.boxchar<k> always wraps a !fir.char<k>
-  CharacterType getElementType(M::MLIRContext *ctxt) const {
+  CharacterType getElementType(mlir::MLIRContext *ctxt) const {
     return CharacterType::get(ctxt, getFKind());
   }
 
@@ -607,169 +606,172 @@ private:
 };
 
 /// Boxed PROCEDURE POINTER object type
-struct BoxProcTypeStorage : public M::TypeStorage {
-  using KeyTy = M::Type;
+struct BoxProcTypeStorage : public mlir::TypeStorage {
+  using KeyTy = mlir::Type;
 
-  static unsigned hashKey(const KeyTy &key) { return L::hash_combine(key); }
+  static unsigned hashKey(const KeyTy &key) { return llvm::hash_combine(key); }
 
   bool operator==(const KeyTy &key) const { return key == getElementType(); }
 
-  static BoxProcTypeStorage *construct(M::TypeStorageAllocator &allocator,
-                                       M::Type eleTy) {
+  static BoxProcTypeStorage *construct(mlir::TypeStorageAllocator &allocator,
+                                       mlir::Type eleTy) {
     assert(eleTy && "element type is null");
     auto *storage = allocator.allocate<BoxProcTypeStorage>();
     return new (storage) BoxProcTypeStorage{eleTy};
   }
 
-  M::Type getElementType() const { return eleTy; }
+  mlir::Type getElementType() const { return eleTy; }
 
 protected:
-  M::Type eleTy;
+  mlir::Type eleTy;
 
 private:
   BoxProcTypeStorage() = delete;
-  explicit BoxProcTypeStorage(M::Type eleTy) : eleTy{eleTy} {}
+  explicit BoxProcTypeStorage(mlir::Type eleTy) : eleTy{eleTy} {}
 };
 
 /// Pointer-like object storage
-struct ReferenceTypeStorage : public M::TypeStorage {
-  using KeyTy = M::Type;
+struct ReferenceTypeStorage : public mlir::TypeStorage {
+  using KeyTy = mlir::Type;
 
-  static unsigned hashKey(const KeyTy &key) { return L::hash_combine(key); }
+  static unsigned hashKey(const KeyTy &key) { return llvm::hash_combine(key); }
 
   bool operator==(const KeyTy &key) const { return key == getElementType(); }
 
-  static ReferenceTypeStorage *construct(M::TypeStorageAllocator &allocator,
-                                         M::Type eleTy) {
+  static ReferenceTypeStorage *construct(mlir::TypeStorageAllocator &allocator,
+                                         mlir::Type eleTy) {
     assert(eleTy && "element type is null");
     auto *storage = allocator.allocate<ReferenceTypeStorage>();
     return new (storage) ReferenceTypeStorage{eleTy};
   }
 
-  M::Type getElementType() const { return eleTy; }
+  mlir::Type getElementType() const { return eleTy; }
 
 protected:
-  M::Type eleTy;
+  mlir::Type eleTy;
 
 private:
   ReferenceTypeStorage() = delete;
-  explicit ReferenceTypeStorage(M::Type eleTy) : eleTy{eleTy} {}
+  explicit ReferenceTypeStorage(mlir::Type eleTy) : eleTy{eleTy} {}
 };
 
 /// Pointer object storage
-struct PointerTypeStorage : public M::TypeStorage {
-  using KeyTy = M::Type;
+struct PointerTypeStorage : public mlir::TypeStorage {
+  using KeyTy = mlir::Type;
 
-  static unsigned hashKey(const KeyTy &key) { return L::hash_combine(key); }
+  static unsigned hashKey(const KeyTy &key) { return llvm::hash_combine(key); }
 
   bool operator==(const KeyTy &key) const { return key == getElementType(); }
 
-  static PointerTypeStorage *construct(M::TypeStorageAllocator &allocator,
-                                       M::Type eleTy) {
+  static PointerTypeStorage *construct(mlir::TypeStorageAllocator &allocator,
+                                       mlir::Type eleTy) {
     assert(eleTy && "element type is null");
     auto *storage = allocator.allocate<PointerTypeStorage>();
     return new (storage) PointerTypeStorage{eleTy};
   }
 
-  M::Type getElementType() const { return eleTy; }
+  mlir::Type getElementType() const { return eleTy; }
 
 protected:
-  M::Type eleTy;
+  mlir::Type eleTy;
 
 private:
   PointerTypeStorage() = delete;
-  explicit PointerTypeStorage(M::Type eleTy) : eleTy{eleTy} {}
+  explicit PointerTypeStorage(mlir::Type eleTy) : eleTy{eleTy} {}
 };
 
 /// Heap memory reference object storage
-struct HeapTypeStorage : public M::TypeStorage {
-  using KeyTy = M::Type;
+struct HeapTypeStorage : public mlir::TypeStorage {
+  using KeyTy = mlir::Type;
 
-  static unsigned hashKey(const KeyTy &key) { return L::hash_combine(key); }
+  static unsigned hashKey(const KeyTy &key) { return llvm::hash_combine(key); }
 
   bool operator==(const KeyTy &key) const { return key == getElementType(); }
 
-  static HeapTypeStorage *construct(M::TypeStorageAllocator &allocator,
-                                    M::Type eleTy) {
+  static HeapTypeStorage *construct(mlir::TypeStorageAllocator &allocator,
+                                    mlir::Type eleTy) {
     assert(eleTy && "element type is null");
     auto *storage = allocator.allocate<HeapTypeStorage>();
     return new (storage) HeapTypeStorage{eleTy};
   }
 
-  M::Type getElementType() const { return eleTy; }
+  mlir::Type getElementType() const { return eleTy; }
 
 protected:
-  M::Type eleTy;
+  mlir::Type eleTy;
 
 private:
   HeapTypeStorage() = delete;
-  explicit HeapTypeStorage(M::Type eleTy) : eleTy{eleTy} {}
+  explicit HeapTypeStorage(mlir::Type eleTy) : eleTy{eleTy} {}
 };
 
 /// Sequence-like object storage
-struct SequenceTypeStorage : public M::TypeStorage {
-  using KeyTy = std::tuple<SequenceType::Shape, M::Type, M::AffineMapAttr>;
+struct SequenceTypeStorage : public mlir::TypeStorage {
+  using KeyTy =
+      std::tuple<SequenceType::Shape, mlir::Type, mlir::AffineMapAttr>;
 
   static unsigned hashKey(const KeyTy &key) {
     auto shapeHash{hash_value(std::get<SequenceType::Shape>(key))};
-    shapeHash = L::hash_combine(shapeHash, std::get<M::Type>(key));
-    return L::hash_combine(shapeHash, std::get<M::AffineMapAttr>(key));
+    shapeHash = llvm::hash_combine(shapeHash, std::get<mlir::Type>(key));
+    return llvm::hash_combine(shapeHash, std::get<mlir::AffineMapAttr>(key));
   }
 
   bool operator==(const KeyTy &key) const {
     return key == KeyTy{getShape(), getElementType(), getLayoutMap()};
   }
 
-  static SequenceTypeStorage *construct(M::TypeStorageAllocator &allocator,
+  static SequenceTypeStorage *construct(mlir::TypeStorageAllocator &allocator,
                                         const KeyTy &key) {
     auto *storage = allocator.allocate<SequenceTypeStorage>();
-    return new (storage) SequenceTypeStorage{std::get<SequenceType::Shape>(key),
-                                             std::get<M::Type>(key),
-                                             std::get<M::AffineMapAttr>(key)};
+    return new (storage) SequenceTypeStorage{
+        std::get<SequenceType::Shape>(key), std::get<mlir::Type>(key),
+        std::get<mlir::AffineMapAttr>(key)};
   }
 
   SequenceType::Shape getShape() const { return shape; }
-  M::Type getElementType() const { return eleTy; }
-  M::AffineMapAttr getLayoutMap() const { return map; }
+  mlir::Type getElementType() const { return eleTy; }
+  mlir::AffineMapAttr getLayoutMap() const { return map; }
 
 protected:
   SequenceType::Shape shape;
-  M::Type eleTy;
-  M::AffineMapAttr map;
+  mlir::Type eleTy;
+  mlir::AffineMapAttr map;
 
 private:
   SequenceTypeStorage() = delete;
-  explicit SequenceTypeStorage(const SequenceType::Shape &shape, M::Type eleTy,
-                               M::AffineMapAttr map)
+  explicit SequenceTypeStorage(const SequenceType::Shape &shape,
+                               mlir::Type eleTy, mlir::AffineMapAttr map)
       : shape{shape}, eleTy{eleTy}, map{map} {}
 };
 
 /// Derived type storage
-struct RecordTypeStorage : public M::TypeStorage {
-  using KeyTy = L::StringRef;
+struct RecordTypeStorage : public mlir::TypeStorage {
+  using KeyTy = llvm::StringRef;
 
   static unsigned hashKey(const KeyTy &key) {
-    return L::hash_combine(key.str());
+    return llvm::hash_combine(key.str());
   }
 
   bool operator==(const KeyTy &key) const { return key == getName(); }
 
-  static RecordTypeStorage *construct(M::TypeStorageAllocator &allocator,
+  static RecordTypeStorage *construct(mlir::TypeStorageAllocator &allocator,
                                       const KeyTy &key) {
     auto *storage = allocator.allocate<RecordTypeStorage>();
     return new (storage) RecordTypeStorage{key};
   }
 
-  L::StringRef getName() const { return name; }
+  llvm::StringRef getName() const { return name; }
 
-  void setLenParamList(L::ArrayRef<RecordType::TypePair> list) { lens = list; }
-  L::ArrayRef<RecordType::TypePair> getLenParamList() const { return lens; }
+  void setLenParamList(llvm::ArrayRef<RecordType::TypePair> list) {
+    lens = list;
+  }
+  llvm::ArrayRef<RecordType::TypePair> getLenParamList() const { return lens; }
 
-  void setTypeList(L::ArrayRef<RecordType::TypePair> list) { types = list; }
-  L::ArrayRef<RecordType::TypePair> getTypeList() const { return types; }
+  void setTypeList(llvm::ArrayRef<RecordType::TypePair> list) { types = list; }
+  llvm::ArrayRef<RecordType::TypePair> getTypeList() const { return types; }
 
-  void finalize(L::ArrayRef<RecordType::TypePair> lenParamList,
-                L::ArrayRef<RecordType::TypePair> typeList) {
+  void finalize(llvm::ArrayRef<RecordType::TypePair> lenParamList,
+                llvm::ArrayRef<RecordType::TypePair> typeList) {
     if (finalized)
       return;
     finalized = true;
@@ -785,34 +787,34 @@ protected:
 
 private:
   RecordTypeStorage() = delete;
-  explicit RecordTypeStorage(L::StringRef name)
+  explicit RecordTypeStorage(llvm::StringRef name)
       : name{name}, finalized{false} {}
 };
 
 /// Type descriptor type storage
-struct TypeDescTypeStorage : public M::TypeStorage {
-  using KeyTy = M::Type;
+struct TypeDescTypeStorage : public mlir::TypeStorage {
+  using KeyTy = mlir::Type;
 
-  static unsigned hashKey(const KeyTy &key) { return L::hash_combine(key); }
+  static unsigned hashKey(const KeyTy &key) { return llvm::hash_combine(key); }
 
   bool operator==(const KeyTy &key) const { return key == getOfType(); }
 
-  static TypeDescTypeStorage *construct(M::TypeStorageAllocator &allocator,
-                                        M::Type ofTy) {
+  static TypeDescTypeStorage *construct(mlir::TypeStorageAllocator &allocator,
+                                        mlir::Type ofTy) {
     assert(ofTy && "descriptor type is null");
     auto *storage = allocator.allocate<TypeDescTypeStorage>();
     return new (storage) TypeDescTypeStorage{ofTy};
   }
 
   // The type described by this type descriptor instance
-  M::Type getOfType() const { return ofTy; }
+  mlir::Type getOfType() const { return ofTy; }
 
 protected:
-  M::Type ofTy;
+  mlir::Type ofTy;
 
 private:
   TypeDescTypeStorage() = delete;
-  explicit TypeDescTypeStorage(M::Type ofTy) : ofTy{ofTy} {}
+  explicit TypeDescTypeStorage(mlir::Type ofTy) : ofTy{ofTy} {}
 };
 
 } // namespace detail
@@ -824,12 +826,13 @@ bool inbounds(A v, B lb, B ub) {
 }
 
 bool fir::isa_fir_type(mlir::Type t) {
-  return inbounds(t.getKind(), M::Type::FIRST_FIR_TYPE, M::Type::LAST_FIR_TYPE);
+  return inbounds(t.getKind(), mlir::Type::FIRST_FIR_TYPE,
+                  mlir::Type::LAST_FIR_TYPE);
 }
 
 bool fir::isa_std_type(mlir::Type t) {
-  return inbounds(t.getKind(), M::Type::FIRST_STANDARD_TYPE,
-                  M::Type::LAST_STANDARD_TYPE);
+  return inbounds(t.getKind(), mlir::Type::FIRST_STANDARD_TYPE,
+                  mlir::Type::LAST_STANDARD_TYPE);
 }
 
 bool fir::isa_fir_or_std_type(mlir::Type t) {
@@ -838,7 +841,7 @@ bool fir::isa_fir_or_std_type(mlir::Type t) {
 
 // CHARACTER
 
-CharacterType fir::CharacterType::get(M::MLIRContext *ctxt, KindTy kind) {
+CharacterType fir::CharacterType::get(mlir::MLIRContext *ctxt, KindTy kind) {
   return Base::get(ctxt, FIR_CHARACTER, kind);
 }
 
@@ -846,7 +849,7 @@ int fir::CharacterType::getFKind() const { return getImpl()->getFKind(); }
 
 // Dims
 
-DimsType fir::DimsType::get(M::MLIRContext *ctxt, unsigned rank) {
+DimsType fir::DimsType::get(mlir::MLIRContext *ctxt, unsigned rank) {
   return Base::get(ctxt, FIR_DIMS, rank);
 }
 
@@ -854,19 +857,19 @@ int fir::DimsType::getRank() const { return getImpl()->getRank(); }
 
 // Field
 
-FieldType fir::FieldType::get(M::MLIRContext *ctxt, KindTy) {
+FieldType fir::FieldType::get(mlir::MLIRContext *ctxt, KindTy) {
   return Base::get(ctxt, FIR_FIELD, 0);
 }
 
 // Len
 
-LenType fir::LenType::get(M::MLIRContext *ctxt, KindTy) {
+LenType fir::LenType::get(mlir::MLIRContext *ctxt, KindTy) {
   return Base::get(ctxt, FIR_LEN, 0);
 }
 
 // LOGICAL
 
-LogicalType fir::LogicalType::get(M::MLIRContext *ctxt, KindTy kind) {
+LogicalType fir::LogicalType::get(mlir::MLIRContext *ctxt, KindTy kind) {
   return Base::get(ctxt, FIR_LOGICAL, kind);
 }
 
@@ -874,7 +877,7 @@ int fir::LogicalType::getFKind() const { return getImpl()->getFKind(); }
 
 // INTEGER
 
-IntType fir::IntType::get(M::MLIRContext *ctxt, KindTy kind) {
+IntType fir::IntType::get(mlir::MLIRContext *ctxt, KindTy kind) {
   return Base::get(ctxt, FIR_INT, kind);
 }
 
@@ -882,7 +885,7 @@ int fir::IntType::getFKind() const { return getImpl()->getFKind(); }
 
 // COMPLEX
 
-CplxType fir::CplxType::get(M::MLIRContext *ctxt, KindTy kind) {
+CplxType fir::CplxType::get(mlir::MLIRContext *ctxt, KindTy kind) {
   return Base::get(ctxt, FIR_COMPLEX, kind);
 }
 
@@ -890,7 +893,7 @@ KindTy fir::CplxType::getFKind() const { return getImpl()->getFKind(); }
 
 // REAL
 
-RealType fir::RealType::get(M::MLIRContext *ctxt, KindTy kind) {
+RealType fir::RealType::get(mlir::MLIRContext *ctxt, KindTy kind) {
   return Base::get(ctxt, FIR_REAL, kind);
 }
 
@@ -898,27 +901,28 @@ int fir::RealType::getFKind() const { return getImpl()->getFKind(); }
 
 // Box<T>
 
-BoxType fir::BoxType::get(M::Type elementType, M::AffineMapAttr map) {
+BoxType fir::BoxType::get(mlir::Type elementType, mlir::AffineMapAttr map) {
   return Base::get(elementType.getContext(), FIR_BOX, elementType, map);
 }
 
-M::Type fir::BoxType::getEleTy() const { return getImpl()->getElementType(); }
+mlir::Type fir::BoxType::getEleTy() const {
+  return getImpl()->getElementType();
+}
 
-M::AffineMapAttr fir::BoxType::getLayoutMap() const {
+mlir::AffineMapAttr fir::BoxType::getLayoutMap() const {
   return getImpl()->getLayoutMap();
 }
 
-M::LogicalResult
-fir::BoxType::verifyConstructionInvariants(L::Optional<M::Location>,
-                                           M::MLIRContext *ctx, M::Type eleTy,
-                                           mlir::AffineMapAttr map) {
+mlir::LogicalResult fir::BoxType::verifyConstructionInvariants(
+    llvm::Optional<mlir::Location>, mlir::MLIRContext *ctx, mlir::Type eleTy,
+    mlir::AffineMapAttr map) {
   // TODO
-  return M::success();
+  return mlir::success();
 }
 
 // BoxChar<C>
 
-BoxCharType fir::BoxCharType::get(M::MLIRContext *ctxt, KindTy kind) {
+BoxCharType fir::BoxCharType::get(mlir::MLIRContext *ctxt, KindTy kind) {
   return Base::get(ctxt, FIR_BOXCHAR, kind);
 }
 
@@ -928,43 +932,45 @@ CharacterType fir::BoxCharType::getEleTy() const {
 
 // BoxProc<T>
 
-BoxProcType fir::BoxProcType::get(M::Type elementType) {
+BoxProcType fir::BoxProcType::get(mlir::Type elementType) {
   return Base::get(elementType.getContext(), FIR_BOXPROC, elementType);
 }
 
-M::Type fir::BoxProcType::getEleTy() const {
+mlir::Type fir::BoxProcType::getEleTy() const {
   return getImpl()->getElementType();
 }
 
-M::LogicalResult fir::BoxProcType::verifyConstructionInvariants(
-    L::Optional<M::Location> loc, M::MLIRContext *context, M::Type eleTy) {
-  if (eleTy.dyn_cast<M::FunctionType>() || eleTy.dyn_cast<ReferenceType>())
-    return M::success();
-  return M::failure();
+mlir::LogicalResult fir::BoxProcType::verifyConstructionInvariants(
+    llvm::Optional<mlir::Location> loc, mlir::MLIRContext *context,
+    mlir::Type eleTy) {
+  if (eleTy.dyn_cast<mlir::FunctionType>() || eleTy.dyn_cast<ReferenceType>())
+    return mlir::success();
+  return mlir::failure();
 }
 
 // Reference<T>
 
-ReferenceType fir::ReferenceType::get(M::Type elementType) {
+ReferenceType fir::ReferenceType::get(mlir::Type elementType) {
   return Base::get(elementType.getContext(), FIR_REFERENCE, elementType);
 }
 
-M::Type fir::ReferenceType::getEleTy() const {
+mlir::Type fir::ReferenceType::getEleTy() const {
   return getImpl()->getElementType();
 }
 
-M::LogicalResult fir::ReferenceType::verifyConstructionInvariants(
-    L::Optional<M::Location> loc, M::MLIRContext *context, M::Type eleTy) {
+mlir::LogicalResult fir::ReferenceType::verifyConstructionInvariants(
+    llvm::Optional<mlir::Location> loc, mlir::MLIRContext *context,
+    mlir::Type eleTy) {
   if (eleTy.dyn_cast<DimsType>() || eleTy.dyn_cast<FieldType>() ||
       eleTy.dyn_cast<LenType>() || eleTy.dyn_cast<ReferenceType>() ||
       eleTy.dyn_cast<TypeDescType>())
-    return M::failure();
-  return M::success();
+    return mlir::failure();
+  return mlir::success();
 }
 
 // Pointer<T>
 
-PointerType fir::PointerType::get(M::Type elementType) {
+PointerType fir::PointerType::get(mlir::Type elementType) {
   if (!singleIndirectionLevel(elementType)) {
     assert(false && "FIXME: invalid element type");
     return {};
@@ -972,24 +978,25 @@ PointerType fir::PointerType::get(M::Type elementType) {
   return Base::get(elementType.getContext(), FIR_POINTER, elementType);
 }
 
-M::Type fir::PointerType::getEleTy() const {
+mlir::Type fir::PointerType::getEleTy() const {
   return getImpl()->getElementType();
 }
 
-M::LogicalResult fir::PointerType::verifyConstructionInvariants(
-    L::Optional<M::Location> loc, M::MLIRContext *context, M::Type eleTy) {
+mlir::LogicalResult fir::PointerType::verifyConstructionInvariants(
+    llvm::Optional<mlir::Location> loc, mlir::MLIRContext *context,
+    mlir::Type eleTy) {
   if (eleTy.dyn_cast<BoxType>() || eleTy.dyn_cast<BoxCharType>() ||
       eleTy.dyn_cast<BoxProcType>() || eleTy.dyn_cast<DimsType>() ||
       eleTy.dyn_cast<FieldType>() || eleTy.dyn_cast<LenType>() ||
       eleTy.dyn_cast<HeapType>() || eleTy.dyn_cast<PointerType>() ||
       eleTy.dyn_cast<ReferenceType>() || eleTy.dyn_cast<TypeDescType>())
-    return M::failure();
-  return M::success();
+    return mlir::failure();
+  return mlir::success();
 }
 
 // Heap<T>
 
-HeapType fir::HeapType::get(M::Type elementType) {
+HeapType fir::HeapType::get(mlir::Type elementType) {
   if (!singleIndirectionLevel(elementType)) {
     assert(false && "FIXME: invalid element type");
     return {};
@@ -997,32 +1004,36 @@ HeapType fir::HeapType::get(M::Type elementType) {
   return Base::get(elementType.getContext(), FIR_HEAP, elementType);
 }
 
-M::Type fir::HeapType::getEleTy() const { return getImpl()->getElementType(); }
+mlir::Type fir::HeapType::getEleTy() const {
+  return getImpl()->getElementType();
+}
 
-M::LogicalResult fir::HeapType::verifyConstructionInvariants(
-    L::Optional<M::Location> loc, M::MLIRContext *context, M::Type eleTy) {
+mlir::LogicalResult
+fir::HeapType::verifyConstructionInvariants(llvm::Optional<mlir::Location> loc,
+                                            mlir::MLIRContext *context,
+                                            mlir::Type eleTy) {
   if (eleTy.dyn_cast<BoxType>() || eleTy.dyn_cast<BoxCharType>() ||
       eleTy.dyn_cast<BoxProcType>() || eleTy.dyn_cast<DimsType>() ||
       eleTy.dyn_cast<FieldType>() || eleTy.dyn_cast<LenType>() ||
       eleTy.dyn_cast<HeapType>() || eleTy.dyn_cast<PointerType>() ||
       eleTy.dyn_cast<ReferenceType>() || eleTy.dyn_cast<TypeDescType>())
-    return M::failure();
-  return M::success();
+    return mlir::failure();
+  return mlir::success();
 }
 
 // Sequence<T>
 
-SequenceType fir::SequenceType::get(const Shape &shape, M::Type elementType,
-                                    M::AffineMapAttr map) {
+SequenceType fir::SequenceType::get(const Shape &shape, mlir::Type elementType,
+                                    mlir::AffineMapAttr map) {
   auto *ctxt = elementType.getContext();
   return Base::get(ctxt, FIR_SEQUENCE, shape, elementType, map);
 }
 
-M::Type fir::SequenceType::getEleTy() const {
+mlir::Type fir::SequenceType::getEleTy() const {
   return getImpl()->getElementType();
 }
 
-M::AffineMapAttr fir::SequenceType::getLayoutMap() const {
+mlir::AffineMapAttr fir::SequenceType::getLayoutMap() const {
   return getImpl()->getLayoutMap();
 }
 
@@ -1030,9 +1041,10 @@ SequenceType::Shape fir::SequenceType::getShape() const {
   return getImpl()->getShape();
 }
 
-M::LogicalResult fir::SequenceType::verifyConstructionInvariants(
-    L::Optional<mlir::Location> loc, M::MLIRContext *context,
-    const SequenceType::Shape &shape, M::Type eleTy, M::AffineMapAttr map) {
+mlir::LogicalResult fir::SequenceType::verifyConstructionInvariants(
+    llvm::Optional<mlir::Location> loc, mlir::MLIRContext *context,
+    const SequenceType::Shape &shape, mlir::Type eleTy,
+    mlir::AffineMapAttr map) {
   // DIMENSION attribute can only be applied to an intrinsic or record type
   if (eleTy.dyn_cast<BoxType>() || eleTy.dyn_cast<BoxCharType>() ||
       eleTy.dyn_cast<BoxProcType>() || eleTy.dyn_cast<DimsType>() ||
@@ -1040,8 +1052,8 @@ M::LogicalResult fir::SequenceType::verifyConstructionInvariants(
       eleTy.dyn_cast<HeapType>() || eleTy.dyn_cast<PointerType>() ||
       eleTy.dyn_cast<ReferenceType>() || eleTy.dyn_cast<TypeDescType>() ||
       eleTy.dyn_cast<SequenceType>())
-    return M::failure();
-  return M::success();
+    return mlir::failure();
+  return mlir::success();
 }
 
 // compare if two shapes are equivalent
@@ -1056,27 +1068,27 @@ bool fir::operator==(const SequenceType::Shape &sh_1,
 }
 
 // compute the hash of a Shape
-L::hash_code fir::hash_value(const SequenceType::Shape &sh) {
+llvm::hash_code fir::hash_value(const SequenceType::Shape &sh) {
   if (sh.size()) {
-    return L::hash_combine_range(sh.begin(), sh.end());
+    return llvm::hash_combine_range(sh.begin(), sh.end());
   }
-  return L::hash_combine(0);
+  return llvm::hash_combine(0);
 }
 
 /// RecordType
 ///
 /// This type captures a Fortran "derived type"
 
-RecordType fir::RecordType::get(M::MLIRContext *ctxt, L::StringRef name) {
+RecordType fir::RecordType::get(mlir::MLIRContext *ctxt, llvm::StringRef name) {
   return Base::get(ctxt, FIR_DERIVED, name);
 }
 
-void fir::RecordType::finalize(L::ArrayRef<TypePair> lenPList,
-                               L::ArrayRef<TypePair> typeList) {
+void fir::RecordType::finalize(llvm::ArrayRef<TypePair> lenPList,
+                               llvm::ArrayRef<TypePair> typeList) {
   getImpl()->finalize(lenPList, typeList);
 }
 
-L::StringRef fir::RecordType::getName() { return getImpl()->getName(); }
+llvm::StringRef fir::RecordType::getName() { return getImpl()->getName(); }
 
 RecordType::TypeList fir::RecordType::getTypeList() {
   return getImpl()->getTypeList();
@@ -1090,14 +1102,16 @@ detail::RecordTypeStorage const *fir::RecordType::uniqueKey() const {
   return getImpl();
 }
 
-M::LogicalResult fir::RecordType::verifyConstructionInvariants(
-    L::Optional<mlir::Location>, M::MLIRContext *context, L::StringRef name) {
+mlir::LogicalResult
+fir::RecordType::verifyConstructionInvariants(llvm::Optional<mlir::Location>,
+                                              mlir::MLIRContext *context,
+                                              llvm::StringRef name) {
   if (name.size() == 0)
-    return M::failure();
-  return M::success();
+    return mlir::failure();
+  return mlir::success();
 }
 
-M::Type fir::RecordType::getType(L::StringRef ident) {
+mlir::Type fir::RecordType::getType(llvm::StringRef ident) {
   for (auto f : getTypeList())
     if (ident == f.first)
       return f.second;
@@ -1109,21 +1123,22 @@ M::Type fir::RecordType::getType(L::StringRef ident) {
 ///
 /// This is the type of a type descriptor object (similar to a class instance)
 
-TypeDescType fir::TypeDescType::get(M::Type ofType) {
+TypeDescType fir::TypeDescType::get(mlir::Type ofType) {
   assert(!ofType.dyn_cast<ReferenceType>());
   return Base::get(ofType.getContext(), FIR_TYPEDESC, ofType);
 }
 
-M::Type fir::TypeDescType::getOfTy() const { return getImpl()->getOfType(); }
+mlir::Type fir::TypeDescType::getOfTy() const { return getImpl()->getOfType(); }
 
-M::LogicalResult fir::TypeDescType::verifyConstructionInvariants(
-    L::Optional<M::Location> loc, M::MLIRContext *context, M::Type eleTy) {
+mlir::LogicalResult fir::TypeDescType::verifyConstructionInvariants(
+    llvm::Optional<mlir::Location> loc, mlir::MLIRContext *context,
+    mlir::Type eleTy) {
   if (eleTy.dyn_cast<BoxType>() || eleTy.dyn_cast<BoxCharType>() ||
       eleTy.dyn_cast<BoxProcType>() || eleTy.dyn_cast<DimsType>() ||
       eleTy.dyn_cast<FieldType>() || eleTy.dyn_cast<LenType>() ||
       eleTy.dyn_cast<ReferenceType>() || eleTy.dyn_cast<TypeDescType>())
-    return M::failure();
-  return M::success();
+    return mlir::failure();
+  return mlir::success();
 }
 
 namespace {
@@ -1143,7 +1158,8 @@ llvm::SmallPtrSet<detail::RecordTypeStorage const *, 4> recordTypeVisited;
 
 } // namespace
 
-void fir::printFirType(FIROpsDialect *, M::Type ty, M::DialectAsmPrinter &p) {
+void fir::printFirType(FIROpsDialect *, mlir::Type ty,
+                       mlir::DialectAsmPrinter &p) {
   auto &os = p.getStream();
   switch (ty.getKind()) {
   case fir::FIR_BOX: {
