@@ -16,21 +16,16 @@
 /// other MLIR dialect, only to LLVM IR. The default values follow the f18
 /// front-end kind mappings.
 
-namespace M = mlir;
+using Bitsize = fir::KindMapping::Bitsize;
+using KindTy = fir::KindMapping::KindTy;
+using LLVMTypeID = fir::KindMapping::LLVMTypeID;
+using MatchResult = fir::KindMapping::MatchResult;
 
-using namespace fir;
-using namespace llvm;
+static llvm::cl::opt<std::string> ClKindMapping(
+    "kind-mapping", llvm::cl::desc("kind mapping string to set kind precision"),
+    llvm::cl::value_desc("kind-mapping-string"), llvm::cl::init(""));
 
-using Bitsize = KindMapping::Bitsize;
-using KindTy = KindMapping::KindTy;
-using LLVMTypeID = KindMapping::LLVMTypeID;
-using MatchResult = KindMapping::MatchResult;
-
-static cl::opt<std::string>
-    ClKindMapping("kind-mapping",
-                  cl::desc("kind mapping string to set kind precision"),
-                  cl::value_desc("kind-mapping-string"), cl::init(""));
-
+namespace fir {
 namespace {
 
 /// Integral types default to the kind value being the size of the value in
@@ -63,7 +58,7 @@ LLVMTypeID defaultRealKind(KindTy kind) {
 // lookup the kind-value given the defaults, the mappings, and a KIND key
 template <typename RT, char KEY>
 RT doLookup(std::function<RT(KindTy)> def,
-            std::map<char, std::map<KindTy, RT>> const &map, KindTy kind) {
+            const std::map<char, std::map<KindTy, RT>> &map, KindTy kind) {
   auto iter = map.find(KEY);
   if (iter != map.end()) {
     auto iter2 = iter->second.find(kind);
@@ -75,17 +70,17 @@ RT doLookup(std::function<RT(KindTy)> def,
 
 // do a lookup for INTERGER, LOGICAL, or CHARACTER
 template <char KEY, typename MAP>
-Bitsize getIntegerLikeBitsize(KindTy kind, MAP const &map) {
+Bitsize getIntegerLikeBitsize(KindTy kind, const MAP &map) {
   return doLookup<Bitsize, KEY>(defaultScalingKind, map, kind);
 }
 
 // do a lookup for REAL or COMPLEX
 template <char KEY, typename MAP>
-LLVMTypeID getFloatLikeTypeID(KindTy kind, MAP const &map) {
+LLVMTypeID getFloatLikeTypeID(KindTy kind, const MAP &map) {
   return doLookup<LLVMTypeID, KEY>(defaultRealKind, map, kind);
 }
 
-MatchResult parseCode(char &code, char const *&ptr) {
+MatchResult parseCode(char &code, const char *&ptr) {
   if (*ptr != 'a' && *ptr != 'c' && *ptr != 'i' && *ptr != 'l' && *ptr != 'r')
     return {};
   code = *ptr++;
@@ -93,24 +88,24 @@ MatchResult parseCode(char &code, char const *&ptr) {
 }
 
 template <char ch>
-MatchResult parseSingleChar(char const *&ptr) {
+MatchResult parseSingleChar(const char *&ptr) {
   if (*ptr != ch)
     return {};
   ++ptr;
   return {true};
 }
 
-MatchResult parseColon(char const *&ptr) { return parseSingleChar<':'>(ptr); }
+MatchResult parseColon(const char *&ptr) { return parseSingleChar<':'>(ptr); }
 
-MatchResult parseComma(char const *&ptr) { return parseSingleChar<','>(ptr); }
+MatchResult parseComma(const char *&ptr) { return parseSingleChar<','>(ptr); }
 
-MatchResult parseInt(unsigned &result, char const *&ptr) {
-  char const *beg = ptr;
+MatchResult parseInt(unsigned &result, const char *&ptr) {
+  const char *beg = ptr;
   while (*ptr >= '0' && *ptr <= '9')
     ptr++;
   if (beg == ptr)
     return {};
-  StringRef ref(beg, ptr - beg);
+  llvm::StringRef ref(beg, ptr - beg);
   int temp;
   if (ref.consumeInteger(10, temp))
     return {};
@@ -118,8 +113,8 @@ MatchResult parseInt(unsigned &result, char const *&ptr) {
   return {true};
 }
 
-bool matchString(char const *&ptr, StringRef literal) {
-  StringRef s(ptr);
+bool matchString(const char *&ptr, llvm::StringRef literal) {
+  llvm::StringRef s(ptr);
   if (s.startswith(literal)) {
     ptr += literal.size();
     return true;
@@ -127,7 +122,7 @@ bool matchString(char const *&ptr, StringRef literal) {
   return false;
 }
 
-MatchResult parseTypeID(LLVMTypeID &result, char const *&ptr) {
+MatchResult parseTypeID(LLVMTypeID &result, const char *&ptr) {
   if (matchString(ptr, "Half")) {
     result = LLVMTypeID::HalfTyID;
     return {true};
@@ -153,24 +148,24 @@ MatchResult parseTypeID(LLVMTypeID &result, char const *&ptr) {
 
 } // namespace
 
-fir::KindMapping::KindMapping(mlir::MLIRContext *context, StringRef map)
+KindMapping::KindMapping(mlir::MLIRContext *context, llvm::StringRef map)
     : context{context} {
   parse(map);
 }
 
-fir::KindMapping::KindMapping(mlir::MLIRContext *context)
+KindMapping::KindMapping(mlir::MLIRContext *context)
     : KindMapping{context, ClKindMapping} {}
 
-MatchResult fir::KindMapping::badMapString(Twine const &ptr) {
+MatchResult KindMapping::badMapString(const llvm::Twine &ptr) {
   auto unknown = mlir::UnknownLoc::get(context);
   mlir::emitError(unknown, ptr);
   return {};
 }
 
-MatchResult fir::KindMapping::parse(StringRef kindMap) {
+MatchResult KindMapping::parse(llvm::StringRef kindMap) {
   if (kindMap.empty())
     return {true};
-  char const *srcPtr = kindMap.begin();
+  const char *srcPtr = kindMap.begin();
   while (true) {
     char code;
     KindTy kind;
@@ -197,22 +192,24 @@ MatchResult fir::KindMapping::parse(StringRef kindMap) {
   return {true};
 }
 
-Bitsize fir::KindMapping::getCharacterBitsize(KindTy kind) {
+Bitsize KindMapping::getCharacterBitsize(KindTy kind) {
   return getIntegerLikeBitsize<'a'>(kind, intMap);
 }
 
-Bitsize fir::KindMapping::getIntegerBitsize(KindTy kind) {
+Bitsize KindMapping::getIntegerBitsize(KindTy kind) {
   return getIntegerLikeBitsize<'i'>(kind, intMap);
 }
 
-Bitsize fir::KindMapping::getLogicalBitsize(KindTy kind) {
+Bitsize KindMapping::getLogicalBitsize(KindTy kind) {
   return getIntegerLikeBitsize<'l'>(kind, intMap);
 }
 
-LLVMTypeID fir::KindMapping::getRealTypeID(KindTy kind) {
+LLVMTypeID KindMapping::getRealTypeID(KindTy kind) {
   return getFloatLikeTypeID<'r'>(kind, floatMap);
 }
 
-LLVMTypeID fir::KindMapping::getComplexTypeID(KindTy kind) {
+LLVMTypeID KindMapping::getComplexTypeID(KindTy kind) {
   return getFloatLikeTypeID<'c'>(kind, floatMap);
 }
+
+} // namespace fir

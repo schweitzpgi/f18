@@ -1,4 +1,4 @@
-//===-- lib/lower/bridge.cc -------------------------------------*- C++ -*-===//
+//===-- Bridge.cc ---------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -122,7 +122,7 @@ class FirConverter : public AbstractConverter {
   static const Pa::SubroutineStmt *inSubroutine(AST::Evaluation *cstr) {
     return std::visit(
         Co::visitors{
-            [](AST::FunctionLikeUnit *c) { return c->isSubroutine(); },
+            [](AST::FunctionLikeUnit *c) { return c->getSubroutine(); },
             [&](AST::Evaluation *c) { return inSubroutine(c); },
             [](auto *) -> const Pa::SubroutineStmt * { return nullptr; },
         },
@@ -131,7 +131,7 @@ class FirConverter : public AbstractConverter {
   static const Pa::FunctionStmt *inFunction(AST::Evaluation *cstr) {
     return std::visit(
         Co::visitors{
-            [](AST::FunctionLikeUnit *c) { return c->isFunction(); },
+            [](AST::FunctionLikeUnit *c) { return c->getFunction(); },
             [&](AST::Evaluation *c) { return inFunction(c); },
             [](auto *) -> const Pa::FunctionStmt * { return nullptr; },
         },
@@ -140,7 +140,7 @@ class FirConverter : public AbstractConverter {
   static const Pa::MpSubprogramStmt *inMPSubp(AST::Evaluation *cstr) {
     return std::visit(
         Co::visitors{
-            [](AST::FunctionLikeUnit *c) { return c->isMPSubp(); },
+            [](AST::FunctionLikeUnit *c) { return c->getMPSubp(); },
             [&](AST::Evaluation *c) { return inMPSubp(c); },
             [](auto *) -> const Pa::MpSubprogramStmt * { return nullptr; },
         },
