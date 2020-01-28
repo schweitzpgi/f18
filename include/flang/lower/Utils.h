@@ -9,7 +9,7 @@
 #ifndef FORTRAN_LOWER_UTILS_H
 #define FORTRAN_LOWER_UTILS_H
 
-#include "../../../lib/parser/char-block.h"
+#include "flang/lib/parser/char-block.h"
 #include "llvm/ADT/StringRef.h"
 
 /// Convert an F18 CharBlock to an LLVM StringRef
