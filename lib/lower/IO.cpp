@@ -33,6 +33,7 @@ namespace {
 
 #define mkIOKey(X) mkKey(IONAME(X))
 
+using namespace runtime::io;
 /// Static table of IO runtime calls
 ///
 /// This logical map contains the name and type builder function for each IO
