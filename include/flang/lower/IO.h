@@ -41,15 +41,34 @@ namespace lower {
 class AbstractConverter;
 class BridgeImpl;
 
+/// Generate IO call(s) for BACKSPACE
 void genBackspaceStatement(AbstractConverter &, const parser::BackspaceStmt &);
+
+/// Generate IO call(s) for CLOSE
 void genCloseStatement(AbstractConverter &, const parser::CloseStmt &);
+
+/// Generate IO call(s) for ENDFILE
 void genEndfileStatement(AbstractConverter &, const parser::EndfileStmt &);
+
+/// Generate IO call(s) for FLUSH
 void genFlushStatement(AbstractConverter &, const parser::FlushStmt &);
+
+/// Generate IO call(s) for INQUIRE
 void genInquireStatement(AbstractConverter &, const parser::InquireStmt &);
+
+/// Generate IO call(s) for OPEN
 void genOpenStatement(AbstractConverter &, const parser::OpenStmt &);
+
+/// Generate IO call(s) for PRINT
 void genPrintStatement(AbstractConverter &, const parser::PrintStmt &);
+
+/// Generate IO call(s) for READ
 void genReadStatement(AbstractConverter &, const parser::ReadStmt &);
+
+/// Generate IO call(s) for REWIND
 void genRewindStatement(AbstractConverter &, const parser::RewindStmt &);
+
+/// Generate IO call(s) for WRITE
 void genWriteStatement(AbstractConverter &, const parser::WriteStmt &);
 
 } // namespace lower
