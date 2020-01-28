@@ -82,7 +82,7 @@ void printCallOp(M::OpAsmPrinter &p, fir::CallOp &op) {
   p.printOperands(L::drop_begin(op.getOperands(), isDirect ? 0 : 1));
   p << ')';
   p.printOptionalAttrDict(op.getAttrs(), {"callee"});
-  L::SmallVector<Type, 1> resultTypes(op.getResultTypes());
+  auto resultTypes{op.getResultTypes()};
   L::SmallVector<Type, 8> argTypes(
       L::drop_begin(op.getOperandTypes(), isDirect ? 0 : 1));
   p << " : " << FunctionType::get(argTypes, resultTypes, op.getContext());
