@@ -27,10 +27,6 @@ using Cookie = IoStatementState *;
 using ExternalUnit = int;
 using AsynchronousId = int;
 static constexpr ExternalUnit DefaultUnit{-1};  // READ(*), WRITE(*), PRINT
-}
-
-using namespace Fortran::runtime;
-using namespace Fortran::runtime::io;
 
 extern "C" {
 
@@ -297,5 +293,6 @@ bool IONAME(InquireInteger64)(
 enum Iostat IONAME(EndIoStatement)(Cookie);
 
 }  // extern "C"
+}
 
 #endif
