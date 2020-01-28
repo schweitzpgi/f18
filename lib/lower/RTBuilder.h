@@ -37,7 +37,6 @@ struct errorNoBuilderForType;
 template <typename T>
 static constexpr TypeBuilderFunc getModel() {
   using namespace std::placeholders;
-  using Iostat = typename runtime::io::Iostat;
   if constexpr (std::is_same_v<T, int>) {
     return [](mlir::MLIRContext *c) {
       return mlir::IntegerType::get(8 * sizeof(int), c);
@@ -69,9 +68,9 @@ static constexpr TypeBuilderFunc getModel() {
     return [](mlir::MLIRContext *c) {
       return fir::ReferenceType::get(mlir::FloatType::getF32(c));
     };
-  } else if constexpr (std::is_same_v<std::decay_t<T>, Iostat>) {
+  } else if constexpr (std::is_same_v<std::decay_t<T>, runtime::io::Iostat>) {
     return [](mlir::MLIRContext *c) {
-      return mlir::IntegerType::get(8 * sizeof(Iostat), c);
+      return mlir::IntegerType::get(8 * sizeof(runtime::io::Iostat), c);
     };
   } else if constexpr (std::is_same_v<T, bool>) {
     return [](mlir::MLIRContext *c) { return mlir::IntegerType::get(1, c); };
