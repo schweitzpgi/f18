@@ -151,6 +151,8 @@ static M::FuncOp getOutputRuntimeFunction(M::OpBuilder &builder, M::Type type) {
   return {};
 }
 
+/// Get (or generate) the MLIR FuncOp for a given IO runtime function. This
+/// replaces getIORuntimeFunction.
 template <typename E>
 M::FuncOp getIORuntimeFunc(M::OpBuilder &builder) {
   auto module = getModule(&builder);
@@ -165,11 +167,19 @@ M::FuncOp getIORuntimeFunc(M::OpBuilder &builder) {
   return func;
 }
 
+/// Generate a call to end an IO statement
+void genEndIO(M::OpBuilder &builder, M::Location loc, M::Value cookie) {
+  // Terminate IO
+  M::FuncOp endIOFunc{getIORuntimeFunc<mkIOKey(EndIoStatement)>(builder)};
+  llvm::SmallVector<M::Value, 1> endArgs{cookie};
+  builder.create<M::CallOp>(loc, endIOFunc, endArgs);
+}
+
 /// Lower print statement assuming a dummy runtime interface for now.
 void lowerPrintStatement(M::OpBuilder &builder, M::Location loc, int format,
                          M::ValueRange args) {
-  M::FuncOp beginFunc{
-      getIORuntimeFunc<mkIOKey(BeginExternalListOutput)>(builder)};
+  M::FuncOp beginFunc =
+      getIORuntimeFunc<mkIOKey(BeginExternalListOutput)>(builder);
 
   // Initiate io
   M::Type externalUnitType{builder.getIntegerType(32)};
@@ -181,43 +191,75 @@ void lowerPrintStatement(M::OpBuilder &builder, M::Location loc, int format,
 
   // Call data transfer runtime function
   for (M::Value arg : args) {
+    // FIXME: this loop is still using the older table
     llvm::SmallVector<M::Value, 1> operands{cookie, arg};
     M::FuncOp outputFunc{getOutputRuntimeFunction(builder, arg.getType())};
     builder.create<M::CallOp>(loc, outputFunc, operands);
   }
-
-  // Terminate IO
-  M::FuncOp endIOFunc{getIORuntimeFunc<mkIOKey(EndIoStatement)>(builder)};
-  llvm::SmallVector<M::Value, 1> endArgs{cookie};
-  builder.create<M::CallOp>(loc, endIOFunc, endArgs);
+  endIO(builder, loc, cookie);
 }
 
-/// FIXME: this is a stub; process the format and return it
-int lowerFormat(const Pa::Format &format) { return 0; }
+int lowerFormat(const Pa::Format &format) {
+  /// FIXME: this is a stub; process the format and return it
+  return {};
+  TODO();
+}
+
+M::Value lowerPositionOrFlush(M::OpBuilder &builder, M::Location loc,
+                              const std::list<Pa::PositionOrFlushSpec> &specs) {
+  TODO();
+  return {};
+}
+
+/// Generate IO calls for any of the "position or flush" like IO statements.
+/// This is templatized with a statement type `S` and a key `K` for genericity.
+template <typename S, typename K>
+void genPosOrFlushLikeStmt(AbstractConverter &converter, const S &stmt) {
+  auto builder = converter.getOpBuilder();
+  auto loc = converter.getCurrentLocation();
+  auto beginFunc = getIORuntimeFunc<K>(builder);
+  auto cookie = lowerPositionOrFlush(builder, loc, stmt.v);
+  genEndIO(builder, converter.getCurrentLocation(), cookie);
+}
 
 } // namespace
 
-void Br::genBackspaceStatement(AbstractConverter &, const Pa::BackspaceStmt &) {
+void Br::genBackspaceStatement(AbstractConverter &converter,
+                               const Pa::BackspaceStmt &stmt) {
+  genPosOrFlushLikeStmt<mkIOKey(BeginBackspace)>(converter, stmt);
+}
+
+void Br::genEndfileStatement(AbstractConverter &converter,
+                             const Pa::EndfileStmt &stmt) {
+  genPosOrFlushLikeStmt<mkIOKey(BeginEndfile)>(converter, stmt);
+}
+
+void Br::genFlushStatement(AbstractConverter &converter,
+                           const Pa::FlushStmt &stmt) {
+  genPosOrFlushLikeStmt<mkIOKey(BeginFlush)>(converter, stmt);
+}
+
+void Br::genRewindStatement(AbstractConverter &converter,
+                            const Pa::RewindStmt &stmt) {
+  genPosOrFlushLikeStmt<mkIOKey(BeginRewind)>(converter, stmt);
+}
+
+void Br::genOpenStatement(AbstractConverter &converter, const Pa::OpenStmt &) {
+  auto builder = converter.getOpBuilder();
+  M::FuncOp beginFunc;
+  // if (...
+  beginFunc = getIORuntimeFunc<mkIOKey(BeginOpenUnit)>(builder);
+  // else
+  beginFunc = getIORuntimeFunc<mkIOKey(BeginOpenNewUnit)>(builder);
   TODO();
 }
 
-void Br::genCloseStatement(AbstractConverter &, const Pa::CloseStmt &) {
+void Br::genCloseStatement(AbstractConverter &converter,
+                           const Pa::CloseStmt &) {
+  auto builder = converter.getOpBuilder();
+  M::FuncOp beginFunc{getIORuntimeFunc<mkIOKey(BeginClose)>(builder)};
   TODO();
 }
-
-void Br::genEndfileStatement(AbstractConverter &, const Pa::EndfileStmt &) {
-  TODO();
-}
-
-void Br::genFlushStatement(AbstractConverter &, const Pa::FlushStmt &) {
-  TODO();
-}
-
-void Br::genInquireStatement(AbstractConverter &, const Pa::InquireStmt &) {
-  TODO();
-}
-
-void Br::genOpenStatement(AbstractConverter &, const Pa::OpenStmt &) { TODO(); }
 
 void Br::genPrintStatement(Br::AbstractConverter &converter,
                            const Pa::PrintStmt &stmt) {
@@ -234,12 +276,34 @@ void Br::genPrintStatement(Br::AbstractConverter &converter,
                       lowerFormat(std::get<Pa::Format>(stmt.t)), args);
 }
 
-void Br::genReadStatement(AbstractConverter &, const Pa::ReadStmt &) { TODO(); }
-
-void Br::genRewindStatement(AbstractConverter &, const Pa::RewindStmt &) {
+void Br::genReadStatement(AbstractConverter &converter, const Pa::ReadStmt &) {
+  auto builder = converter.getOpBuilder();
+  M::FuncOp beginFunc;
+  // if (...
+  beginFunc = getIORuntimeFunc<mkIOKey(BeginExternalListInput)>(builder);
+  // else if (...
   TODO();
 }
 
-void Br::genWriteStatement(AbstractConverter &, const Pa::WriteStmt &) {
+void Br::genWriteStatement(AbstractConverter &converter,
+                           const Pa::WriteStmt &) {
+  auto builder = converter.getOpBuilder();
+  M::FuncOp beginFunc;
+  // if (...
+  beginFunc = getIORuntimeFunc<mkIOKey(BeginExternalListOutput)>(builder);
+  // else if (...
+  TODO();
+}
+
+void Br::genInquireStatement(AbstractConverter &converter,
+                             const Pa::InquireStmt &) {
+  auto builder = converter.getOpBuilder();
+  M::FuncOp beginFunc;
+  // if (...
+  beginFunc = getIORuntimeFunc<mkIOKey(BeginInquireUnit)>(builder);
+  // else if (...
+  beginFunc = getIORuntimeFunc<mkIOKey(BeginInquireFile)>(builder);
+  // else
+  beginFunc = getIORuntimeFunc<mkIOKey(BeginInquireIoLength)>(builder);
   TODO();
 }
