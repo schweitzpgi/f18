@@ -14,15 +14,13 @@
 #include "mlir/IR/StandardTypes.h"
 #include "mlir/Transforms/SideEffectsInterface.h"
 
-namespace M = mlir;
-
 using namespace fir;
 
 namespace {
 
 template <typename A>
-void selectBuild(M::OpBuilder *builder, M::OperationState *result,
-                 M::Value condition,
+void selectBuild(mlir::OpBuilder *builder, mlir::OperationState *result,
+                 mlir::Value condition,
                  llvm::ArrayRef<typename A::BranchTuple> tuples) {
   result->addOperands(condition);
   for (auto &tup : tuples) {
@@ -31,19 +29,19 @@ void selectBuild(M::OpBuilder *builder, M::OperationState *result,
   }
   // Note: succs must be added *after* operands
   for (auto &tup : tuples) {
-    auto *block{std::get<M::Block *>(tup)};
+    auto *block{std::get<mlir::Block *>(tup)};
     assert(block);
-    auto blkArgs{std::get<llvm::ArrayRef<M::Value>>(tup)};
+    auto blkArgs{std::get<llvm::ArrayRef<mlir::Value>>(tup)};
     result->addSuccessor(block, blkArgs);
   }
 }
 
-M::DialectRegistration<fir::FIROpsDialect> FIROps;
+mlir::DialectRegistration<fir::FIROpsDialect> FIROps;
 
 } // namespace
 
-fir::FIROpsDialect::FIROpsDialect(M::MLIRContext *ctx)
-    : M::Dialect("fir", ctx) {
+fir::FIROpsDialect::FIROpsDialect(mlir::MLIRContext *ctx)
+    : mlir::Dialect("fir", ctx) {
   addTypes<BoxType, BoxCharType, BoxProcType, CharacterType, CplxType, DimsType,
            FieldType, HeapType, IntType, LenType, LogicalType, PointerType,
            RealType, RecordType, ReferenceType, SequenceType, TypeDescType>();
@@ -60,20 +58,22 @@ fir::FIROpsDialect::~FIROpsDialect() {
   // do nothing
 }
 
-M::Type fir::FIROpsDialect::parseType(M::DialectAsmParser &parser) const {
+mlir::Type fir::FIROpsDialect::parseType(mlir::DialectAsmParser &parser) const {
   return parseFirType(const_cast<FIROpsDialect *>(this), parser);
 }
 
-void fir::FIROpsDialect::printType(M::Type ty, M::DialectAsmPrinter &p) const {
+void fir::FIROpsDialect::printType(mlir::Type ty,
+                                   mlir::DialectAsmPrinter &p) const {
   return printFirType(const_cast<FIROpsDialect *>(this), ty, p);
 }
 
-M::Attribute fir::FIROpsDialect::parseAttribute(M::DialectAsmParser &parser,
-                                                M::Type type) const {
+mlir::Attribute
+fir::FIROpsDialect::parseAttribute(mlir::DialectAsmParser &parser,
+                                   mlir::Type type) const {
   return parseFirAttribute(const_cast<FIROpsDialect *>(this), parser, type);
 }
 
-void fir::FIROpsDialect::printAttribute(M::Attribute attr,
-                                        M::DialectAsmPrinter &p) const {
+void fir::FIROpsDialect::printAttribute(mlir::Attribute attr,
+                                        mlir::DialectAsmPrinter &p) const {
   printFirAttribute(const_cast<FIROpsDialect *>(this), attr, p);
 }

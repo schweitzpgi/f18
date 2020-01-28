@@ -1,4 +1,4 @@
-//===-- lib/lower/ast-builder.h ---------------------------------*- C++ -*-===//
+//===-- flang/lower/AstBuilder.h --------------------------------*- C++ -*-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -200,9 +200,8 @@ struct Evaluation {
 
   /// Set that the construct `cstr` (if not a nullptr) has branches.
   static void setBranches(Evaluation *cstr) {
-    if (cstr) {
+    if (cstr)
       cstr->setBranches();
-    }
   }
 
   EvalVariant u;
@@ -256,14 +255,14 @@ struct FunctionLikeUnit : public ProgramUnit {
     return std::get_if<const parser::Statement<parser::EndProgramStmt> *>(
         &funStmts.back());
   }
-  const parser::FunctionStmt *isFunction() {
-    return isA<parser::FunctionStmt>();
+  const parser::FunctionStmt *getFunction() {
+    return getA<parser::FunctionStmt>();
   }
-  const parser::SubroutineStmt *isSubroutine() {
-    return isA<parser::SubroutineStmt>();
+  const parser::SubroutineStmt *getSubroutine() {
+    return getA<parser::SubroutineStmt>();
   }
-  const parser::MpSubprogramStmt *isMPSubp() {
-    return isA<parser::MpSubprogramStmt>();
+  const parser::MpSubprogramStmt *getMPSubp() {
+    return getA<parser::MpSubprogramStmt>();
   }
 
   const semantics::Scope *scope{nullptr}; // scope from front-end
@@ -273,10 +272,9 @@ struct FunctionLikeUnit : public ProgramUnit {
 
 private:
   template <typename A>
-  const A *isA() {
-    if (auto p = std::get_if<const parser::Statement<A> *>(&funStmts.front())) {
+  const A *getA() {
+    if (auto p = std::get_if<const parser::Statement<A> *>(&funStmts.front()))
       return &(*p)->statement;
-    }
     return nullptr;
   }
 };
@@ -300,6 +298,7 @@ struct ModuleLikeUnit : public ProgramUnit {
   std::list<FunctionLikeUnit> funcs;
 };
 
+// TODO: lower data too
 struct BlockDataUnit : public ProgramUnit {
   BlockDataUnit(const parser::BlockData &db, const ParentType &parent);
 };
