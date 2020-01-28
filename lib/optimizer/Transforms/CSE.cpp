@@ -1,4 +1,4 @@
-//===-- lib/optimizer/Transforms/CSE.cpp ------------------------*- C++ -*-===//
+//===-- CSE.cpp -- common subexpression elimination -----------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -44,6 +44,8 @@ static llvm::cl::opt<bool> ClDisableCSE("disable-cse",
 namespace {
 
 struct SimpleOperationInfo : public llvm::DenseMapInfo<Operation *> {
+
+  /// Compute the hash value of an Operation
   static unsigned getHashValue(const Operation *opC) {
     auto *op = const_cast<Operation *>(opC);
     // Hash the operations based upon their:
@@ -59,12 +61,13 @@ struct SimpleOperationInfo : public llvm::DenseMapInfo<Operation *> {
       llvm::sort(vec.begin(), vec.end());
       hashOps = llvm::hash_combine_range(vec.begin(), vec.end());
     } else {
-      hashOps = hash_combine_range(op->operand_begin(), op->operand_end());
+      hashOps =
+          llvm::hash_combine_range(op->operand_begin(), op->operand_end());
     }
-    return hash_combine(
-        op->getName(), op->getAttrs(),
-        hash_combine_range(op->result_type_begin(), op->result_type_end()),
-        hashOps);
+    auto hashResTys{llvm::hash_combine_range(op->result_type_begin(),
+                                             op->result_type_end())};
+    return llvm::hash_combine(op->getName(), op->getAttrs(), hashResTys,
+                              hashOps);
   }
 
   static bool isEqual(const Operation *lhsC, const Operation *rhsC) {
