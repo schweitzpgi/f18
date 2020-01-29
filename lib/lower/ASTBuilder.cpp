@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "flang/lower/ASTBuilder.h"
+#include "flang/parser/dump-parse-tree.h"
 #include "flang/parser/parse-tree-visitor.h"
 #include <cassert>
 #include <utility>
@@ -195,14 +196,14 @@ public:
   void Post(const Pa::UnlabeledStatement<Pa::ForallAssignmentStmt> &s) {
     addEval(std::visit(
         [&](const auto &x) {
-          return AST::Evaluation{x, s.source, {}, parents.back()};
+          return AST::Evaluation{x, parents.back(), s.source, {}};
         },
         s.statement.u));
   }
   void Post(const Pa::Statement<Pa::ForallAssignmentStmt> &s) {
     addEval(std::visit(
         [&](const auto &x) {
-          return AST::Evaluation{x, s.source, s.label, parents.back()};
+          return AST::Evaluation{x, parents.back(), s.source, s.label};
         },
         s.statement.u));
   }
@@ -249,14 +250,14 @@ private:
     return std::visit(
         Co::visitors{
             [&](const Pa::ContinueStmt &x) {
-              return AST::Evaluation{x, s.source, s.label, parents.back()};
+              return AST::Evaluation{x, parents.back(), s.source, s.label};
             },
             [&](const Pa::FailImageStmt &x) {
-              return AST::Evaluation{x, s.source, s.label, parents.back()};
+              return AST::Evaluation{x, parents.back(), s.source, s.label};
             },
             [&](const auto &x) {
-              return AST::Evaluation{x.value(), s.source, s.label,
-                                     parents.back()};
+              return AST::Evaluation{x.value(), parents.back(), s.source,
+                                     s.label};
             },
         },
         s.statement.u);
@@ -266,13 +267,13 @@ private:
     return std::visit(
         Co::visitors{
             [&](const Pa::ContinueStmt &x) {
-              return AST::Evaluation{x, s.source, {}, parents.back()};
+              return AST::Evaluation{x, parents.back(), s.source, {}};
             },
             [&](const Pa::FailImageStmt &x) {
-              return AST::Evaluation{x, s.source, {}, parents.back()};
+              return AST::Evaluation{x, parents.back(), s.source, {}};
             },
             [&](const auto &x) {
-              return AST::Evaluation{x.value(), s.source, {}, parents.back()};
+              return AST::Evaluation{x.value(), parents.back(), s.source, {}};
             },
         },
         s.statement.u);
@@ -280,13 +281,13 @@ private:
 
   template <typename A>
   AST::Evaluation makeEvalIndirect(const Pa::Statement<Co::Indirection<A>> &s) {
-    return AST::Evaluation{s.statement.value(), s.source, s.label,
-                           parents.back()};
+    return AST::Evaluation{s.statement.value(), parents.back(), s.source,
+                           s.label};
   }
 
   template <typename A>
   AST::Evaluation makeEvalDirect(const Pa::Statement<A> &s) {
-    return AST::Evaluation{s.statement, s.source, s.label, parents.back()};
+    return AST::Evaluation{s.statement, parents.back(), s.source, s.label};
   }
 
   // When we enter a function-like structure, we want to build a new unit and
@@ -613,101 +614,11 @@ inline void annotateFuncCFG(AST::FunctionLikeUnit &flu) {
 
 L::StringRef evalName(AST::Evaluation &e) {
   return std::visit(
-      Co::visitors{
-          [](const Pa::AllocateStmt *) { return "AllocateStmt"; },
-          [](const Pa::ArithmeticIfStmt *) { return "ArithmeticIfStmt"; },
-          [](const Pa::AssignedGotoStmt *) { return "AssignedGotoStmt"; },
-          [](const Pa::AssignmentStmt *) { return "AssignmentStmt"; },
-          [](const Pa::AssignStmt *) { return "AssignStmt"; },
-          [](const Pa::BackspaceStmt *) { return "BackspaceStmt"; },
-          [](const Pa::CallStmt *) { return "CallStmt"; },
-          [](const Pa::CloseStmt *) { return "CloseStmt"; },
-          [](const Pa::ComputedGotoStmt *) { return "ComputedGotoStmt"; },
-          [](const Pa::ContinueStmt *) { return "ContinueStmt"; },
-          [](const Pa::CycleStmt *) { return "CycleStmt"; },
-          [](const Pa::DeallocateStmt *) { return "DeallocateStmt"; },
-          [](const Pa::EndfileStmt *) { return "EndfileStmt"; },
-          [](const Pa::EventPostStmt *) { return "EventPostStmt"; },
-          [](const Pa::EventWaitStmt *) { return "EventWaitStmt"; },
-          [](const Pa::ExitStmt *) { return "ExitStmt"; },
-          [](const Pa::FailImageStmt *) { return "FailImageStmt"; },
-          [](const Pa::FlushStmt *) { return "FlushStmt"; },
-          [](const Pa::ForallStmt *) { return "ForallStmt"; },
-          [](const Pa::FormTeamStmt *) { return "FormTeamStmt"; },
-          [](const Pa::GotoStmt *) { return "GotoStmt"; },
-          [](const Pa::IfStmt *) { return "IfStmt"; },
-          [](const Pa::InquireStmt *) { return "InquireStmt"; },
-          [](const Pa::LockStmt *) { return "LockStmt"; },
-          [](const Pa::NullifyStmt *) { return "NullifyStmt"; },
-          [](const Pa::OpenStmt *) { return "OpenStmt"; },
-          [](const Pa::PauseStmt *) { return "PauseStmt"; },
-          [](const Pa::PointerAssignmentStmt *) {
-            return "PointerAssignmentStmt";
-          },
-          [](const Pa::PrintStmt *) { return "PrintStmt"; },
-          [](const Pa::ReadStmt *) { return "ReadStmt"; },
-          [](const Pa::ReturnStmt *) { return "ReturnStmt"; },
-          [](const Pa::RewindStmt *) { return "RewindStmt"; },
-          [](const Pa::StopStmt *) { return "StopStmt"; },
-          [](const Pa::SyncAllStmt *) { return "SyncAllStmt"; },
-          [](const Pa::SyncImagesStmt *) { return "SyncImagesStmt"; },
-          [](const Pa::SyncMemoryStmt *) { return "SyncMemoryStmt"; },
-          [](const Pa::SyncTeamStmt *) { return "SyncTeamStmt"; },
-          [](const Pa::UnlockStmt *) { return "UnlockStmt"; },
-          [](const Pa::WaitStmt *) { return "WaitStmt"; },
-          [](const Pa::WhereStmt *) { return "WhereStmt"; },
-          [](const Pa::WriteStmt *) { return "WriteStmt"; },
-
-          [](const AST::CGJump) { return "CGJump"; },
-
-          [](const Pa::DataStmt *) { return "DataStmt"; },
-          [](const Pa::EntryStmt *) { return "EntryStmt"; },
-          [](const Pa::FormatStmt *) { return "FormatStmt"; },
-          [](const Pa::NamelistStmt *) { return "NamelistStmt"; },
-
-          [](const Pa::AssociateConstruct *) { return "AssociateConstruct"; },
-          [](const Pa::BlockConstruct *) { return "BlockConstruct"; },
-          [](const Pa::CaseConstruct *) { return "CaseConstruct"; },
-          [](const Pa::ChangeTeamConstruct *) { return "ChangeTeamConstruct"; },
-          [](const Pa::CompilerDirective *) { return "CompilerDirective"; },
-          [](const Pa::CriticalConstruct *) { return "CriticalConstruct"; },
-          [](const Pa::DoConstruct *) { return "DoConstruct"; },
-          [](const Pa::ForallConstruct *) { return "ForallConstruct"; },
-          [](const Pa::IfConstruct *) { return "IfConstruct"; },
-          [](const Pa::OmpEndLoopDirective *) { return "OmpEndLoopDirective"; },
-          [](const Pa::OpenMPConstruct *) { return "OpenMPConstruct"; },
-          [](const Pa::SelectRankConstruct *) { return "SelectRankConstruct"; },
-          [](const Pa::SelectTypeConstruct *) { return "SelectTypeConstruct"; },
-          [](const Pa::WhereConstruct *) { return "WhereConstruct"; },
-
-          [](const Pa::AssociateStmt *) { return "AssociateStmt"; },
-          [](const Pa::BlockStmt *) { return "BlockStmt"; },
-          [](const Pa::CaseStmt *) { return "CaseStmt"; },
-          [](const Pa::ChangeTeamStmt *) { return "ChangeTeamStmt"; },
-          [](const Pa::CriticalStmt *) { return "CriticalStmt"; },
-          [](const Pa::ElseIfStmt *) { return "ElseIfStmt"; },
-          [](const Pa::ElseStmt *) { return "ElseStmt"; },
-          [](const Pa::ElsewhereStmt *) { return "ElsewhereStmt"; },
-          [](const Pa::EndAssociateStmt *) { return "EndAssociateStmt"; },
-          [](const Pa::EndBlockStmt *) { return "EndBlockStmt"; },
-          [](const Pa::EndChangeTeamStmt *) { return "EndChangeTeamStmt"; },
-          [](const Pa::EndCriticalStmt *) { return "EndCriticalStmt"; },
-          [](const Pa::EndDoStmt *) { return "EndDoStmt"; },
-          [](const Pa::EndForallStmt *) { return "EndForallStmt"; },
-          [](const Pa::EndIfStmt *) { return "EndIfStmt"; },
-          [](const Pa::EndSelectStmt *) { return "EndSelectStmt"; },
-          [](const Pa::EndWhereStmt *) { return "EndWhereStmt"; },
-          [](const Pa::ForallConstructStmt *) { return "ForallConstructStmt"; },
-          [](const Pa::IfThenStmt *) { return "IfThenStmt"; },
-          [](const Pa::MaskedElsewhereStmt *) { return "MaskedElsewhereStmt"; },
-          [](const Pa::NonLabelDoStmt *) { return "NonLabelDoStmt"; },
-          [](const Pa::SelectCaseStmt *) { return "SelectCaseStmt"; },
-          [](const Pa::SelectRankCaseStmt *) { return "SelectRankCaseStmt"; },
-          [](const Pa::SelectRankStmt *) { return "SelectRankStmt"; },
-          [](const Pa::SelectTypeStmt *) { return "SelectTypeStmt"; },
-          [](const Pa::TypeGuardStmt *) { return "TypeGuardStmt"; },
-          [](const Pa::WhereConstructStmt *) { return "WhereConstructStmt"; },
-      },
+      Co::visitors{[](const AST::CGJump) { return "CGJump"; },
+                   [](const auto *parseTreeNode) {
+                     assert(parseTreeNode && "nullptr node in AST ");
+                     return Pa::ParseTreeDumper::GetNodeName(*parseTreeNode);
+                   }},
       e.u);
 }
 
@@ -819,9 +730,9 @@ Br::AST::ModuleLikeUnit::ModuleLikeUnit(const Pa::Submodule &m,
   modStmts.push_back(&std::get<Pa::Statement<Pa::EndSubmoduleStmt>>(m.t));
 }
 
-Br::AST::BlockDataUnit::BlockDataUnit(const Pa::BlockData &db,
+Br::AST::BlockDataUnit::BlockDataUnit(const Pa::BlockData &bd,
                                       const AST::ParentType &parent)
-    : ProgramUnit{&db, parent} {}
+    : ProgramUnit{&bd, parent} {}
 
 AST::Program *Br::createAST(const Pa::Program &root) {
   ASTBuilder walker;

@@ -126,8 +126,8 @@ struct Evaluation {
 
   /// General ctor
   template <typename A>
-  Evaluation(const A &a, const parser::CharBlock &pos,
-             const std::optional<parser::Label> &lab, const ParentType &p)
+  Evaluation(const A &a, const ParentType &p, const parser::CharBlock &pos,
+             const std::optional<parser::Label> &lab)
       : u{&a}, parent{p}, pos{pos}, lab{lab} {}
 
   /// Compiler-generated jump
@@ -300,7 +300,7 @@ struct ModuleLikeUnit : public ProgramUnit {
 
 // TODO: lower data too
 struct BlockDataUnit : public ProgramUnit {
-  BlockDataUnit(const parser::BlockData &db, const ParentType &parent);
+  BlockDataUnit(const parser::BlockData &bd, const ParentType &parent);
 };
 
 /// A Program is the top-level AST
