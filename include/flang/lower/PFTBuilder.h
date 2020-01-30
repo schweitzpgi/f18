@@ -1,33 +1,25 @@
-//===-- include/flang/lower/PFTBuilder.h ------------------------*- C++ -*-===//
+//===-- flang/lower/PFTBuilder.h --------------------------------*- C++ -*-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
+//
+// This defines the PFT abstraction interface.
+//
+//===----------------------------------------------------------------------===//
 
-#ifndef FORTRAN_LOWER_PFT_BUILDER_H_
-#define FORTRAN_LOWER_PFT_BUILDER_H_
+#ifndef FORTRAN_LOWER_PFTBUILDER_H_
+#define FORTRAN_LOWER_PFTBUILDER_H_
 
 #include "flang/common/template.h"
 #include "flang/parser/parse-tree.h"
 #include "llvm/Support/raw_ostream.h"
 #include <memory>
 
-/// Build a light-weight tree over the parse-tree to help with lowering to FIR.
-/// It is named Pre-FIR Tree (PFT) to underline it has no other usage than
-/// helping lowering to FIR.
-/// The PFT will capture pointers back into the parse tree, so the parse tree
-/// data structure may <em>not</em> be changed between the construction of the
-/// PFT and all of its uses.
-///
-/// The PFT captures a structured view of the program.  The program is a list of
-/// units.  Function like units will contain lists of evaluations.  Evaluations
-/// are either statements or constructs, where a construct contains a list of
-/// evaluations. The resulting PFT structure can then be used to create FIR.
-
 namespace Fortran::lower {
-namespace pft {
+namespace PFT {
 
 struct Evaluation;
 struct Program;
@@ -190,7 +182,7 @@ struct Evaluation {
   /// Construct ctor
   template <typename A>
   Evaluation(const A &a, const ParentType &parent) : u{&a}, parent{parent} {
-    static_assert(pft::isConstruct<A>, "must be a construct");
+    static_assert(PFT::isConstruct<A>, "must be a construct");
   }
 
   constexpr bool isActionOrGenerated() const {
@@ -208,7 +200,7 @@ struct Evaluation {
           using T = std::decay_t<decltype(r)>;
           static constexpr bool isStmt{isActionStmt<T> || isOtherStmt<T> ||
                                        isConstructStmt<T>};
-          static_assert(!(isStmt && pft::isConstruct<T>),
+          static_assert(!(isStmt && PFT::isConstruct<T>),
                         "statement classification is inconsistent");
           return isStmt;
         },
@@ -376,19 +368,30 @@ private:
   std::list<Units> units;
 };
 
-} // namespace pft
+} // namespace PFT
 
-/// Create an PFT from the parse tree
-std::unique_ptr<pft::Program> createPFT(const parser::Program &root);
+/// Create an PFT from the parse tree.
+///
+/// Build a light-weight tree over the parse-tree to help with lowering to FIR.
+/// It is named Pre-FIR Tree (PFT) to underline it has no other usage than
+/// helping lowering to FIR.  The PFT will capture pointers back into the parse
+/// tree, so the parse tree data structure may <em>not</em> be changed between
+/// the construction of the PFT and all of its uses.
+///
+/// The PFT captures a structured view of the program.  The program is a list of
+/// units.  Function like units will contain lists of evaluations.  Evaluations
+/// are either statements or constructs, where a construct contains a list of
+/// evaluations. The resulting PFT structure can then be used to create FIR.
+std::unique_ptr<PFT::Program> createPFT(const parser::Program &root);
 
 /// Decorate the PFT with control flow annotations
 ///
 /// The PFT must be decorated with control-flow annotations to prepare it for
 /// use in generating a CFG-like structure.
-void annotateControl(pft::Program &);
+void annotateControl(PFT::Program &);
 
-void dumpPFT(llvm::raw_ostream &o, pft::Program &);
+void dumpPFT(llvm::raw_ostream &o, PFT::Program &);
 
 } // namespace Fortran::lower
 
-#endif // FORTRAN_LOWER_PFT_BUILDER_H_
+#endif // FORTRAN_LOWER_PFTBUILDER_H_
