@@ -110,7 +110,7 @@ class FirConverter : public AbstractConverter {
             [&](PFT::Evaluation *c) { return inMainProgram(c); },
             [](auto *) { return false; },
         },
-        cstr->parent);
+        cstr->parent.p);
   }
   static const Pa::SubroutineStmt *inSubroutine(PFT::Evaluation *cstr) {
     return std::visit(
@@ -119,7 +119,7 @@ class FirConverter : public AbstractConverter {
             [&](PFT::Evaluation *c) { return inSubroutine(c); },
             [](auto *) -> const Pa::SubroutineStmt * { return nullptr; },
         },
-        cstr->parent);
+        cstr->parent.p);
   }
   static const Pa::FunctionStmt *inFunction(PFT::Evaluation *cstr) {
     return std::visit(
@@ -128,7 +128,7 @@ class FirConverter : public AbstractConverter {
             [&](PFT::Evaluation *c) { return inFunction(c); },
             [](auto *) -> const Pa::FunctionStmt * { return nullptr; },
         },
-        cstr->parent);
+        cstr->parent.p);
   }
   static const Pa::MpSubprogramStmt *inMPSubp(PFT::Evaluation *cstr) {
     return std::visit(
@@ -137,7 +137,7 @@ class FirConverter : public AbstractConverter {
             [&](PFT::Evaluation *c) { return inMPSubp(c); },
             [](auto *) -> const Pa::MpSubprogramStmt * { return nullptr; },
         },
-        cstr->parent);
+        cstr->parent.p);
   }
 
   template <typename A>
@@ -150,29 +150,25 @@ class FirConverter : public AbstractConverter {
   }
   /// Get the condition expression for a CondGoto evaluation
   const Se::SomeExpr *getEvaluationCondition(PFT::Evaluation &eval) {
-    return std::visit(Co::visitors{
-                          [&](const Pa::IfStmt *stmt) {
-                            return getScalarExprOfTuple(stmt->t);
-                          },
-                          [&](const Pa::IfThenStmt *stmt) {
-                            return getScalarExprOfTuple(stmt->t);
-                          },
-                          [&](const Pa::ElseIfStmt *stmt) {
-                            return getScalarExprOfTuple(stmt->t);
-                          },
-                          [&](const Pa::WhereConstructStmt *stmt) {
-                            return getExprOfTuple(stmt->t);
-                          },
-                          [&](const Pa::MaskedElsewhereStmt *stmt) {
-                            return getExprOfTuple(stmt->t);
-                          },
-                          [&](auto) -> const Se::SomeExpr * {
-                            M::emitError(toLocation(),
-                                         "unexpected conditional branch case");
-                            return nullptr;
-                          },
-                      },
-                      eval.u);
+    return eval.visit(Co::visitors{
+        [&](const Pa::IfStmt &stmt) { return getScalarExprOfTuple(stmt.t); },
+        [&](const Pa::IfThenStmt &stmt) {
+          return getScalarExprOfTuple(stmt.t);
+        },
+        [&](const Pa::ElseIfStmt &stmt) {
+          return getScalarExprOfTuple(stmt.t);
+        },
+        [&](const Pa::WhereConstructStmt &stmt) {
+          return getExprOfTuple(stmt.t);
+        },
+        [&](const Pa::MaskedElsewhereStmt &stmt) {
+          return getExprOfTuple(stmt.t);
+        },
+        [&](auto &) -> const Se::SomeExpr * {
+          M::emitError(toLocation(), "unexpected conditional branch case");
+          return nullptr;
+        },
+    });
   }
 
   //
@@ -361,9 +357,8 @@ class FirConverter : public AbstractConverter {
     assert(eval.subs && "eval must have a body");
     auto *insPt = builder->getInsertionBlock();
 
-    if (const auto **doConstruct{
-            std::get_if<const Pa::DoConstruct *>(&eval.u)}) {
-      if (const auto &loopControl{(*doConstruct)->GetLoopControl()}) {
+    if (const auto *doConstruct{eval.getIf<Pa::DoConstruct>()}) {
+      if (const auto &loopControl{doConstruct->GetLoopControl()}) {
         std::visit(Co::visitors{
                        [&](const Pa::LoopControl::Bounds &x) {
                          M::Value lo{genFIRLoopIndex(x.lower)};
@@ -406,21 +401,21 @@ class FirConverter : public AbstractConverter {
         // TODO: Infinite loop: 11.1.7.4.1 par 2
         TODO();
       }
-    } else if (std::holds_alternative<const Pa::IfConstruct *>(eval.u)) {
+    } else if (eval.isA<Pa::IfConstruct>()) {
       // Construct fir.where
       fir::WhereOp where;
       for (auto &e : *eval.subs) {
-        if (auto **s = std::get_if<const Pa::IfThenStmt *>(&e.u)) {
+        if (auto *s{e.getIf<Pa::IfThenStmt>()}) {
           // fir.where op
-          genWhereCondition(where, *s);
-        } else if (auto **s = std::get_if<const Pa::ElseIfStmt *>(&e.u)) {
+          genWhereCondition(where, s);
+        } else if (auto *s{e.getIf<Pa::ElseIfStmt>()}) {
           // otherwise block, then nested fir.where
           switchInsertionPointToOtherwise(where);
-          genWhereCondition(where, *s);
-        } else if (std::holds_alternative<const Pa::ElseStmt *>(e.u)) {
+          genWhereCondition(where, s);
+        } else if (e.isA<Pa::ElseStmt>()) {
           // otherwise block
           switchInsertionPointToOtherwise(where);
-        } else if (std::holds_alternative<const Pa::EndIfStmt *>(e.u)) {
+        } else if (e.isA<Pa::EndIfStmt>()) {
           // close all open fir.where ops
           builder->clearInsertionPoint();
         } else {
@@ -846,11 +841,10 @@ class FirConverter : public AbstractConverter {
 
   void genFIR(PFT::Evaluation &eval) {
     currentEvaluation = &eval;
-    std::visit(Co::visitors{
-                   [&](const auto *p) { genFIR(*p); },
-                   [](const PFT::CGJump &) { /* do nothing */ },
-               },
-               eval.u);
+    eval.visit(Co::visitors{
+        [&](const auto &p) { genFIR(p); },
+        [](const PFT::CGJump &) { /* do nothing */ },
+    });
   }
 
   /// Lower an Evaluation
@@ -959,13 +953,10 @@ class FirConverter : public AbstractConverter {
                  L::Optional<L::StringRef> host = {}) {
     std::string name;
     const Se::Symbol *symbol{nullptr};
-    auto size{func.funStmts.size()};
 
-    assert((size == 1 || size == 2) && "ill-formed subprogram");
-    if (size == 2) {
+    if (func.beginStmt) {
       currentEvaluation = nullptr;
-      std::visit([&](auto *p) { genFIR(*p, name, symbol); },
-                 func.funStmts.front());
+      std::visit([&](auto *p) { genFIR(*p, name, symbol); }, *func.beginStmt);
     } else {
       name = uniquer.doProgramEntry();
     }
@@ -977,8 +968,7 @@ class FirConverter : public AbstractConverter {
       lowerEval(e);
     }
     currentEvaluation = nullptr;
-    std::visit([&](auto *p) { genFIR(*p, name, symbol); },
-               func.funStmts.back());
+    std::visit([&](auto *p) { genFIR(*p, name, symbol); }, func.endStmt);
 
     endNewFunction();
 
@@ -1111,9 +1101,9 @@ public:
         uniquer{uniquer} {}
 
   /// Convert the PFT to FIR
-  void run(PFT::Program &ast) {
+  void run(PFT::Program &pft) {
     // build pruned control
-    for (auto &u : ast.getUnits()) {
+    for (auto &u : pft.getUnits()) {
       std::visit(Co::visitors{
                      [&](PFT::FunctionLikeUnit &f) { pruneFunc(f); },
                      [&](PFT::ModuleLikeUnit &m) { pruneMod(m); },
@@ -1123,7 +1113,7 @@ public:
     }
 
     // do translation
-    for (auto &u : ast.getUnits()) {
+    for (auto &u : pft.getUnits()) {
       std::visit(Co::visitors{
                      [&](PFT::FunctionLikeUnit &f) { lowerFunc(f, {}); },
                      [&](PFT::ModuleLikeUnit &m) { lowerMod(m); },
@@ -1194,14 +1184,13 @@ public:
 
 void Br::BurnsideBridge::lower(const Pa::Program &prg,
                                fir::NameUniquer &uniquer) {
-  PFT::Program *ast{Br::createPFT(prg)};
-  Br::annotateControl(*ast);
+  std::unique_ptr<PFT::Program> pft{Br::createPFT(prg)};
+  Br::annotateControl(*pft);
   if (dumpBeforeFir) {
-    Br::dumpPFT(L::errs(), *ast);
+    Br::dumpPFT(L::errs(), *pft);
   }
   FirConverter converter{*this, uniquer};
-  converter.run(*ast);
-  delete ast;
+  converter.run(*pft);
 }
 
 void Br::BurnsideBridge::parseSourceFile(L::SourceMgr &srcMgr) {
