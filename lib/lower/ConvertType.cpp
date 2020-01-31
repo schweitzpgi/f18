@@ -8,6 +8,7 @@
 
 #include "flang/lower/ConvertType.h"
 #include "../../runtime/io-api.h"
+#include "NSAliases.h"
 #include "fir/Dialect/FIRType.h"
 #include "flang/lower/Bridge.h"
 #include "flang/lower/Utils.h"
@@ -18,13 +19,6 @@
 #include "mlir/IR/Location.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/StandardTypes.h"
-
-namespace Br = Fortran::lower;
-namespace Co = Fortran::common;
-namespace Ev = Fortran::evaluate;
-namespace M = mlir;
-namespace Pa = Fortran::parser;
-namespace Se = Fortran::semantics;
 
 using namespace Fortran;
 using namespace Fortran::lower;
@@ -161,8 +155,8 @@ M::Type genFIRType<ComplexCat>(M::MLIRContext *context, int KIND) {
   return {};
 }
 
-/// Recover the type of an evaluate::Expr<T> and convert it to an
-/// mlir::Type. The type returned can be a MLIR standard or FIR type.
+/// Recover the type of an Ev::Expr<T> and convert it to an
+/// M::Type. The type returned can be a MLIR standard or FIR type.
 class TypeBuilder {
   M::MLIRContext *context;
   Co::IntrinsicTypeDefaultKinds const &defaults;
@@ -173,11 +167,11 @@ class TypeBuilder {
   }
   int defaultKind(Co::TypeCategory TC) { return defaults.GetDefaultKind(TC); }
 
-  M::InFlightDiagnostic emitError(const llvm::Twine &message) {
+  M::InFlightDiagnostic emitError(const L::Twine &message) {
     return M::emitError(M::UnknownLoc::get(context), message);
   }
 
-  M::InFlightDiagnostic emitWarning(const llvm::Twine &message) {
+  M::InFlightDiagnostic emitWarning(const L::Twine &message) {
     return M::emitWarning(M::UnknownLoc::get(context), message);
   }
 
@@ -307,8 +301,8 @@ public:
   }
 
   M::FunctionType genFunctionType(Se::SymbolRef symbol) {
-    llvm::SmallVector<M::Type, 1> returnTys;
-    llvm::SmallVector<M::Type, 4> inputTys;
+    L::SmallVector<M::Type, 1> returnTys;
+    L::SmallVector<M::Type, 4> inputTys;
     if (auto *proc = symbol->detailsIf<Se::SubprogramDetails>()) {
       if (proc->isFunction()) {
         returnTys.emplace_back(gen(proc->result()));
@@ -321,7 +315,7 @@ public:
         }
       }
     } else if (symbol->detailsIf<Se::ProcEntityDetails>()) {
-      // TODO Should probably use evaluate::Characteristics for that.
+      // TODO Should probably use Ev::Characteristics for that.
       TODO();
     } else {
       assert(false && "unexpected symbol details for function");
@@ -487,81 +481,4 @@ M::Type Br::getSequenceRefType(M::Type refType) {
   auto elementType{type.getEleTy()};
   fir::SequenceType::Shape shape{fir::SequenceType::getUnknownExtent()};
   return fir::ReferenceType::get(fir::SequenceType::get(shape, elementType));
-}
-
-// Models of C (language) types. These models are used to construct the FIR
-// signatures of runtime support routines.
-
-mlir::Type Br::getModelForInt(mlir::MLIRContext *context) {
-  return mlir::IntegerType::get(8 * sizeof(int), context);
-}
-
-mlir::Type Br::getModelForIntRef(mlir::MLIRContext *context) {
-  return fir::ReferenceType::get(getModelForInt(context));
-}
-
-mlir::Type Br::getModelForIostat(mlir::MLIRContext *context) {
-  return mlir::IntegerType::get(8 * sizeof(runtime::io::Iostat), context);
-}
-
-mlir::Type Br::getModelForCharPtr(mlir::MLIRContext *context) {
-  return fir::ReferenceType::get(mlir::IntegerType::get(8, context));
-}
-
-mlir::Type Br::getModelForConstCharPtr(mlir::MLIRContext *context) {
-  return getModelForCharPtr(context);
-}
-
-mlir::Type Br::getModelForInt64(mlir::MLIRContext *context) {
-  return mlir::IntegerType::get(64, context);
-}
-
-mlir::Type Br::getModelForInt64Ref(mlir::MLIRContext *context) {
-  return fir::ReferenceType::get(getModelForInt64(context));
-}
-
-mlir::Type Br::getModelForSize(mlir::MLIRContext *context) {
-  return mlir::IntegerType::get(8 * sizeof(std::size_t), context);
-}
-
-mlir::Type Br::getModelForCookie(mlir::MLIRContext *context) {
-  return fir::ReferenceType::get(mlir::IntegerType::get(8, context));
-}
-
-mlir::Type Br::getModelForDouble(mlir::MLIRContext *context) {
-  return mlir::FloatType::getF64(context);
-}
-
-mlir::Type Br::getModelForDoubleRef(mlir::MLIRContext *context) {
-  return fir::ReferenceType::get(getModelForDouble(context));
-}
-
-mlir::Type Br::getModelForFloat(mlir::MLIRContext *context) {
-  return mlir::FloatType::getF32(context);
-}
-
-mlir::Type Br::getModelForFloatRef(mlir::MLIRContext *context) {
-  return fir::ReferenceType::get(getModelForFloat(context));
-}
-
-mlir::Type Br::getModelForBool(mlir::MLIRContext *context) {
-  return mlir::IntegerType::get(1, context);
-}
-
-mlir::Type Br::getModelForBoolRef(mlir::MLIRContext *context) {
-  return fir::ReferenceType::get(getModelForBool(context));
-}
-
-mlir::Type Br::getModelForDescriptor(mlir::MLIRContext *context) {
-  return fir::BoxType::get(mlir::NoneType::get(context));
-}
-
-mlir::Type Br::getModelForNamelistGroup(mlir::MLIRContext *context) {
-  // FIXME: a namelist group must be some well-defined data structure, use a
-  // tuple as a proxy for the moment
-  return mlir::TupleType::get(llvm::None, context);
-}
-
-mlir::Type Br::getModelForVoid(mlir::MLIRContext *context) {
-  return mlir::NoneType::get(context);
 }

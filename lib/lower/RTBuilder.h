@@ -33,9 +33,6 @@ namespace Fortran::lower {
 using TypeBuilderFunc = mlir::Type (*)(mlir::MLIRContext *);
 using FuncTypeBuilderFunc = mlir::FunctionType (*)(mlir::MLIRContext *);
 
-template <typename>
-struct errorNoBuilderForType;
-
 /// Return a function that returns the type signature model for the type `T`
 /// when provided an MLIRContext*. This allows one to translate C(++) function
 /// signatures from runtime header files to MLIR signatures into a static table
@@ -44,47 +41,118 @@ struct errorNoBuilderForType;
 /// For example, when `T` is `int`, return a function that returns the MLIR
 /// standard type `i32` when `sizeof(int)` is 4.
 template <typename T>
-static constexpr TypeBuilderFunc getModel() {
-  using namespace std::placeholders;
-  if constexpr (std::is_same_v<T, int>) {
-    return getModelForInt;
-  } else if constexpr (std::is_same_v<T, int &>) {
-    return getModelForIntRef;
-  } else if constexpr (std::is_same_v<T, std::int64_t>) {
-    return getModelForInt64;
-  } else if constexpr (std::is_same_v<T, std::int64_t &>) {
-    return getModelForInt64Ref;
-  } else if constexpr (std::is_same_v<T, std::size_t>) {
-    return getModelForSize;
-  } else if constexpr (std::is_same_v<T, double>) {
-    return getModelForDouble;
-  } else if constexpr (std::is_same_v<T, double &>) {
-    return getModelForDoubleRef;
-  } else if constexpr (std::is_same_v<T, float>) {
-    return getModelForFloat;
-  } else if constexpr (std::is_same_v<T, float &>) {
-    return getModelForFloatRef;
-  } else if constexpr (std::is_same_v<T, runtime::io::Iostat>) {
-    return getModelForIostat;
-  } else if constexpr (std::is_same_v<T, bool>) {
-    return getModelForBool;
-  } else if constexpr (std::is_same_v<T, bool &>) {
-    return getModelForBoolRef;
-  } else if constexpr (std::is_same_v<T, runtime::io::IoStatementState *>) {
-    return getModelForCookie;
-  } else if constexpr (std::is_same_v<T, char *>) {
-    return getModelForCharPtr;
-  } else if constexpr (std::is_same_v<T, const char *>) {
-    return getModelForConstCharPtr;
-  } else if constexpr (std::is_same_v<T, void>) {
-    return getModelForVoid;
-  } else if constexpr (std::is_same_v<T, const runtime::Descriptor &>) {
-    return getModelForDescriptor;
-  } else if constexpr (std::is_same_v<T, const runtime::NamelistGroup &>) {
-    return getModelForNamelistGroup;
-  } else {
-    return errorNoBuilderForType<T>{}; // intentionally force compile-time error
-  }
+static constexpr TypeBuilderFunc getModel();
+template <>
+constexpr TypeBuilderFunc getModel<int>() {
+  return [](mlir::MLIRContext *context) -> mlir::Type {
+    return mlir::IntegerType::get(8 * sizeof(int), context);
+  };
+}
+template <>
+constexpr TypeBuilderFunc getModel<int &>() {
+  return [](mlir::MLIRContext *context) -> mlir::Type {
+    TypeBuilderFunc f{getModel<int>()};
+    return fir::ReferenceType::get(f(context));
+  };
+}
+template <>
+constexpr TypeBuilderFunc getModel<Fortran::runtime::io::Iostat>() {
+  return [](mlir::MLIRContext *context) -> mlir::Type {
+    return mlir::IntegerType::get(8 * sizeof(Fortran::runtime::io::Iostat),
+                                  context);
+  };
+}
+template <>
+constexpr TypeBuilderFunc getModel<char *>() {
+  return [](mlir::MLIRContext *context) -> mlir::Type {
+    return fir::ReferenceType::get(mlir::IntegerType::get(8, context));
+  };
+}
+template <>
+constexpr TypeBuilderFunc getModel<const char *>() {
+  return getModel<char *>();
+}
+template <>
+constexpr TypeBuilderFunc getModel<std::int64_t>() {
+  return [](mlir::MLIRContext *context) -> mlir::Type {
+    return mlir::IntegerType::get(64, context);
+  };
+}
+template <>
+constexpr TypeBuilderFunc getModel<std::int64_t &>() {
+  return [](mlir::MLIRContext *context) -> mlir::Type {
+    TypeBuilderFunc f{getModel<std::int64_t>()};
+    return fir::ReferenceType::get(f(context));
+  };
+}
+template <>
+constexpr TypeBuilderFunc getModel<std::size_t>() {
+  return [](mlir::MLIRContext *context) -> mlir::Type {
+    return mlir::IntegerType::get(8 * sizeof(std::size_t), context);
+  };
+}
+template <>
+constexpr TypeBuilderFunc getModel<Fortran::runtime::io::IoStatementState *>() {
+  return getModel<char *>();
+}
+template <>
+constexpr TypeBuilderFunc getModel<double>() {
+  return [](mlir::MLIRContext *context) -> mlir::Type {
+    return mlir::FloatType::getF64(context);
+  };
+}
+template <>
+constexpr TypeBuilderFunc getModel<double &>() {
+  return [](mlir::MLIRContext *context) -> mlir::Type {
+    TypeBuilderFunc f{getModel<double>()};
+    return fir::ReferenceType::get(f(context));
+  };
+}
+template <>
+constexpr TypeBuilderFunc getModel<float>() {
+  return [](mlir::MLIRContext *context) -> mlir::Type {
+    return mlir::FloatType::getF32(context);
+  };
+}
+template <>
+constexpr TypeBuilderFunc getModel<float &>() {
+  return [](mlir::MLIRContext *context) -> mlir::Type {
+    TypeBuilderFunc f{getModel<float>()};
+    return fir::ReferenceType::get(f(context));
+  };
+}
+template <>
+constexpr TypeBuilderFunc getModel<bool>() {
+  return [](mlir::MLIRContext *context) -> mlir::Type {
+    return mlir::IntegerType::get(1, context);
+  };
+}
+template <>
+constexpr TypeBuilderFunc getModel<bool &>() {
+  return [](mlir::MLIRContext *context) -> mlir::Type {
+    TypeBuilderFunc f{getModel<bool>()};
+    return fir::ReferenceType::get(f(context));
+  };
+}
+template <>
+constexpr TypeBuilderFunc getModel<const Fortran::runtime::Descriptor &>() {
+  return [](mlir::MLIRContext *context) -> mlir::Type {
+    return fir::BoxType::get(mlir::NoneType::get(context));
+  };
+}
+template <>
+constexpr TypeBuilderFunc getModel<const Fortran::runtime::NamelistGroup &>() {
+  return [](mlir::MLIRContext *context) -> mlir::Type {
+    // FIXME: a namelist group must be some well-defined data structure, use a
+    // tuple as a proxy for the moment
+    return mlir::TupleType::get(llvm::None, context);
+  };
+}
+template <>
+constexpr TypeBuilderFunc getModel<void>() {
+  return [](mlir::MLIRContext *context) -> mlir::Type {
+    return mlir::NoneType::get(context);
+  };
 }
 
 template <typename...>
