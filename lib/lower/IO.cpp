@@ -82,81 +82,6 @@ static constexpr FuncTypeBuilderFunc getTypeModel() {
   return std::get<A>(newIOTable).getTypeModel();
 }
 
-/// Define actions to sort runtime functions. One actions
-/// may be associated to one or more runtime function.
-/// Actions are the keys in the StaticMultimapView used to
-/// hold the io runtime description in a static constexpr way.
-enum class IOAction { BeginExternalList, Output, EndIO };
-
-class IORuntimeDescription : public RuntimeStaticDescription {
-public:
-  using Key = IOAction;
-  constexpr IORuntimeDescription(IOAction act, const char *s, MaybeTypeCode r,
-                                 TypeCodeVector a)
-      : RuntimeStaticDescription{s, r, a}, key{act} {}
-  static M::Type getIOCookieType(M::MLIRContext *context) {
-    return getMLIRType(TypeCode::IOCookie, context);
-  }
-  IOAction key;
-};
-
-using IORuntimeMap = StaticMultimapView<IORuntimeDescription>;
-
-using RT = RuntimeStaticDescription;
-using RType = typename RT::TypeCode;
-using Args = typename RT::TypeCodeVector;
-using IOA = IOAction;
-
-/// This is were the IO runtime are to be described.
-/// The array need to be sorted on the Actions.
-/// Experimental runtime for now.
-static constexpr IORuntimeDescription ioRuntimeTable[]{
-    {IOA::BeginExternalList, NAMIFY(BeginExternalListOutput), RType::IOCookie,
-     Args::create<RType::i32>()},
-    {IOA::Output, NAMIFY(OutputInteger64), RT::voidTy,
-     Args::create<RType::IOCookie, RType::i64>()},
-    {IOA::Output, NAMIFY(OutputReal64), RT::voidTy,
-     Args::create<RType::IOCookie, RType::f64>()},
-    {IOA::EndIO, NAMIFY(EndIOStatement), RT::voidTy,
-     Args::create<RType::IOCookie>()},
-};
-
-static constexpr IORuntimeMap ioRuntimeMap{ioRuntimeTable};
-
-/// This helper can be used to access io runtime functions that
-/// are mapped to an IOAction that must be mapped to one and
-/// exactly one runtime function. This constraint is enforced
-/// at compile time. This search is resolved at compile time.
-template <IORuntimeDescription::Key key>
-static M::FuncOp getIORuntimeFunction(M::OpBuilder &builder) {
-  static constexpr auto runtimeDescription{ioRuntimeMap.find(key)};
-  static_assert(runtimeDescription != ioRuntimeMap.end());
-  return runtimeDescription->getFuncOp(builder);
-}
-
-/// This helper can be used to access io runtime functions that
-/// are mapped to Output IOAction that must be mapped to at least one
-/// runtime function but can be mapped to more functions.
-/// This helper returns the function that has the same
-/// M::FunctionType as the one seeked. It may therefore dynamically fail
-/// if no function mapped to the Action has the seeked M::FunctionType.
-static M::FuncOp getOutputRuntimeFunction(M::OpBuilder &builder, M::Type type) {
-  static constexpr auto descriptionRange{ioRuntimeMap.getRange(IOA::Output)};
-  static_assert(!descriptionRange.empty());
-
-  M::MLIRContext *context{getModule(&builder).getContext()};
-  L::SmallVector<M::Type, 2> argTypes{
-      IORuntimeDescription::getIOCookieType(context), type};
-
-  M::FunctionType seekedType{M::FunctionType::get(argTypes, {}, context)};
-  for (const auto &description : descriptionRange) {
-    if (description.getMLIRFunctionType(context) == seekedType)
-      return description.getFuncOp(builder);
-  }
-  assert(false && "IO output runtime function not defined for this type");
-  return {};
-}
-
 /// Get (or generate) the MLIR FuncOp for a given IO runtime function. This
 /// replaces getIORuntimeFunction.
 template <typename E>
@@ -176,39 +101,135 @@ M::FuncOp getIORuntimeFunc(M::OpBuilder &builder) {
 /// Generate a call to end an IO statement
 M::Value genEndIO(M::OpBuilder &builder, M::Location loc, M::Value cookie) {
   // Terminate IO
-  M::FuncOp endIOFunc{getIORuntimeFunc<mkIOKey(EndIoStatement)>(builder)};
+  M::FuncOp endIOFunc = getIORuntimeFunc<mkIOKey(EndIoStatement)>(builder);
   L::SmallVector<M::Value, 1> endArgs{cookie};
-  return builder.create<M::CallOp>(loc, endIOFunc, endArgs).getResult(0);
+  auto call = builder.create<M::CallOp>(loc, endIOFunc, endArgs);
+  return call.getResult(0);
+}
+
+using FormatItems = std::optional<std::pair<M::Value, M::Value>>;
+
+/// Translate a list of format-items into a set of call-backs that can be
+/// emitted into the MLIR stream before each data item is processed
+FormatItems lowerFormat(AbstractConverter &converter,
+                        const Pa::Format &format) {
+  FormatItems formatItems;
+  std::visit(Co::visitors{
+                 [](const Pa::DefaultCharExpr &) { /* string expression */ },
+                 [](const Pa::Label &) { /* FORMAT statement */ },
+                 [](const Pa::Star &) {},
+             },
+             format.u);
+  return formatItems;
+}
+
+M::FuncOp getOutputRuntimeFunc(M::OpBuilder &builder, M::Type type) {
+  if (auto ty = type.dyn_cast<M::IntegerType>()) {
+    if (ty.getWidth() == 1)
+      return getIORuntimeFunc<mkIOKey(OutputLogical)>(builder);
+    return getIORuntimeFunc<mkIOKey(OutputInteger64)>(builder);
+  } else if (auto ty = type.dyn_cast<M::FloatType>()) {
+    if (ty.getWidth() <= 32)
+      return getIORuntimeFunc<mkIOKey(OutputReal32)>(builder);
+    return getIORuntimeFunc<mkIOKey(OutputReal64)>(builder);
+  } else if (auto ty = type.dyn_cast<fir::CplxType>()) {
+    if (ty.getFKind() <= 4)
+      return getIORuntimeFunc<mkIOKey(OutputComplex32)>(builder);
+    return getIORuntimeFunc<mkIOKey(OutputComplex64)>(builder);
+  } else if (auto ty = type.dyn_cast<fir::LogicalType>()) {
+    return getIORuntimeFunc<mkIOKey(OutputLogical)>(builder);
+  } else if (auto ty = type.dyn_cast<fir::BoxType>()) {
+    return getIORuntimeFunc<mkIOKey(OutputDescriptor)>(builder);
+  } else {
+    return getIORuntimeFunc<mkIOKey(OutputAscii)>(builder);
+  }
+}
+
+/// The I/O library interface requires that COMPLEX and CHARACTER typed values
+/// be extracted and passed as separate values.
+L::SmallVector<M::Value, 4> splitArguments(M::OpBuilder &builder,
+                                           M::Location loc, M::Value arg) {
+  M::Value zero;
+  M::Value one;
+  M::Type argTy = arg.getType();
+  M::MLIRContext *context = argTy.getContext();
+  bool isComplex = argTy.isa<fir::CplxType>();
+  bool isBoxChar = argTy.isa<fir::BoxCharType>();
+
+  if (isComplex || isBoxChar) {
+    // Only create these constants when needed and not every time
+    zero = builder.create<M::ConstantOp>(loc, builder.getI64IntegerAttr(0));
+    one = builder.create<M::ConstantOp>(loc, builder.getI64IntegerAttr(1));
+  }
+  if (isComplex) {
+    auto eleTy =
+        fir::RealType::get(context, argTy.cast<fir::CplxType>().getFKind());
+    M::Value realPart =
+        builder.create<fir::ExtractValueOp>(loc, eleTy, arg, zero);
+    M::Value imaginaryPart =
+        builder.create<fir::ExtractValueOp>(loc, eleTy, arg, one);
+    return {realPart, imaginaryPart};
+  }
+  if (isBoxChar) {
+    M::Type ptrTy = fir::ReferenceType::get(M::IntegerType::get(8, context));
+    M::Type sizeTy = M::IntegerType::get(64, context);
+    M::Value pointerPart =
+        builder.create<fir::ExtractValueOp>(loc, ptrTy, arg, zero);
+    M::Value sizePart =
+        builder.create<fir::ExtractValueOp>(loc, sizeTy, arg, one);
+    return {pointerPart, sizePart};
+  }
+  return {arg};
+}
+
+/// Generate a call to an Output I/O function.
+/// The specific call is determined dynamically by the argument type.
+void genOutputRuntimeFunc(M::OpBuilder &builder, M::Location loc,
+                          M::Type argType, M::Value cookie,
+                          L::SmallVector<M::Value, 4> &operands) {
+  int i = 1;
+  L::SmallVector<M::Value, 4> actuals{cookie};
+  auto outputFunc = getOutputRuntimeFunc(builder, argType);
+
+  for (auto &op : operands)
+    actuals.emplace_back(builder.create<fir::ConvertOp>(
+        loc, outputFunc.getType().getInput(i++), op));
+  builder.create<M::CallOp>(loc, outputFunc, actuals);
 }
 
 /// Lower print statement assuming a dummy runtime interface for now.
-void lowerPrintStatement(M::OpBuilder &builder, M::Location loc, int format,
-                         M::ValueRange args) {
-  M::FuncOp beginFunc =
-      getIORuntimeFunc<mkIOKey(BeginExternalListOutput)>(builder);
+void lowerPrintStatement(AbstractConverter &converter, M::Location loc,
+                         M::ValueRange args, const Pa::Format &format) {
+  M::FuncOp beginFunc;
+  M::OpBuilder &builder = converter.getOpBuilder();
+  auto formatItems = lowerFormat(converter, format);
+  if (formatItems.has_value()) {
+    // has a format
+    TODO();
+  } else {
+    beginFunc = getIORuntimeFunc<mkIOKey(BeginExternalListOutput)>(builder);
+  }
+  M::FunctionType beginFuncTy = beginFunc.getType();
 
   // Initiate io
-  M::Type externalUnitType{builder.getIntegerType(32)};
-  M::Value defaultUnit{builder.create<M::ConstantOp>(
-      loc, builder.getIntegerAttr(externalUnitType, 1))};
-  L::SmallVector<M::Value, 1> beginArgs{defaultUnit};
-  M::Value cookie{
-      builder.create<M::CallOp>(loc, beginFunc, beginArgs).getResult(0)};
+  M::Value defaultUnit = builder.create<M::ConstantOp>(
+      loc, builder.getIntegerAttr(beginFuncTy.getInput(0), 1));
+  M::Value null =
+      builder.create<M::ConstantOp>(loc, builder.getI64IntegerAttr(0));
+  M::Value srcFileName =
+      builder.create<fir::ConvertOp>(loc, beginFuncTy.getInput(1), null);
+  M::Value lineNo = builder.create<M::ConstantOp>(
+      loc, builder.getIntegerAttr(beginFuncTy.getInput(2), 0));
+  L::SmallVector<M::Value, 3> beginArgs{defaultUnit, srcFileName, lineNo};
+  M::Value cookie =
+      builder.create<M::CallOp>(loc, beginFunc, beginArgs).getResult(0);
 
   // Call data transfer runtime function
   for (M::Value arg : args) {
-    // FIXME: this loop is still using the older table
-    L::SmallVector<M::Value, 1> operands{cookie, arg};
-    M::FuncOp outputFunc{getOutputRuntimeFunction(builder, arg.getType())};
-    builder.create<M::CallOp>(loc, outputFunc, operands);
+    auto operands = splitArguments(builder, loc, arg);
+    genOutputRuntimeFunc(builder, loc, arg.getType(), cookie, operands);
   }
   genEndIO(builder, loc, cookie);
-}
-
-int lowerFormat(const Pa::Format &format) {
-  /// FIXME: this is a stub; process the format and return it
-  return {};
-  TODO();
 }
 
 L::SmallVector<M::Value, 4>
@@ -218,7 +239,7 @@ lowerBeginArgsPositionOrFlush(AbstractConverter &converter, M::Location loc,
   // 1. find the unit number expression and append it
   for (auto &sp : specs)
     if (auto *un = std::get_if<Pa::FileUnitNumber>(&sp.u)) {
-      auto *expr{semantics::GetExpr(un->v)};
+      auto *expr{Se::GetExpr(un->v)};
       args.push_back(converter.genExprValue(expr, loc));
       break;
     }
@@ -250,7 +271,7 @@ M::Value lowerErrorHandlingPositionOrFlush(
               M::FuncOp getIoMsg = getIORuntimeFunc<mkIOKey(GetIoMsg)>(builder);
               L::SmallVector<M::Value, 1> ioMsgArgs{
                   builder.create<fir::ConvertOp>(
-                      loc, getModelForCharPtr(builder.getContext()), varAddr)
+                      loc, getModel<char *>()(builder.getContext()), varAddr)
                   /*, FIXME add length here */};
               builder.create<M::CallOp>(loc, getIoMsg, ioMsgArgs);
             },
@@ -320,11 +341,12 @@ M::Value genCloseStatement(AbstractConverter &converter,
                            const Pa::CloseStmt &) {
   auto builder = converter.getOpBuilder();
   M::FuncOp beginFunc{getIORuntimeFunc<mkIOKey(BeginClose)>(builder)};
+  (void)beginFunc;
   TODO();
   return {};
 }
 
-void genPrintStatement(Br::AbstractConverter &converter,
+void genPrintStatement(AbstractConverter &converter,
                        const Pa::PrintStmt &stmt) {
   L::SmallVector<M::Value, 4> args;
   for (auto &item : std::get<std::list<Pa::OutputItem>>(stmt.t)) {
@@ -335,8 +357,8 @@ void genPrintStatement(Br::AbstractConverter &converter,
       TODO(); // TODO implied do
     }
   }
-  lowerPrintStatement(converter.getOpBuilder(), converter.getCurrentLocation(),
-                      lowerFormat(std::get<Pa::Format>(stmt.t)), args);
+  lowerPrintStatement(converter, converter.getCurrentLocation(), args,
+                      std::get<Pa::Format>(stmt.t));
 }
 
 M::Value genReadStatement(AbstractConverter &converter, const Pa::ReadStmt &) {
