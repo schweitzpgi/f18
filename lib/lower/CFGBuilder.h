@@ -9,11 +9,11 @@
 #ifndef FORTRAN_LOWER_CFG_BUILDER_H_
 #define FORTRAN_LOWER_CFG_BUILDER_H_
 
-/// Traverse the AST and complete the CFG by drawing the arcs, pruning unused
+/// Traverse the PFT and complete the CFG by drawing the arcs, pruning unused
 /// potential targets, making implied jumps explicit, etc.
 class CfgBuilder {
 
-  AST::Evaluation *getEvalByLabel(const Pa::Label &label) {
+  PFT::Evaluation *getEvalByLabel(const Pa::Label &label) {
     auto iter = labels.find(label);
     if (iter != labels.end()) {
       return iter->second;
@@ -22,7 +22,7 @@ class CfgBuilder {
   }
 
   /// Collect all the potential targets and initialize them to unreferenced
-  void resetPotentialTargets(std::list<AST::Evaluation> &evals) {
+  void resetPotentialTargets(std::list<PFT::Evaluation> &evals) {
     for (auto &e : evals) {
       if (e.isTarget) {
         e.isTarget = false;
@@ -37,7 +37,7 @@ class CfgBuilder {
   }
 
   /// cache ASSIGN statements that may yield a live branch target
-  void cacheAssigns(std::list<AST::Evaluation> &evals) {
+  void cacheAssigns(std::list<PFT::Evaluation> &evals) {
     for (auto &e : evals) {
       std::visit(Co::visitors{
                      [&](const Pa::AssignStmt *stmt) {
@@ -46,7 +46,7 @@ class CfgBuilder {
                        assert(sym);
                        auto jter = assignedGotoMap.find(sym);
                        if (jter == assignedGotoMap.end()) {
-                         std::list<AST::Evaluation *> lst = {trg};
+                         std::list<PFT::Evaluation *> lst = {trg};
                          assignedGotoMap.try_emplace(sym, lst);
                        } else {
                          jter->second.emplace_back(trg);
@@ -61,16 +61,16 @@ class CfgBuilder {
     }
   }
 
-  void deannotate(std::list<AST::Evaluation> &evals) {
+  void deannotate(std::list<PFT::Evaluation> &evals) {
     for (auto &e : evals) {
-      e.cfg = AST::CFGAnnotation::None;
+      e.cfg = PFT::CFGAnnotation::None;
       if (e.subs) {
         deannotate(*e.subs);
       }
     }
   }
 
-  bool structuredCheck(std::list<AST::Evaluation> &evals) {
+  bool structuredCheck(std::list<PFT::Evaluation> &evals) {
     for (auto &e : evals) {
       if (auto **s = std::get_if<const Pa::DoConstruct *>(&e.u)) {
         return (*s)->IsDoWhile() ? false : structuredCheck(*e.subs);
@@ -82,25 +82,25 @@ class CfgBuilder {
         return false;
       }
       switch (e.cfg) {
-      case AST::CFGAnnotation::None:
+      case PFT::CFGAnnotation::None:
         break;
-      case AST::CFGAnnotation::CondGoto:
+      case PFT::CFGAnnotation::CondGoto:
         break;
-      case AST::CFGAnnotation::Iterative:
+      case PFT::CFGAnnotation::Iterative:
         break;
-      case AST::CFGAnnotation::FirStructuredOp:
+      case PFT::CFGAnnotation::FirStructuredOp:
         break;
-      case AST::CFGAnnotation::IndGoto:
+      case PFT::CFGAnnotation::IndGoto:
         return false;
-      case AST::CFGAnnotation::IoSwitch:
+      case PFT::CFGAnnotation::IoSwitch:
         return false;
-      case AST::CFGAnnotation::Switch:
+      case PFT::CFGAnnotation::Switch:
         return false;
-      case AST::CFGAnnotation::Return:
+      case PFT::CFGAnnotation::Return:
         return false;
-      case AST::CFGAnnotation::Terminate:
+      case PFT::CFGAnnotation::Terminate:
         return false;
-      case AST::CFGAnnotation::Goto:
+      case PFT::CFGAnnotation::Goto:
         if (!std::holds_alternative<const Pa::EndDoStmt *>(e.u)) {
           return false;
         }
@@ -110,18 +110,18 @@ class CfgBuilder {
     return true;
   }
 
-  void wrapIterationSpaces(std::list<AST::Evaluation> &evals) {
+  void wrapIterationSpaces(std::list<PFT::Evaluation> &evals) {
     for (auto &e : evals) {
       if (std::holds_alternative<const Pa::DoConstruct *>(e.u))
         if (structuredCheck(*e.subs)) {
           deannotate(*e.subs);
-          e.cfg = AST::CFGAnnotation::FirStructuredOp;
+          e.cfg = PFT::CFGAnnotation::FirStructuredOp;
           continue;
         }
       if (std::holds_alternative<const Pa::IfConstruct *>(e.u))
         if (structuredCheck(*e.subs)) {
           deannotate(*e.subs);
-          e.cfg = AST::CFGAnnotation::FirStructuredOp;
+          e.cfg = PFT::CFGAnnotation::FirStructuredOp;
           continue;
         }
       // FIXME: ForallConstruct? WhereConstruct?
@@ -132,7 +132,7 @@ class CfgBuilder {
   }
 
   /// Add source->sink edge to CFG map
-  void addSourceToSink(AST::Evaluation *src, AST::Evaluation *snk) {
+  void addSourceToSink(PFT::Evaluation *src, PFT::Evaluation *snk) {
     auto iter = cfgMap.find(src);
     if (iter == cfgMap.end()) {
       CFGSinkListType sink{snk};
@@ -149,7 +149,7 @@ class CfgBuilder {
     iter->second->push_back(snk);
   }
 
-  void addSourceToSink(AST::Evaluation *src, const Pa::Label &label) {
+  void addSourceToSink(PFT::Evaluation *src, const Pa::Label &label) {
     auto iter = labels.find(label);
     assert(iter != labels.end());
     addSourceToSink(src, iter->second);
@@ -175,13 +175,13 @@ class CfgBuilder {
   /// Branch to the "true block", the "false block", and from the end of the
   /// true block to the end of the construct.
   template <typename A>
-  void doNextIfBlock(std::list<AST::Evaluation> &evals, AST::Evaluation &e,
+  void doNextIfBlock(std::list<PFT::Evaluation> &evals, PFT::Evaluation &e,
                      const A &iter, const A &endif) {
     A i{iter};
     A j{nextFalseTarget(++i, endif)};
-    auto *cstr = std::get<AST::Evaluation *>(e.parent);
-    AST::CGJump jump{&*endif};
-    A k{evals.insert(j, AST::Evaluation{std::move(jump), j->parent})};
+    auto *cstr = std::get<PFT::Evaluation *>(e.parent);
+    PFT::CGJump jump{&*endif};
+    A k{evals.insert(j, PFT::Evaluation{std::move(jump), j->parent})};
     if (i == j) {
       // block was empty, so adjust "true" target
       i = k;
@@ -193,44 +193,44 @@ class CfgBuilder {
 
   /// Determine which branch targets are reachable. The target map must
   /// already be initialized.
-  void reachabilityAnalysis(std::list<AST::Evaluation> &evals) {
+  void reachabilityAnalysis(std::list<PFT::Evaluation> &evals) {
     for (auto iter = evals.begin(); iter != evals.end(); ++iter) {
       auto &e = *iter;
       switch (e.cfg) {
-      case AST::CFGAnnotation::None:
+      case PFT::CFGAnnotation::None:
         // do nothing - does not impart control flow
         break;
-      case AST::CFGAnnotation::Goto:
+      case PFT::CFGAnnotation::Goto:
         std::visit(
             Co::visitors{
                 [&](const Pa::CycleStmt *) {
                   // FIXME: deal with construct name
-                  auto *cstr = std::get<AST::Evaluation *>(e.parent);
+                  auto *cstr = std::get<PFT::Evaluation *>(e.parent);
                   addSourceToSink(&e, &cstr->subs->front());
                 },
                 [&](const Pa::ExitStmt *) {
                   // FIXME: deal with construct name
-                  auto *cstr = std::get<AST::Evaluation *>(e.parent);
+                  auto *cstr = std::get<PFT::Evaluation *>(e.parent);
                   addSourceToSink(&e, &cstr->subs->back());
                 },
                 [&](const Pa::GotoStmt *stmt) { addSourceToSink(&e, stmt->v); },
                 [&](const Pa::EndDoStmt *) {
                   // the END DO is the loop exit landing pad
                   // insert a JUMP as the backedge right before the END DO
-                  auto *cstr = std::get<AST::Evaluation *>(e.parent);
-                  AST::CGJump jump{&cstr->subs->front()};
-                  AST::Evaluation jumpEval{std::move(jump), iter->parent};
+                  auto *cstr = std::get<PFT::Evaluation *>(e.parent);
+                  PFT::CGJump jump{&cstr->subs->front()};
+                  PFT::Evaluation jumpEval{std::move(jump), iter->parent};
                   evals.insert(iter, std::move(jumpEval));
                   addSourceToSink(&e, &cstr->subs->front());
                 },
-                [&](const AST::CGJump &jump) {
+                [&](const PFT::CGJump &jump) {
                   addSourceToSink(&e, jump.target);
                 },
                 [](auto) { assert(false && "unhandled GOTO case"); },
             },
             e.u);
         break;
-      case AST::CFGAnnotation::CondGoto:
+      case PFT::CFGAnnotation::CondGoto:
         std::visit(Co::visitors{
                        [&](const Pa::IfStmt *) {
                          // check if these are marked; they must targets here
@@ -250,7 +250,7 @@ class CfgBuilder {
                    },
                    e.u);
         break;
-      case AST::CFGAnnotation::IndGoto:
+      case PFT::CFGAnnotation::IndGoto:
         std::visit(Co::visitors{
                        [&](const Pa::AssignedGotoStmt *stmt) {
                          auto *sym = std::get<Pa::Name>(stmt->t).symbol;
@@ -267,7 +267,7 @@ class CfgBuilder {
                    },
                    e.u);
         break;
-      case AST::CFGAnnotation::IoSwitch:
+      case PFT::CFGAnnotation::IoSwitch:
         std::visit(
             Co::visitors{
                 [](const Pa::BackspaceStmt *) { TODO(); },
@@ -284,7 +284,7 @@ class CfgBuilder {
             },
             e.u);
         break;
-      case AST::CFGAnnotation::Switch:
+      case PFT::CFGAnnotation::Switch:
         std::visit(Co::visitors{
                        [](const Pa::CallStmt *) { TODO(); },
                        [](const Pa::ArithmeticIfStmt *) { TODO(); },
@@ -296,7 +296,7 @@ class CfgBuilder {
                    },
                    e.u);
         break;
-      case AST::CFGAnnotation::Iterative:
+      case PFT::CFGAnnotation::Iterative:
         std::visit(Co::visitors{
                        [](const Pa::NonLabelDoStmt *) { TODO(); },
                        [](const Pa::WhereStmt *) { TODO(); },
@@ -307,13 +307,13 @@ class CfgBuilder {
                    },
                    e.u);
         break;
-      case AST::CFGAnnotation::FirStructuredOp:
+      case PFT::CFGAnnotation::FirStructuredOp:
         // do not visit the subs
         continue;
-      case AST::CFGAnnotation::Return:
+      case PFT::CFGAnnotation::Return:
         // do nothing - exits the function
         break;
-      case AST::CFGAnnotation::Terminate:
+      case PFT::CFGAnnotation::Terminate:
         // do nothing - exits the function
         break;
       }
@@ -323,7 +323,7 @@ class CfgBuilder {
     }
   }
 
-  void setActualTargets(std::list<AST::Evaluation> &) {
+  void setActualTargets(std::list<PFT::Evaluation> &) {
     for (auto &lst1 : cfgEdgeSetPool)
       for (auto *e : lst1) {
         e->isTarget = true;
@@ -333,14 +333,14 @@ class CfgBuilder {
   CFGMapType &cfgMap;
   std::list<CFGSinkListType> &cfgEdgeSetPool;
 
-  L::DenseMap<Pa::Label, AST::Evaluation *> labels;
-  std::map<Se::Symbol *, std::list<AST::Evaluation *>> assignedGotoMap;
+  L::DenseMap<Pa::Label, PFT::Evaluation *> labels;
+  std::map<Se::Symbol *, std::list<PFT::Evaluation *>> assignedGotoMap;
 
 public:
   CfgBuilder(CFGMapType &m, std::list<CFGSinkListType> &p)
       : cfgMap{m}, cfgEdgeSetPool{p} {}
 
-  void run(AST::FunctionLikeUnit &func) {
+  void run(PFT::FunctionLikeUnit &func) {
     resetPotentialTargets(func.evals);
     cacheAssigns(func.evals);
     wrapIterationSpaces(func.evals);

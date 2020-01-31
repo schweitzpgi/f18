@@ -13,6 +13,8 @@
 
 namespace {
 
+const std::int64_t BAD_VALUE = -1;
+
 inline llvm::StringRef prefix() { return "_Q"; }
 
 std::string doModules(llvm::ArrayRef<llvm::StringRef> mods) {
@@ -62,8 +64,9 @@ std::int64_t readInt(llvm::StringRef uniq, std::size_t &i, std::size_t init,
   for (i = init; i < end && uniq[i] >= '0' && uniq[i] <= '9'; ++i) {
     // do nothing
   }
-  std::int64_t result;
-  uniq.substr(init, i).getAsInteger(10, result);
+  std::int64_t result = BAD_VALUE;
+  if (uniq.substr(init, i).getAsInteger(10, result))
+    return BAD_VALUE;
   return result;
 }
 
