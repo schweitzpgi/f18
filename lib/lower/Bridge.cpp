@@ -7,17 +7,18 @@
 //===----------------------------------------------------------------------===//
 
 #include "flang/lower/Bridge.h"
+#include "NSAliases.h"
 #include "fir/Dialect/FIRDialect.h"
 #include "fir/Dialect/FIROps.h"
 #include "fir/Dialect/FIRType.h"
 #include "fir/InternalNames.h"
-#include "flang/lower/ASTBuilder.h"
 #include "flang/lower/ConvertExpr.h"
 #include "flang/lower/ConvertType.h"
 #include "flang/lower/IO.h"
 #include "flang/lower/Intrinsics.h"
 #include "flang/lower/Mangler.h"
 #include "flang/lower/OpBuilder.h"
+#include "flang/lower/PFTBuilder.h"
 #include "flang/lower/Runtime.h"
 #include "flang/parser/parse-tree.h"
 #include "flang/semantics/tools.h"
@@ -27,14 +28,6 @@
 #include "mlir/Parser.h"
 #include "mlir/Target/LLVMIR.h"
 #include "llvm/Support/CommandLine.h"
-
-namespace Br = Fortran::lower;
-namespace Co = Fortran::common;
-namespace Ev = Fortran::evaluate;
-namespace L = llvm;
-namespace M = mlir;
-namespace Pa = Fortran::parser;
-namespace Se = Fortran::semantics;
 
 using namespace Fortran;
 using namespace Fortran::lower;
@@ -56,8 +49,8 @@ using SelectCaseConstruct = Pa::CaseConstruct;
 using SelectRankConstruct = Pa::SelectRankConstruct;
 using SelectTypeConstruct = Pa::SelectTypeConstruct;
 
-using CFGSinkListType = L::SmallVector<AST::Evaluation *, 2>;
-using CFGMapType = L::DenseMap<AST::Evaluation *, CFGSinkListType *>;
+using CFGSinkListType = L::SmallVector<PFT::Evaluation *, 2>;
+using CFGMapType = L::DenseMap<PFT::Evaluation *, CFGSinkListType *>;
 
 constexpr static bool isStopStmt(const Pa::StopStmt &stm) {
   return std::get<Pa::StopStmt::Kind>(stm.t) == Pa::StopStmt::Kind::Stop;
@@ -76,12 +69,12 @@ constexpr static bool isStopStmt(const Pa::StopStmt &stm) {
       assert(false && "not yet implemented");                                  \
   }
 
-/// Converter from AST to FIR
+/// Converter from PFT to FIR
 ///
-/// After building the AST and decorating it, the FirConverter processes that
+/// After building the PFT and decorating it, the FirConverter processes that
 /// representation and lowers it to the FIR executable representation.
 class FirConverter : public AbstractConverter {
-  using LabelMapType = std::map<AST::Evaluation *, M::Block *>;
+  using LabelMapType = std::map<PFT::Evaluation *, M::Block *>;
   using Closure = std::function<void(const LabelMapType &)>;
 
   //
@@ -110,38 +103,38 @@ class FirConverter : public AbstractConverter {
     return createFunction(*this, callee, funcTy);
   }
 
-  static bool inMainProgram(AST::Evaluation *cstr) {
+  static bool inMainProgram(PFT::Evaluation *cstr) {
     return std::visit(
         Co::visitors{
-            [](AST::FunctionLikeUnit *c) { return c->isMainProgram(); },
-            [&](AST::Evaluation *c) { return inMainProgram(c); },
+            [](PFT::FunctionLikeUnit *c) { return c->isMainProgram(); },
+            [&](PFT::Evaluation *c) { return inMainProgram(c); },
             [](auto *) { return false; },
         },
         cstr->parent);
   }
-  static const Pa::SubroutineStmt *inSubroutine(AST::Evaluation *cstr) {
+  static const Pa::SubroutineStmt *inSubroutine(PFT::Evaluation *cstr) {
     return std::visit(
         Co::visitors{
-            [](AST::FunctionLikeUnit *c) { return c->getSubroutine(); },
-            [&](AST::Evaluation *c) { return inSubroutine(c); },
+            [](PFT::FunctionLikeUnit *c) { return c->getSubroutine(); },
+            [&](PFT::Evaluation *c) { return inSubroutine(c); },
             [](auto *) -> const Pa::SubroutineStmt * { return nullptr; },
         },
         cstr->parent);
   }
-  static const Pa::FunctionStmt *inFunction(AST::Evaluation *cstr) {
+  static const Pa::FunctionStmt *inFunction(PFT::Evaluation *cstr) {
     return std::visit(
         Co::visitors{
-            [](AST::FunctionLikeUnit *c) { return c->getFunction(); },
-            [&](AST::Evaluation *c) { return inFunction(c); },
+            [](PFT::FunctionLikeUnit *c) { return c->getFunction(); },
+            [&](PFT::Evaluation *c) { return inFunction(c); },
             [](auto *) -> const Pa::FunctionStmt * { return nullptr; },
         },
         cstr->parent);
   }
-  static const Pa::MpSubprogramStmt *inMPSubp(AST::Evaluation *cstr) {
+  static const Pa::MpSubprogramStmt *inMPSubp(PFT::Evaluation *cstr) {
     return std::visit(
         Co::visitors{
-            [](AST::FunctionLikeUnit *c) { return c->getMPSubp(); },
-            [&](AST::Evaluation *c) { return inMPSubp(c); },
+            [](PFT::FunctionLikeUnit *c) { return c->getMPSubp(); },
+            [&](PFT::Evaluation *c) { return inMPSubp(c); },
             [](auto *) -> const Pa::MpSubprogramStmt * { return nullptr; },
         },
         cstr->parent);
@@ -156,7 +149,7 @@ class FirConverter : public AbstractConverter {
     return Se::GetExpr(std::get<Pa::LogicalExpr>(tuple));
   }
   /// Get the condition expression for a CondGoto evaluation
-  const Se::SomeExpr *getEvaluationCondition(AST::Evaluation &eval) {
+  const Se::SomeExpr *getEvaluationCondition(PFT::Evaluation &eval) {
     return std::visit(Co::visitors{
                           [&](const Pa::IfStmt *stmt) {
                             return getScalarExprOfTuple(stmt->t);
@@ -183,7 +176,7 @@ class FirConverter : public AbstractConverter {
   }
 
   //
-  // Function-like AST entry and exit statements
+  // Function-like PFT entry and exit statements
   //
 
   void genFIR(const Pa::Statement<Pa::ProgramStmt> &stmt, std::string &name,
@@ -272,7 +265,7 @@ class FirConverter : public AbstractConverter {
   //
 
   // Conditional goto control-flow semantics
-  void genFIREvalCondGoto(AST::Evaluation &eval) {
+  void genFIREvalCondGoto(PFT::Evaluation &eval) {
     genFIR(eval);
     auto targets{findTargetsOf(eval)};
     auto *expr{getEvaluationCondition(eval)};
@@ -281,12 +274,12 @@ class FirConverter : public AbstractConverter {
     genFIRCondBranch(cond, targets[0], targets[1]);
   }
 
-  void genFIRCondBranch(M::Value cond, AST::Evaluation *trueDest,
-                        AST::Evaluation *falseDest) {
+  void genFIRCondBranch(M::Value cond, PFT::Evaluation *trueDest,
+                        PFT::Evaluation *falseDest) {
     using namespace std::placeholders;
     localEdgeQ.emplace_back(std::bind(
         [](M::OpBuilder *builder, M::Block *block, M::Value cnd,
-           AST::Evaluation *trueDest, AST::Evaluation *falseDest,
+           PFT::Evaluation *trueDest, PFT::Evaluation *falseDest,
            M::Location location, const LabelMapType &map) {
           L::SmallVector<M::Value, 2> blk;
           builder->setInsertionPointToEnd(block);
@@ -303,10 +296,10 @@ class FirConverter : public AbstractConverter {
   // Goto control-flow semantics
   //
   // These are unconditional jumps. There is nothing to evaluate.
-  void genFIREvalGoto(AST::Evaluation &eval) {
+  void genFIREvalGoto(PFT::Evaluation &eval) {
     using namespace std::placeholders;
     localEdgeQ.emplace_back(std::bind(
-        [](M::OpBuilder *builder, M::Block *block, AST::Evaluation *dest,
+        [](M::OpBuilder *builder, M::Block *block, PFT::Evaluation *dest,
            M::Location location, const LabelMapType &map) {
           builder->setInsertionPointToEnd(block);
           assert(map.find(dest) != map.end() && "no destination");
@@ -319,7 +312,7 @@ class FirConverter : public AbstractConverter {
   // Indirect goto control-flow semantics
   //
   // For assigned gotos, which is an obsolescent feature. Lower to a switch.
-  void genFIREvalIndGoto(AST::Evaluation &eval) {
+  void genFIREvalIndGoto(PFT::Evaluation &eval) {
     genFIR(eval);
     // FIXME
   }
@@ -327,14 +320,14 @@ class FirConverter : public AbstractConverter {
   // IO statements that have control-flow semantics
   //
   // First lower the IO statement and then do the multiway switch op
-  void genFIREvalIoSwitch(AST::Evaluation &eval) {
+  void genFIREvalIoSwitch(PFT::Evaluation &eval) {
     genFIR(eval);
     genFIRIOSwitch(eval);
   }
-  void genFIRIOSwitch(AST::Evaluation &) { TODO(); }
+  void genFIRIOSwitch(PFT::Evaluation &) { TODO(); }
 
   // Iterative loop control-flow semantics
-  void genFIREvalIterative(AST::Evaluation &) { TODO(); }
+  void genFIREvalIterative(PFT::Evaluation &) { TODO(); }
 
   void switchInsertionPointToWhere(fir::WhereOp &where) {
     builder->setInsertionPointToStart(&where.whereRegion().front());
@@ -361,7 +354,7 @@ class FirConverter : public AbstractConverter {
   /// Convert a DoConstruct to a `fir.loop` op.
   /// Convert an IfConstruct to a `fir.where` op.
   ///
-  void genFIREvalStructuredOp(AST::Evaluation &eval) {
+  void genFIREvalStructuredOp(PFT::Evaluation &eval) {
     // TODO: array expressions, FORALL, WHERE ...
 
     // process the list of Evaluations
@@ -441,13 +434,13 @@ class FirConverter : public AbstractConverter {
   }
 
   // Return from subprogram control-flow semantics
-  void genFIREvalReturn(AST::Evaluation &eval) {
+  void genFIREvalReturn(PFT::Evaluation &eval) {
     // Handled case-by-case
     // FIXME: think about moving the case code here
   }
 
   // Multiway switch control-flow semantics
-  void genFIREvalSwitch(AST::Evaluation &eval) {
+  void genFIREvalSwitch(PFT::Evaluation &eval) {
     genFIR(eval);
     // FIXME
   }
@@ -455,13 +448,13 @@ class FirConverter : public AbstractConverter {
   // Terminate process control-flow semantics
   //
   // Call a runtime routine that does not return
-  void genFIREvalTerminate(AST::Evaluation &eval) {
+  void genFIREvalTerminate(PFT::Evaluation &eval) {
     genFIR(eval);
     builder->create<fir::UnreachableOp>(toLocation());
   }
 
   // No control-flow
-  void genFIREvalNone(AST::Evaluation &eval) { genFIR(eval); }
+  void genFIREvalNone(PFT::Evaluation &eval) { genFIR(eval); }
 
   M::FuncOp getFunc(L::StringRef name, M::FunctionType ty) {
     if (auto func = getNamedFunction(module, name)) {
@@ -851,11 +844,11 @@ class FirConverter : public AbstractConverter {
   void genFIR(const Pa::ExitStmt &) {}  // do nothing
   void genFIR(const Pa::GotoStmt &) {}  // do nothing
 
-  void genFIR(AST::Evaluation &eval) {
+  void genFIR(PFT::Evaluation &eval) {
     currentEvaluation = &eval;
     std::visit(Co::visitors{
                    [&](const auto *p) { genFIR(*p); },
-                   [](const AST::CGJump &) { /* do nothing */ },
+                   [](const PFT::CGJump &) { /* do nothing */ },
                },
                eval.u);
   }
@@ -865,40 +858,40 @@ class FirConverter : public AbstractConverter {
   /// If the Evaluation is annotated, we can attempt to lower it by the class of
   /// annotation. Otherwise, attempt to lower the Evaluation on a case-by-case
   /// basis.
-  void lowerEval(AST::Evaluation &eval) {
+  void lowerEval(PFT::Evaluation &eval) {
     setCurrentPosition(eval.pos);
     if (eval.isControlTarget()) {
       // start a new block
     }
     switch (eval.cfg) {
-    case AST::CFGAnnotation::None:
+    case PFT::CFGAnnotation::None:
       genFIREvalNone(eval);
       break;
-    case AST::CFGAnnotation::Goto:
+    case PFT::CFGAnnotation::Goto:
       genFIREvalGoto(eval);
       break;
-    case AST::CFGAnnotation::CondGoto:
+    case PFT::CFGAnnotation::CondGoto:
       genFIREvalCondGoto(eval);
       break;
-    case AST::CFGAnnotation::IndGoto:
+    case PFT::CFGAnnotation::IndGoto:
       genFIREvalIndGoto(eval);
       break;
-    case AST::CFGAnnotation::IoSwitch:
+    case PFT::CFGAnnotation::IoSwitch:
       genFIREvalIoSwitch(eval);
       break;
-    case AST::CFGAnnotation::Switch:
+    case PFT::CFGAnnotation::Switch:
       genFIREvalSwitch(eval);
       break;
-    case AST::CFGAnnotation::Iterative:
+    case PFT::CFGAnnotation::Iterative:
       genFIREvalIterative(eval);
       break;
-    case AST::CFGAnnotation::FirStructuredOp:
+    case PFT::CFGAnnotation::FirStructuredOp:
       genFIREvalStructuredOp(eval);
       break;
-    case AST::CFGAnnotation::Return:
+    case PFT::CFGAnnotation::Return:
       genFIREvalReturn(eval);
       break;
-    case AST::CFGAnnotation::Terminate:
+    case PFT::CFGAnnotation::Terminate:
       genFIREvalTerminate(eval);
       break;
     }
@@ -914,7 +907,7 @@ class FirConverter : public AbstractConverter {
   }
 
   /// Prepare to translate a new function
-  void startNewFunction(AST::FunctionLikeUnit &funit, L::StringRef name,
+  void startNewFunction(PFT::FunctionLikeUnit &funit, L::StringRef name,
                         const Se::Symbol *symbol) {
     M::FuncOp func{getNamedFunction(module, name)};
     if (!func) {
@@ -930,7 +923,7 @@ class FirConverter : public AbstractConverter {
     if (symbol) {
       auto *entryBlock{&func.front()};
       auto *details{symbol->detailsIf<Se::SubprogramDetails>()};
-      assert(details && "details for semantics::Symbol must be subprogram");
+      assert(details && "details for semantics symbol must be subprogram");
       for (const auto &v :
            L::zip(details->dummyArgs(), entryBlock->getArguments())) {
         if (std::get<0>(v)) {
@@ -962,7 +955,7 @@ class FirConverter : public AbstractConverter {
   }
 
   /// Lower a procedure-like construct
-  void lowerFunc(AST::FunctionLikeUnit &func, L::ArrayRef<L::StringRef> modules,
+  void lowerFunc(PFT::FunctionLikeUnit &func, L::ArrayRef<L::StringRef> modules,
                  L::Optional<L::StringRef> host = {}) {
     std::string name;
     const Se::Symbol *symbol{nullptr};
@@ -996,7 +989,7 @@ class FirConverter : public AbstractConverter {
     }
   }
 
-  void lowerMod(AST::ModuleLikeUnit &mod) {
+  void lowerMod(PFT::ModuleLikeUnit &mod) {
     // FIXME: build the vector of module names
     std::vector<L::StringRef> moduleName;
 
@@ -1011,21 +1004,21 @@ class FirConverter : public AbstractConverter {
   //
 
   /// Lookup the set of sinks for this source. There must be at least one.
-  L::ArrayRef<AST::Evaluation *> findTargetsOf(AST::Evaluation &eval) {
+  L::ArrayRef<PFT::Evaluation *> findTargetsOf(PFT::Evaluation &eval) {
     auto iter = cfgMap.find(&eval);
     assert(iter != cfgMap.end());
     return *iter->second;
   }
 
   /// Lookup the sink for this source. There must be exactly one.
-  AST::Evaluation *findSinkOf(AST::Evaluation &eval) {
+  PFT::Evaluation *findSinkOf(PFT::Evaluation &eval) {
     auto iter = cfgMap.find(&eval);
     assert((iter != cfgMap.end()) && (iter->second->size() == 1));
     return iter->second->front();
   }
 
   /// prune the CFG for `f`
-  void pruneFunc(AST::FunctionLikeUnit &func) {
+  void pruneFunc(PFT::FunctionLikeUnit &func) {
     // find and cache arcs, etc.
     if (!func.evals.empty()) {
       CfgBuilder{cfgMap, cfgEdgeSetPool}.run(func);
@@ -1037,7 +1030,7 @@ class FirConverter : public AbstractConverter {
     }
   }
 
-  void pruneMod(AST::ModuleLikeUnit &mod) {
+  void pruneMod(PFT::ModuleLikeUnit &mod) {
     for (auto &f : mod.funcs) {
       pruneFunc(f);
     }
@@ -1102,7 +1095,7 @@ private:
   Pa::CharBlock currentPosition;
   CFGMapType cfgMap;
   std::list<CFGSinkListType> cfgEdgeSetPool;
-  AST::Evaluation *currentEvaluation{nullptr}; // FIXME: this is a hack
+  PFT::Evaluation *currentEvaluation{nullptr}; // FIXME: this is a hack
 
 public:
   FirConverter() = delete;
@@ -1117,14 +1110,14 @@ public:
                                     bridge.getMLIRContext())},
         uniquer{uniquer} {}
 
-  /// Convert the AST to FIR
-  void run(AST::Program &ast) {
+  /// Convert the PFT to FIR
+  void run(PFT::Program &ast) {
     // build pruned control
     for (auto &u : ast.getUnits()) {
       std::visit(Co::visitors{
-                     [&](AST::FunctionLikeUnit &f) { pruneFunc(f); },
-                     [&](AST::ModuleLikeUnit &m) { pruneMod(m); },
-                     [](AST::BlockDataUnit &) { /* do nothing */ },
+                     [&](PFT::FunctionLikeUnit &f) { pruneFunc(f); },
+                     [&](PFT::ModuleLikeUnit &m) { pruneMod(m); },
+                     [](PFT::BlockDataUnit &) { /* do nothing */ },
                  },
                  u);
     }
@@ -1132,9 +1125,9 @@ public:
     // do translation
     for (auto &u : ast.getUnits()) {
       std::visit(Co::visitors{
-                     [&](AST::FunctionLikeUnit &f) { lowerFunc(f, {}); },
-                     [&](AST::ModuleLikeUnit &m) { lowerMod(m); },
-                     [&](AST::BlockDataUnit &) { TODO(); },
+                     [&](PFT::FunctionLikeUnit &f) { lowerFunc(f, {}); },
+                     [&](PFT::ModuleLikeUnit &m) { lowerMod(m); },
+                     [&](PFT::BlockDataUnit &) { TODO(); },
                  },
                  u);
     }
@@ -1201,10 +1194,10 @@ public:
 
 void Br::BurnsideBridge::lower(const Pa::Program &prg,
                                fir::NameUniquer &uniquer) {
-  AST::Program *ast{Br::createAST(prg)};
+  PFT::Program *ast{Br::createPFT(prg)};
   Br::annotateControl(*ast);
   if (dumpBeforeFir) {
-    Br::dumpAST(L::errs(), *ast);
+    Br::dumpPFT(L::errs(), *ast);
   }
   FirConverter converter{*this, uniquer};
   converter.run(*ast);
