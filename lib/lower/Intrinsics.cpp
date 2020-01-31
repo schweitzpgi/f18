@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "flang/lower/Intrinsics.h"
+#include "NSAliases.h"
 #include "fir/Dialect/FIROps.h"
 #include "fir/Dialect/FIRType.h"
 #include "flang/lower/ConvertType.h"
@@ -20,9 +21,6 @@
 #include <utility>
 
 /// [Coding style](https://llvm.org/docs/CodingStandards.html)
-
-namespace L = llvm;
-namespace M = mlir;
 
 namespace Fortran::lower {
 
