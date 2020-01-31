@@ -208,7 +208,7 @@ class fir_AllocatableOp<string mnemonic, list<OpTrait> traits =[]> :
       hasOperands = true;
     }
     if (hasOperands &&
-        parser.resolveOperands(operands, builder.getIndexType(),
+        parser.resolveOperands(operands, {builder.getIndexType()},
             parser.getNameLoc(), result.operands))
       return mlir::failure();
     mlir::Type restype = wrapResultType(intype);
