@@ -167,17 +167,17 @@ MatchResult KindMapping::parse(llvm::StringRef kindMap) {
     return {true};
   const char *srcPtr = kindMap.begin();
   while (true) {
-    char code;
-    KindTy kind;
+    char code = '\0';
+    KindTy kind = 0;
     if (parseCode(code, srcPtr) || parseInt(kind, srcPtr))
       return badMapString(srcPtr);
     if (code == 'a' || code == 'i' || code == 'l') {
-      Bitsize bits;
+      Bitsize bits = 0;
       if (parseColon(srcPtr) || parseInt(bits, srcPtr))
         return badMapString(srcPtr);
       intMap[code][kind] = bits;
     } else if (code == 'r' || code == 'c') {
-      LLVMTypeID id;
+      LLVMTypeID id{};
       if (parseColon(srcPtr) || parseTypeID(id, srcPtr))
         return badMapString(srcPtr);
       floatMap[code][kind] = id;

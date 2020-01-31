@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "flang/lower/ConvertExpr.h"
+#include "NSAliases.h"
 #include "fir/Dialect/FIRDialect.h"
 #include "fir/Dialect/FIROps.h"
 #include "fir/Dialect/FIRType.h"
@@ -36,14 +37,6 @@
 #include "llvm/IR/Type.h"
 #include "llvm/Support/raw_ostream.h"
 
-namespace Br = Fortran::lower;
-namespace Co = Fortran::common;
-namespace Ev = Fortran::evaluate;
-namespace L = llvm;
-namespace M = mlir;
-namespace Pa = Fortran::parser;
-namespace Se = Fortran::semantics;
-
 using namespace Fortran;
 using namespace Fortran::lower;
 
@@ -53,7 +46,7 @@ namespace {
   assert(false);                                                               \
   return {}
 
-/// Lowering of Fortran::evaluate::Expr<T> expressions
+/// Lowering of Ev::Expr<T> expressions
 class ExprLowering {
   M::Location location;
   AbstractConverter &converter;
@@ -222,7 +215,7 @@ class ExprLowering {
     auto type{addr.getType()};
     if (auto boxCharType{type.dyn_cast<fir::BoxCharType>()}) {
       auto refType{fir::ReferenceType::get(boxCharType.getEleTy())};
-      auto lenType{mlir::IntegerType::get(64, builder.getContext())};
+      auto lenType{M::IntegerType::get(64, builder.getContext())};
       addr = builder.create<fir::UnboxCharOp>(getLoc(), refType, lenType, addr)
                  .getResult(0);
     } else if (type.isa<fir::BoxType>()) {
@@ -249,14 +242,14 @@ class ExprLowering {
   M::Value genval(Ev::ImpliedDoIndex const &) { TODO(); }
   M::Value genval(Ev::DescriptorInquiry const &desc) {
     auto descRef{symMap.lookupSymbol(desc.base().GetLastSymbol())};
-    assert(descRef && "no mlir::Value associated to Symbol");
+    assert(descRef && "no M::Value associated to Symbol");
     auto descType{descRef.getType()};
     M::Value res{};
     switch (desc.field()) {
     case Ev::DescriptorInquiry::Field::Len:
       if (auto boxCharType{descType.dyn_cast<fir::BoxCharType>()}) {
         auto refType{fir::ReferenceType::get(boxCharType.getEleTy())};
-        auto lenType{mlir::IntegerType::get(64, builder.getContext())};
+        auto lenType{M::IntegerType::get(64, builder.getContext())};
         res = builder
                   .create<fir::UnboxCharOp>(getLoc(), refType, lenType, descRef)
                   .getResult(1);
@@ -344,8 +337,7 @@ class ExprLowering {
   }
   template <Co::TypeCategory TC, int KIND>
   M::Value genval(Ev::Power<Ev::Type<TC, KIND>> const &op) {
-    llvm::SmallVector<mlir::Value, 2> operands{genval(op.left()),
-                                               genval(op.right())};
+    L::SmallVector<M::Value, 2> operands{genval(op.left()), genval(op.right())};
     M::Type ty{converter.genType(TC, KIND)};
     return intrinsics.genval(getLoc(), builder, "pow", ty, operands);
   }
@@ -353,8 +345,7 @@ class ExprLowering {
   M::Value genval(Ev::RealToIntPower<Ev::Type<TC, KIND>> const &op) {
     // TODO: runtime as limited integer kind support. Look if the conversions
     // are ok
-    llvm::SmallVector<mlir::Value, 2> operands{genval(op.left()),
-                                               genval(op.right())};
+    L::SmallVector<M::Value, 2> operands{genval(op.left()), genval(op.right())};
     M::Type ty{converter.genType(TC, KIND)};
     return intrinsics.genval(getLoc(), builder, "pow", ty, operands);
   }
@@ -385,7 +376,7 @@ class ExprLowering {
 
   template <Co::TypeCategory TC, int KIND>
   M::Value genval(Ev::Relational<Ev::Type<TC, KIND>> const &op) {
-    mlir::Value result{nullptr};
+    M::Value result{nullptr};
     if constexpr (TC == IntegerCat) {
       result = createCompareOp<M::CmpIOp>(op, translateRelational(op.opr));
     } else if constexpr (TC == RealCat) {
@@ -428,7 +419,7 @@ class ExprLowering {
   template <int KIND>
   M::Value genval(const Ev::Not<KIND> &op) {
     // Request operands to be generated as `i1` and restore after this scope.
-    auto restorer{common::ScopedSet(genLogicalAsI1, true)};
+    auto restorer{Co::ScopedSet(genLogicalAsI1, true)};
     auto *context{builder.getContext()};
     auto logical{genval(op.left())};
     auto one{genLogicalConstantAsI1(context, true)};
@@ -438,8 +429,8 @@ class ExprLowering {
   template <int KIND>
   M::Value genval(Ev::LogicalOperation<KIND> const &op) {
     // Request operands to be generated as `i1` and restore after this scope.
-    auto restorer{common::ScopedSet(genLogicalAsI1, true)};
-    mlir::Value result;
+    auto restorer{Co::ScopedSet(genLogicalAsI1, true)};
+    M::Value result;
     switch (op.logicalOperator) {
     case Ev::LogicalOperator::And:
       result = createBinaryOp<M::AndOp>(op);
@@ -454,7 +445,7 @@ class ExprLowering {
       result = createCompareOp<M::CmpIOp>(op, M::CmpIPredicate::ne);
       break;
     case Ev::LogicalOperator::Not:
-      // lib/evaluate expression for .NOT. is evaluate::Not<KIND>.
+      // lib/evaluate expression for .NOT. is Ev::Not<KIND>.
       assert(false && ".NOT. is not a binary operator");
       break;
     }
@@ -655,7 +646,7 @@ class ExprLowering {
   M::Value gen(Ev::ArrayRef const &aref) {
     M::Value base = aref.base().IsSymbol() ? gen(aref.base().GetFirstSymbol())
                                            : gen(aref.base().GetComponent());
-    llvm::SmallVector<M::Value, 8> args;
+    L::SmallVector<M::Value, 8> args;
     for (auto &subsc : aref.subscript()) {
       args.push_back(genval(subsc));
     }
@@ -718,7 +709,7 @@ class ExprLowering {
       // conversions (e.g scalar MASK of MERGE will be converted to `i1`), but
       // the generated code is at least correct. To improve this, the intrinsic
       // lowering facility should control argument lowering.
-      auto restorer{common::ScopedSet(genLogicalAsI1, false)};
+      auto restorer{Co::ScopedSet(genLogicalAsI1, false)};
       for (const auto &arg : funRef.arguments()) {
         if (auto *expr{Ev::UnwrapExpr<Ev::Expr<Ev::SomeType>>(arg)}) {
           operands.push_back(genval(*expr));
@@ -736,7 +727,7 @@ class ExprLowering {
       L::SmallVector<M::Value, 2> operands;
       // Logical arguments of user functions must be lowered to `fir.logical`
       // and not `i1`.
-      auto restorer{common::ScopedSet(genLogicalAsI1, false)};
+      auto restorer{Co::ScopedSet(genLogicalAsI1, false)};
       for (const auto &arg : funRef.arguments()) {
         assert(arg.has_value() &&
                "optional argument requires explicit interface");
