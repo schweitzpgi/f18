@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "flang/lower/Mangler.h"
+#include "NSAliases.h"
 #include "fir/InternalNames.h"
 #include "flang/common/reference.h"
 #include "flang/lower/Utils.h"
@@ -15,12 +16,6 @@
 #include "llvm/ADT/Optional.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/Twine.h"
-
-namespace Br = Fortran::lower;
-namespace Co = Fortran::common;
-namespace L = llvm;
-namespace Ma = Fortran::lower::mangle;
-namespace Se = Fortran::semantics;
 
 using namespace Fortran;
 
