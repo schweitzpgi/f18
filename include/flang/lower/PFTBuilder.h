@@ -6,15 +6,16 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef FORTRAN_LOWER_AST_BUILDER_H_
-#define FORTRAN_LOWER_AST_BUILDER_H_
+#ifndef FORTRAN_LOWER_PFT_BUILDER_H_
+#define FORTRAN_LOWER_PFT_BUILDER_H_
 
 #include "flang/parser/parse-tree.h"
 #include "flang/semantics/scope.h"
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/Support/raw_ostream.h"
 
 namespace Fortran::lower {
-namespace AST {
+namespace PFT {
 
 struct Evaluation;
 struct Program;
@@ -40,7 +41,7 @@ enum class CFGAnnotation {
 /// Compiler-generated jump
 ///
 /// This is used to convert implicit control-flow edges to explicit form in the
-/// decorated AST
+/// decorated PFT
 struct CGJump {
   CGJump(Evaluation *to) : target{to} {}
   Evaluation *target{nullptr};
@@ -137,13 +138,13 @@ struct Evaluation {
   /// Construct ctor
   template <typename A>
   Evaluation(const A &a, const ParentType &parent) : u{&a}, parent{parent} {
-    static_assert(AST::isConstruct<A>(), "must be a construct");
+    static_assert(PFT::isConstruct<A>(), "must be a construct");
   }
 
   /// is `A` executable (an action statement or compiler generated)?
   template <typename A>
   constexpr static bool isAction(const A &a) {
-    return !AST::isConstruct<A>() && !isOther(a);
+    return !PFT::isConstruct<A>() && !isOther(a);
   }
 
   /// is `A` a compiler-generated evaluation?
@@ -184,10 +185,10 @@ struct Evaluation {
     setBranches(cstr);
   }
 
-  /// Is this evaluation a control-flow origin? (The AST must be annotated)
+  /// Is this evaluation a control-flow origin? (The PFT must be annotated)
   bool isControlOrigin() const { return cfg != CFGAnnotation::None; }
 
-  /// Is this evaluation a control-flow target? (The AST must be annotated)
+  /// Is this evaluation a control-flow target? (The PFT must be annotated)
   bool isControlTarget() const { return isTarget; }
 
   /// Set the containsBranches flag iff this evaluation (a construct) contains
@@ -303,7 +304,7 @@ struct BlockDataUnit : public ProgramUnit {
   BlockDataUnit(const parser::BlockData &bd, const ParentType &parent);
 };
 
-/// A Program is the top-level AST
+/// A Program is the top-level PFT
 struct Program {
   using Units = std::variant<FunctionLikeUnit, ModuleLikeUnit, BlockDataUnit>;
 
@@ -313,19 +314,19 @@ private:
   std::list<Units> units;
 };
 
-} // namespace AST
+} // namespace PFT
 
-/// Create an AST from the parse tree
-AST::Program *createAST(const parser::Program &root);
+/// Create an PFT from the parse tree
+PFT::Program *createPFT(const parser::Program &root);
 
-/// Decorate the AST with control flow annotations
+/// Decorate the PFT with control flow annotations
 ///
-/// The AST must be decorated with control-flow annotations to prepare it for
+/// The PFT must be decorated with control-flow annotations to prepare it for
 /// use in generating a CFG-like structure.
-void annotateControl(AST::Program &ast);
+void annotateControl(PFT::Program &ast);
 
-void dumpAST(llvm::raw_ostream &o, AST::Program &ast);
+void dumpPFT(llvm::raw_ostream &o, PFT::Program &ast);
 
 } // namespace Fortran::lower
 
-#endif // FORTRAN_LOWER_AST_BUILDER_H_
+#endif // FORTRAN_LOWER_PFT_BUILDER_H_
