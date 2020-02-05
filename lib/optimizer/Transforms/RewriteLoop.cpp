@@ -6,8 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "fir/Dialect/FIRDialect.h"
-#include "fir/Dialect/FIROps.h"
+#include "flang/optimizer/Dialect/FIRDialect.h"
+#include "flang/optimizer/Dialect/FIROps.h"
 #include "flang/optimizer/Transforms/Passes.h"
 #include "mlir/Dialect/AffineOps/AffineOps.h"
 #include "mlir/Dialect/LoopOps/LoopOps.h"
