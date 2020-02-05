@@ -1,4 +1,4 @@
-//===-- include/fir/InternalNames.h -----------------------------*- C++ -*-===//
+//===-- optimizer/Support/InternalNames.h -----------------------*- C++ -*-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,8 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef OPTIMIZER_INTERNAL_NAMES_H
-#define OPTIMIZER_INTERNAL_NAMES_H
+#ifndef OPTIMIZER_SUPPORT_INTERNALNAMES_H
+#define OPTIMIZER_SUPPORT_INTERNALNAMES_H
 
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/Optional.h"
@@ -127,4 +127,4 @@ private:
 
 } // namespace fir
 
-#endif // OPTIMIZER_INTERNAL_NAMES_H
+#endif // OPTIMIZER_SUPPORT_INTERNALNAMES_H

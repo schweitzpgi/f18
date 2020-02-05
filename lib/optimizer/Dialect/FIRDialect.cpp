@@ -1,4 +1,4 @@
-//===-- fir/FIRDialect.cpp ------------------------------------------------===//
+//===-- FIRDialect.cpp ----------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,10 +6,10 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "fir/Dialect/FIRDialect.h"
-#include "fir/Dialect/FIRAttr.h"
-#include "fir/Dialect/FIROps.h"
-#include "fir/Dialect/FIRType.h"
+#include "flang/optimizer/Dialect/FIRDialect.h"
+#include "flang/optimizer/Dialect/FIRAttr.h"
+#include "flang/optimizer/Dialect/FIROps.h"
+#include "flang/optimizer/Dialect/FIRType.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/IR/StandardTypes.h"
 #include "mlir/Transforms/SideEffectsInterface.h"
@@ -49,7 +49,7 @@ fir::FIROpsDialect::FIROpsDialect(mlir::MLIRContext *ctx)
                 PointIntervalAttr, SubclassAttr, UpperBoundAttr>();
   addOperations<GlobalOp, DispatchTableOp,
 #define GET_OP_LIST
-#include "fir/Dialect/FIROps.cpp.inc"
+#include "flang/optimizer/Dialect/FIROps.cpp.inc"
                 >();
 }
 

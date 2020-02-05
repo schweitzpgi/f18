@@ -447,8 +447,8 @@ func @arith_complex(%a : !fir.complex<16>, %b : !fir.complex<16>) -> !fir.comple
 }
 
 // CHECK-LABEL: @character_literal
-func @character_literal() -> !fir.char<1> {
-  // CHECK: fir.constant "Hello, World!" : !fir.char<1>
-  %0 = fir.constant "Hello, World!" : !fir.char<1>
-  return %0 : !fir.char<1>
+func @character_literal() -> !fir.array<13 x !fir.char<1>> {
+  // CHECK: fir.string_lit "Hello, World!"(13) : !fir.char<1>
+  %0 = fir.string_lit "Hello, World!"(13) : !fir.char<1>
+  return %0 : !fir.array<13 x !fir.char<1>>
 }
