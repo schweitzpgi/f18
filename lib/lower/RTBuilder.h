@@ -1,4 +1,4 @@
-//===-- lib/lower/cfg-builder.h ---------------------------------*- C++ -*-===//
+//===-- RTBuilder.h ---------------------------------------------*- C++ -*-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -17,8 +17,8 @@
 #ifndef FORTRAN_LOWER_RT_BUILDER_H_
 #define FORTRAN_LOWER_RT_BUILDER_H_
 
-#include "fir/Dialect/FIRType.h"
 #include "flang/lower/ConvertType.h"
+#include "flang/optimizer/Dialect/FIRType.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/StandardTypes.h"
 #include "llvm/ADT/SmallVector.h"
