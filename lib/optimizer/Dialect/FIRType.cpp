@@ -1,4 +1,4 @@
-//===-- fir/Dialect/FIRType.cpp -------------------------------------------===//
+//===-- FIRType.cpp -------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,8 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "fir/Dialect/FIRType.h"
-#include "fir/Dialect/FIRDialect.h"
+#include "flang/optimizer/Dialect/FIRType.h"
+#include "flang/optimizer/Dialect/FIRDialect.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/Dialect.h"

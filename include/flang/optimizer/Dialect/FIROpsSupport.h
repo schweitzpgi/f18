@@ -1,4 +1,4 @@
-//===-- include/fir/FIROpsSupport.h -----------------------------*- C++ -*-===//
+//===-- optimizer/Dialect/FIROpsSupport.h -- FIR op support -----*- C++ -*-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,10 +6,10 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef OPTIMIZER_FIROPS_SUPPORT_H
-#define OPTIMIZER_FIROPS_SUPPORT_H
+#ifndef OPTIMIZER_DIALECT_FIROPSSUPPORT_H
+#define OPTIMIZER_DIALECT_FIROPSSUPPORT_H
 
-#include "fir/Dialect/FIROps.h"
+#include "flang/optimizer/Dialect/FIROps.h"
 #include "mlir/Dialect/StandardOps/Ops.h"
 
 namespace fir {
@@ -70,4 +70,4 @@ fir::GlobalOp createGlobalOp(mlir::Location loc, mlir::ModuleOp module,
 
 } // namespace fir
 
-#endif // OPTIMIZER_FIROPS_SUPPORT_H
+#endif // OPTIMIZER_DIALECT_FIROPSSUPPORT_H

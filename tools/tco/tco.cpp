@@ -11,10 +11,10 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "fir/Dialect/FIRDialect.h"
-#include "fir/InternalNames.h"
-#include "fir/KindMapping.h"
 #include "flang/optimizer/CodeGen/CodeGen.h"
+#include "flang/optimizer/Dialect/FIRDialect.h"
+#include "flang/optimizer/Support/InternalNames.h"
+#include "flang/optimizer/Support/KindMapping.h"
 #include "flang/optimizer/Transforms/Passes.h"
 #include "flang/optimizer/Transforms/StdConverter.h"
 #include "mlir/Conversion/LoopToStandard/ConvertLoopToStandard.h"
@@ -50,7 +50,7 @@ void printModuleBody(mlir::ModuleOp mod) {
   auto e{--mod.end()};
   for (auto i{mod.begin()}; i != e; ++i) {
     i->print(llvm::outs());
-    llvm::outs() << '\n';
+    llvm::outs() << "\n\n";
   }
 }
 
@@ -106,6 +106,7 @@ int compileFIR() {
   if (mlir::succeeded(pm.run(*owningRef))) {
     if (emitFir)
       printModuleBody(*owningRef);
+    out.keep();
     return 0;
   }
   llvm::errs() << "FAILED: " << inputFilename << '\n';

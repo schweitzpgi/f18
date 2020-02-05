@@ -1,4 +1,4 @@
-//===-- include/fir/Attribute.h ---------------------------------*- C++ -*-===//
+//===-- optimizer/Dialect/FIRAttr.h -- FIR attributes -----------*- C++ -*-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,8 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef OPTIMIZER_FIRATTRIBUTE_H
-#define OPTIMIZER_FIRATTRIBUTE_H
+#ifndef OPTIMIZER_DIALECT_FIRATTR_H
+#define OPTIMIZER_DIALECT_FIRATTR_H
 
 #include "mlir/IR/Attributes.h"
 
@@ -133,4 +133,4 @@ void printFirAttribute(FIROpsDialect *dialect, mlir::Attribute attr,
 
 } // namespace fir
 
-#endif // OPTIMIZER_FIRATTRIBUTE_H
+#endif // OPTIMIZER_DIALECT_FIRATTR_H

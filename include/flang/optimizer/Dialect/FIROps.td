@@ -1713,32 +1713,52 @@ def fir_DispatchOp : fir_Op<"dispatch", []>,
 
 // Constant operations that support Fortran
 
-def fir_ConstantOp : fir_Op<"constant", [NoSideEffect]>,
+def fir_StringLitOp : fir_Op<"string_lit", [NoSideEffect]>,
     Results<(outs AnyType)> {
-  let summary = "create a constant of FIR type";
+  let summary = "create a string literal constant";
 
   let description = [{
-    An FIR constant
+    An FIR constant that represents a sequence of characters that correspond
+    to Fortran's CHARACTER type, including a LEN.
   }];
 
   let parser = [{
-    mlir::StringAttr attr;
-    if (parser.parseAttribute(attr, value(), result.attributes) ||
-        parser.addTypesToList(attr.getType(), result.types))
+    mlir::StringAttr val;
+    mlir::IntegerAttr sz;
+    mlir::Type type;
+    if (parser.parseAttribute(val, value(), result.attributes) ||
+        parser.parseLParen() ||
+        parser.parseAttribute(sz, size(), result.attributes) ||
+        parser.parseRParen() || parser.parseColonType(type))
+      return mlir::failure();
+    type = fir::SequenceType::get({sz.getInt()}, type);
+    if (parser.addTypesToList(type, result.types))
       return mlir::failure();
     return mlir::success();
   }];
 
   let printer = [{
-    p << getOperationName() << ' ' << getAttr(value());
+    p << getOperationName() << ' ' << getAttr(value()) << '(';
+    p << getAttr(size()).cast<mlir::IntegerAttr>().getValue() << ") : ";
+    p.printType(getType().cast<fir::SequenceType>().getEleTy());
   }];
 
-  //let verifier = [{
-  // FIXME!
-  //}];
+  let verifier = [{
+    if (getAttr(size()).cast<mlir::IntegerAttr>().getValue().isNegative())
+      return emitOpError("size must be non-negative");
+    auto eleTy = getType().cast<fir::SequenceType>().getEleTy();
+    if (!eleTy.dyn_cast<fir::CharacterType>())
+      return emitOpError("must have !fir.char type");
+    return mlir::success();
+  }];
 
   let extraClassDeclaration = [{
-    constexpr static char const *value() { return "value"; }
+    static constexpr const char *size() { return "size"; }
+    static constexpr const char *value() { return "value"; }
+
+    // Get the LEN attribute of this character constant
+    mlir::Attribute getSize() { return getAttr(size()); }
+    // Get the string value of this character constant
     mlir::Attribute getValue() { return getAttr(value()); }
   }];
 }

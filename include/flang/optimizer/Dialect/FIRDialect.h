@@ -1,4 +1,4 @@
-//===-- include/fir/FIRDialect.h --------------------------------*- C++ -*-===//
+//===-- optimizer/Dialect/FIRDialect.h -- FIR dialect -----------*- C++ -*-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,8 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef OPTIMIZER_FIRDIALECT_H
-#define OPTIMIZER_FIRDIALECT_H
+#ifndef OPTIMIZER_DIALECT_FIRDIALECT_H
+#define OPTIMIZER_DIALECT_FIRDIALECT_H
 
 #include "mlir/IR/Dialect.h"
 
@@ -46,4 +46,4 @@ public:
 
 } // namespace fir
 
-#endif // OPTIMIZER_FIRDIALECT_H
+#endif // OPTIMIZER_DIALECT_FIRDIALECT_H
