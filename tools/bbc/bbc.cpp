@@ -11,14 +11,14 @@
 ///
 //===----------------------------------------------------------------------===//
 
-#include "fir/Dialect/FIRDialect.h"
-#include "fir/InternalNames.h"
-#include "fir/KindMapping.h"
 #include "flang/common/Fortran-features.h"
 #include "flang/common/default-kinds.h"
 #include "flang/lower/Bridge.h"
 #include "flang/lower/ConvertExpr.h"
 #include "flang/optimizer/CodeGen/CodeGen.h"
+#include "flang/optimizer/Dialect/FIRDialect.h"
+#include "flang/optimizer/Support/InternalNames.h"
+#include "flang/optimizer/Support/KindMapping.h"
 #include "flang/optimizer/Transforms/Passes.h"
 #include "flang/optimizer/Transforms/StdConverter.h"
 #include "flang/parser/characters.h"
@@ -165,6 +165,7 @@ void convertFortranSourceToMLIR(
       mlirModule.print(out);
   } else {
     errs() << "oops, pass manager reported failure\n";
+    mlirModule.dump();
   }
 }
 

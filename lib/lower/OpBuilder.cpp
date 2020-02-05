@@ -1,4 +1,4 @@
-//===-- OpBuilder.cc ------------------------------------------------------===//
+//===-- OpBuilder.cpp -----------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -8,10 +8,10 @@
 
 #include "flang/lower/OpBuilder.h"
 #include "NSAliases.h"
-#include "fir/Dialect/FIROpsSupport.h"
-#include "fir/Dialect/FIRType.h"
 #include "flang/lower/Bridge.h"
 #include "flang/lower/ConvertType.h"
+#include "flang/optimizer/Dialect/FIROpsSupport.h"
+#include "flang/optimizer/Dialect/FIRType.h"
 #include "mlir/IR/Module.h"
 #include "mlir/IR/Value.h"
 #include "llvm/ADT/StringRef.h"
