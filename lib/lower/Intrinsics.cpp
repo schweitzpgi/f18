@@ -1,4 +1,4 @@
-//===-- lib/lower/intrinsics.cc ---------------------------------*- C++ -*-===//
+//===-- Intrinsics.cpp ----------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -8,11 +8,11 @@
 
 #include "flang/lower/Intrinsics.h"
 #include "NSAliases.h"
-#include "fir/Dialect/FIROps.h"
-#include "fir/Dialect/FIRType.h"
 #include "flang/lower/ConvertType.h"
 #include "flang/lower/OpBuilder.h"
 #include "flang/lower/Runtime.h"
+#include "flang/optimizer/Dialect/FIROps.h"
+#include "flang/optimizer/Dialect/FIRType.h"
 #include "llvm/ADT/Optional.h"
 #include "llvm/ADT/Twine.h"
 #include <algorithm>
