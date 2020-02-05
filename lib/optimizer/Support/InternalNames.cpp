@@ -1,4 +1,4 @@
-//===-- lib/fir/InternalNames.cpp -----------------------------------------===//
+//===-- InternalNames.cpp -------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,7 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "fir/InternalNames.h"
+#include "flang/optimizer/Support/InternalNames.h"
 #include "mlir/IR/Diagnostics.h"
 #include "llvm/ADT/Optional.h"
 #include "llvm/ADT/Twine.h"

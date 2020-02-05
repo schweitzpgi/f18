@@ -1,4 +1,4 @@
-//===-- lib/lower/convert-type.cc -----------------------------------------===//
+//===-- ConvertType.cpp ---------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -9,9 +9,9 @@
 #include "flang/lower/ConvertType.h"
 #include "../../runtime/io-api.h"
 #include "NSAliases.h"
-#include "fir/Dialect/FIRType.h"
 #include "flang/lower/Bridge.h"
 #include "flang/lower/Utils.h"
+#include "flang/optimizer/Dialect/FIRType.h"
 #include "flang/semantics/expression.h"
 #include "flang/semantics/tools.h"
 #include "flang/semantics/type.h"

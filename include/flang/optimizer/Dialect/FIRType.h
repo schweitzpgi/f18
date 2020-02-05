@@ -1,4 +1,4 @@
-//===-- include/fir/FIRType.h -----------------------------------*- C++ -*-===//
+//===-- optimizer/Dialect/FIRType.h -- FIR types ----------------*- C++ -*-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,8 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef OPTIMIZER_FIRTYPE_H
-#define OPTIMIZER_FIRTYPE_H
+#ifndef OPTIMIZER_DIALECT_FIRTYPE_H
+#define OPTIMIZER_DIALECT_FIRTYPE_H
 
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Types.h"
@@ -336,4 +336,4 @@ void printFirType(FIROpsDialect *, mlir::Type ty, mlir::DialectAsmPrinter &p);
 
 } // namespace fir
 
-#endif // OPTIMIZER_FIRTYPE_H
+#endif // OPTIMIZER_DIALECT_FIRTYPE_H

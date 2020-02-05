@@ -1,4 +1,4 @@
-//===-- lib/lower/convert-expr.cc -------------------------------*- C++ -*-===//
+//===-- ConvertExpr.cpp ---------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -8,9 +8,6 @@
 
 #include "flang/lower/ConvertExpr.h"
 #include "NSAliases.h"
-#include "fir/Dialect/FIRDialect.h"
-#include "fir/Dialect/FIROps.h"
-#include "fir/Dialect/FIRType.h"
 #include "flang/common/default-kinds.h"
 #include "flang/common/unwrap.h"
 #include "flang/evaluate/fold.h"
@@ -19,6 +16,9 @@
 #include "flang/lower/ConvertType.h"
 #include "flang/lower/OpBuilder.h"
 #include "flang/lower/Runtime.h"
+#include "flang/optimizer/Dialect/FIRDialect.h"
+#include "flang/optimizer/Dialect/FIROps.h"
+#include "flang/optimizer/Dialect/FIRType.h"
 #include "flang/semantics/expression.h"
 #include "flang/semantics/symbol.h"
 #include "flang/semantics/type.h"
@@ -455,8 +455,26 @@ class ExprLowering {
     return result;
   }
 
+  /// Construct a CHARACTER literal
+  template <int KIND, typename E>
+  M::Value genCharLit(const E &data, std::size_t size) {
+    auto context = builder.getContext();
+    auto valTag = M::Identifier::get(fir::StringLitOp::value(), context);
+    // FIXME: for wider char types, use an array of i16 or i32
+    // for now, just fake it that it's a i8 to get it past the C++ compiler
+    auto strAttr = M::StringAttr::get((const char *)data.c_str(), context);
+    M::NamedAttribute dataAttr(valTag, strAttr);
+    auto sizeTag = M::Identifier::get(fir::StringLitOp::size(), context);
+    M::NamedAttribute sizeAttr(sizeTag, builder.getI64IntegerAttr(size));
+    L::SmallVector<M::NamedAttribute, 2> attrs{dataAttr, sizeAttr};
+    auto type =
+        fir::SequenceType::get({size}, fir::CharacterType::get(context, KIND));
+    return builder.create<fir::StringLitOp>(
+        getLoc(), L::ArrayRef<M::Type>{type}, llvm::None, attrs);
+  }
+
   template <Co::TypeCategory TC, int KIND>
-  M::Value genval(Ev::Constant<Ev::Type<TC, KIND>> const &con) {
+  M::Value genval(const Ev::Constant<Ev::Type<TC, KIND>> &con) {
     // TODO:
     // - character type constant
     // - array constant not handled
@@ -507,6 +525,8 @@ class ExprLowering {
       }
       assert(false && "array of complex unhandled");
       return {};
+    } else if constexpr (TC == CharacterCat) {
+      return genCharLit<KIND>(con.GetScalarValue().value(), con.size());
     } else {
       assert(false && "unhandled constant");
       return {};
