@@ -1,4 +1,4 @@
-//===-- lower/Mangler.cpp -------------------------------------------------===//
+//===-- Mangler.cpp -------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -8,9 +8,9 @@
 
 #include "flang/lower/Mangler.h"
 #include "NSAliases.h"
-#include "fir/InternalNames.h"
 #include "flang/common/reference.h"
 #include "flang/lower/Utils.h"
+#include "flang/optimizer/Support/InternalNames.h"
 #include "flang/semantics/tools.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/Optional.h"

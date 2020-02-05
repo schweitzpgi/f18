@@ -1,4 +1,4 @@
-//===-- fir/FIROps.cpp ----------------------------------------------------===//
+//===-- FIROps.cpp --------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,10 +6,10 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "fir/Dialect/FIROps.h"
-#include "fir/Dialect/FIRAttr.h"
-#include "fir/Dialect/FIROpsSupport.h"
-#include "fir/Dialect/FIRType.h"
+#include "flang/optimizer/Dialect/FIROps.h"
+#include "flang/optimizer/Dialect/FIRAttr.h"
+#include "flang/optimizer/Dialect/FIROpsSupport.h"
+#include "flang/optimizer/Dialect/FIRType.h"
 #include "mlir/Dialect/StandardOps/Ops.h"
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/Function.h"
@@ -642,6 +642,6 @@ GlobalOp createGlobalOp(mlir::Location loc, mlir::ModuleOp module,
 // Tablegen operators
 
 #define GET_OP_CLASSES
-#include "fir/Dialect/FIROps.cpp.inc"
+#include "flang/optimizer/Dialect/FIROps.cpp.inc"
 
 } // namespace fir
