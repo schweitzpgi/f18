@@ -12,7 +12,7 @@
 ///
 //===----------------------------------------------------------------------===//
 
-#include "fir/Dialect/FIROpsSupport.h"
+#include "flang/optimizer/Dialect/FIROpsSupport.h"
 #include "flang/optimizer/Transforms/Passes.h"
 #include "mlir/Analysis/Dominance.h"
 #include "mlir/IR/Attributes.h"
