@@ -7,12 +7,12 @@
 //===----------------------------------------------------------------------===//
 
 #include "flang/optimizer/CodeGen/CodeGen.h"
-#include "fir/Dialect/FIRAttr.h"
-#include "fir/Dialect/FIRDialect.h"
-#include "fir/Dialect/FIROps.h"
-#include "fir/Dialect/FIRType.h"
-#include "fir/InternalNames.h"
-#include "fir/KindMapping.h"
+#include "flang/optimizer/Dialect/FIRAttr.h"
+#include "flang/optimizer/Dialect/FIRDialect.h"
+#include "flang/optimizer/Dialect/FIROps.h"
+#include "flang/optimizer/Dialect/FIRType.h"
+#include "flang/optimizer/Support/InternalNames.h"
+#include "flang/optimizer/Support/KindMapping.h"
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVM.h"
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVMPass.h"
 #include "mlir/Dialect/AffineOps/AffineOps.h"
@@ -736,13 +736,13 @@ struct BoxTypeDescOpConversion : public FIROpConversion<BoxTypeDescOp> {
   }
 };
 
-struct ConstantOpConversion : public FIROpConversion<fir::ConstantOp> {
+struct ConstantOpConversion : public FIROpConversion<fir::StringLitOp> {
   using FIROpConversion::FIROpConversion;
 
   mlir::PatternMatchResult
   matchAndRewrite(mlir::Operation *op, OperandTy operands,
                   mlir::ConversionPatternRewriter &rewriter) const override {
-    auto constop = mlir::cast<fir::ConstantOp>(op);
+    auto constop = mlir::cast<fir::StringLitOp>(op);
     auto ty_ = constop.getType();
     auto ty = convertType(ty_);
     auto attr = constop.getValue();

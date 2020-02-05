@@ -1,4 +1,4 @@
-//===-- include/fir/KindMapping.h -------------------------------*- C++ -*-===//
+//===-- optimizer/Support/KindMapping.h -------------------------*- C++ -*-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,8 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef OPTIMIZER_KINDMAPPING_H
-#define OPTIMIZER_KINDMAPPING_H
+#ifndef OPTIMIZER_SUPPORT_KINDMAPPING_H
+#define OPTIMIZER_SUPPORT_KINDMAPPING_H
 
 #include "llvm/IR/Type.h"
 #include <map>
@@ -82,4 +82,4 @@ private:
 
 } // namespace fir
 
-#endif // OPTIMIZER_KINDMAPPING_H
+#endif // OPTIMIZER_SUPPORT_KINDMAPPING_H
