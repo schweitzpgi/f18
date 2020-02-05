@@ -1,4 +1,4 @@
-//===-- lower/Runtime.cpp -------------------------------------------------===//
+//===-- Runtime.cpp -------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -8,8 +8,8 @@
 
 #include "flang/lower/Runtime.h"
 #include "NSAliases.h"
-#include "fir/Dialect/FIRType.h"
 #include "flang/lower/OpBuilder.h"
+#include "flang/optimizer/Dialect/FIRType.h"
 #include "mlir/IR/StandardTypes.h"
 #include "mlir/IR/Types.h"
 #include "llvm/ADT/SmallVector.h"
