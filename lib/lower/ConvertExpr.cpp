@@ -457,7 +457,7 @@ class ExprLowering {
 
   /// Construct a CHARACTER literal
   template <int KIND, typename E>
-  M::Value genCharLit(const E &data, std::size_t size) {
+  M::Value genCharLit(const E &data, int64_t size) {
     auto context = builder.getContext();
     auto valTag = M::Identifier::get(fir::StringLitOp::value(), context);
     // FIXME: for wider char types, use an array of i16 or i32
@@ -526,7 +526,7 @@ class ExprLowering {
       assert(false && "array of complex unhandled");
       return {};
     } else if constexpr (TC == CharacterCat) {
-      return genCharLit<KIND>(con.GetScalarValue().value(), con.size());
+      return genCharLit<KIND>(con.GetScalarValue().value(), con.LEN());
     } else {
       assert(false && "unhandled constant");
       return {};
