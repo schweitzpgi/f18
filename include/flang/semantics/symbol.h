@@ -55,6 +55,10 @@ public:
   SubprogramDetails() {}
   SubprogramDetails(const SubprogramDetails &that)
     : dummyArgs_{that.dummyArgs_}, result_{that.result_} {}
+  SubprogramDetails &operator=(const SubprogramDetails &) = delete;
+  ~SubprogramDetails() = default;
+  SubprogramDetails &operator=(SubprogramDetails &&) = default;
+  SubprogramDetails(SubprogramDetails &&) = default;
 
   bool isFunction() const { return result_ != nullptr; }
   bool isInterface() const { return isInterface_; }
