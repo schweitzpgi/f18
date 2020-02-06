@@ -172,12 +172,19 @@ struct RuntimeTableKey<RT(ATs...)> {
   }
 };
 
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wgcc-extension"
+#endif
 template <char... Cs>
 using RuntimeIdentifier = std::integer_sequence<char, Cs...>;
 template <typename T, T... Cs>
 static constexpr RuntimeIdentifier<Cs...> operator""_rt_ident() {
   return {};
 }
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#endif
 
 template <typename...>
 struct RuntimeTableEntry;

@@ -822,7 +822,7 @@ def fir_FirEndOp : fir_Op<"end", [Terminator]> {
 // Operations on !fir.box<T> type objects
 
 def fir_EmboxOp : fir_Op<"embox", [NoSideEffect]>, Results<(outs fir_BoxType)>,
-    Arguments<(ins AnyReferenceLike:$memref, Variadic<AnyIntegerType>:$args)> {
+    Arguments<(ins AnyReferenceLike:$memref, Variadic<fir_DimsType>:$args)> {
   let summary = "boxes a given reference and (optional) dimension information";
 
   let description = [{
@@ -854,7 +854,7 @@ def fir_EmboxOp : fir_Op<"embox", [NoSideEffect]>, Results<(outs fir_BoxType)>,
       operands.push_back(dims);
     } else if (!parser.parseOptionalLSquare()) {
       mlir::AffineMapAttr map;
-      if (parser.parseAttribute(map, "layout_map", result.attributes) ||
+      if (parser.parseAttribute(map, layoutName(), result.attributes) ||
           parser.parseRSquare())
         return mlir::failure();
     }
@@ -877,7 +877,7 @@ def fir_EmboxOp : fir_Op<"embox", [NoSideEffect]>, Results<(outs fir_BoxType)>,
     if (getNumOperands() == 2) {
       p << ", ";
       p.printOperands(dims());
-    } else if (auto map = getAttr("layout_map")) {
+    } else if (auto map = getAttr(layoutName())) {
       p << " [" << map << ']';
     }
     p << " : ";
@@ -885,7 +885,8 @@ def fir_EmboxOp : fir_Op<"embox", [NoSideEffect]>, Results<(outs fir_BoxType)>,
   }];
 
   let extraClassDeclaration = [{
-    constexpr static llvm::StringRef lenpName() { return "len_param_count"; }
+    static constexpr llvm::StringRef layoutName() { return "layout_map"; }
+    static constexpr llvm::StringRef lenpName() { return "len_param_count"; }
     bool hasLenParams() { return bool{getAttr(lenpName())}; }
     unsigned numLenParams() {
       if (auto x = getAttrOfType<mlir::IntegerAttr>(lenpName()))
@@ -896,7 +897,7 @@ def fir_EmboxOp : fir_Op<"embox", [NoSideEffect]>, Results<(outs fir_BoxType)>,
       return {operand_begin(), operand_begin() + numLenParams()};
     }
     operand_range dims() {
-      return {operand_begin() + numLenParams(), operand_end()};
+      return {operand_begin() + numLenParams() + 1, operand_end()};
     }
   }];
 }
@@ -1723,11 +1724,20 @@ def fir_StringLitOp : fir_Op<"string_lit", [NoSideEffect]>,
   }];
 
   let parser = [{
-    mlir::StringAttr val;
+    auto &builder = parser.getBuilder();
+    mlir::Attribute val;
+    llvm::SmallVector<mlir::NamedAttribute, 2> attrs;
+    if (parser.parseAttribute(val, "fake", attrs))
+      return mlir::failure();
+    if (auto v = val.dyn_cast<mlir::StringAttr>())
+      result.attributes.push_back(builder.getNamedAttr(value(), v));
+    else if (auto v = val.dyn_cast<mlir::ArrayAttr>())
+      result.attributes.push_back(builder.getNamedAttr(xlist(), v));
+    else
+      return mlir::failure();
     mlir::IntegerAttr sz;
     mlir::Type type;
-    if (parser.parseAttribute(val, value(), result.attributes) ||
-        parser.parseLParen() ||
+    if (parser.parseLParen() ||
         parser.parseAttribute(sz, size(), result.attributes) ||
         parser.parseRParen() || parser.parseColonType(type))
       return mlir::failure();
@@ -1738,28 +1748,42 @@ def fir_StringLitOp : fir_Op<"string_lit", [NoSideEffect]>,
   }];
 
   let printer = [{
-    p << getOperationName() << ' ' << getAttr(value()) << '(';
-    p << getAttr(size()).cast<mlir::IntegerAttr>().getValue() << ") : ";
+    p << getOperationName() << ' ' << getValue() << '(';
+    p << getSize().cast<mlir::IntegerAttr>().getValue() << ") : ";
     p.printType(getType().cast<fir::SequenceType>().getEleTy());
   }];
 
   let verifier = [{
-    if (getAttr(size()).cast<mlir::IntegerAttr>().getValue().isNegative())
+    if (getSize().cast<mlir::IntegerAttr>().getValue().isNegative())
       return emitOpError("size must be non-negative");
     auto eleTy = getType().cast<fir::SequenceType>().getEleTy();
     if (!eleTy.dyn_cast<fir::CharacterType>())
       return emitOpError("must have !fir.char type");
+    if (auto xl = getAttr(xlist())) {
+      auto xList = xl.cast<mlir::ArrayAttr>();
+      for (auto a : xList)
+        if (!a.isa<mlir::IntegerAttr>())
+	  return emitOpError("values in list must be integers");
+    }
     return mlir::success();
   }];
 
   let extraClassDeclaration = [{
     static constexpr const char *size() { return "size"; }
     static constexpr const char *value() { return "value"; }
+    static constexpr const char *xlist() { return "xlist"; }
 
     // Get the LEN attribute of this character constant
     mlir::Attribute getSize() { return getAttr(size()); }
     // Get the string value of this character constant
-    mlir::Attribute getValue() { return getAttr(value()); }
+    mlir::Attribute getValue() {
+      if (auto attr = getAttr(value()))
+        return attr;
+      return getAttr(xlist());
+    }
+
+    /// Is this a wide character literal (1 character > 8 bits)
+    bool isWideValue();
   }];
 }
 
@@ -1785,6 +1809,43 @@ class fir_UnaryArithmeticOp<string mnemonic, list<OpTrait> traits = []> :
   }];
 
   let printer = [{ return fir::printUnaryOp(this->getOperation(), p); }];
+}
+
+def fir_ConstfOp : fir_Op<"constf", [NoSideEffect]>,
+    Results<(outs fir_RealType)> {
+  let summary = "create a floating point constant";
+
+  let description = [{
+    FIXME
+  }];
+
+  let parser = [{
+    fir::RealAttr flt;
+    mlir::Type type;
+    if (parser.parseLParen() ||
+        parser.parseAttribute(flt, constAttrName(), result.attributes) ||
+        parser.parseRParen() || parser.parseColonType(type) ||
+        parser.addTypesToList(type, result.types))
+      return mlir::failure();
+    return mlir::success();
+  }];
+
+  let printer = [{
+    p << getOperationName() << ' ' << getAttr(constAttrName()) << " : ";
+    p.printType(getType());
+  }];
+
+  let verifier = [{
+    if (!getType().isa<fir::RealType>())
+      return emitOpError("must be a !fir.real type");
+    return mlir::success();
+  }];
+
+  let extraClassDeclaration = [{
+    constexpr static llvm::StringRef constAttrName() { return "constant"; }
+
+    mlir::Attribute getValue() { return getAttr(constAttrName()); }
+  }];
 }
 
 class RealUnaryArithmeticOp<string mnemonic, list<OpTrait> traits = []> :
@@ -1834,6 +1895,57 @@ def fir_CmpfOp : fir_Op<"cmpf",
       return (CmpFPredicate)getAttrOfType<mlir::IntegerAttr>(
           getPredicateAttrName()).getInt();
     }
+  }];
+}
+
+def fir_ConstcOp : fir_Op<"constc", [NoSideEffect]>,
+    Results<(outs fir_ComplexType)> {
+  let summary = "create a complex constant";
+
+  let description = [{
+    FIXME
+  }];
+
+  let parser = [{
+    fir::RealAttr realp;
+    fir::RealAttr imagp;
+    mlir::Type type;
+    if (parser.parseLParen() ||
+        parser.parseAttribute(realp, realAttrName(), result.attributes) ||
+        parser.parseComma() ||
+        parser.parseAttribute(imagp, imagAttrName(), result.attributes) ||
+        parser.parseRParen() ||
+        parser.parseColonType(type) ||
+        parser.addTypesToList(type, result.types))
+      return mlir::failure();
+    return mlir::success();
+  }];
+
+  let printer = [{
+    p << getOperationName() << " (0x";
+    auto f1 = getAttr(realAttrName()).cast<mlir::FloatAttr>();
+    auto i1 = f1.getValue().bitcastToAPInt();
+    p.getStream().write_hex(i1.getZExtValue());
+    p << ", 0x";
+    auto f2 = getAttr(imagAttrName()).cast<mlir::FloatAttr>();
+    auto i2 = f2.getValue().bitcastToAPInt();
+    p.getStream().write_hex(i2.getZExtValue());
+    p << ") : ";
+    p.printType(getType());
+  }];
+
+  let verifier = [{
+    if (!getType().isa<fir::CplxType>())
+      return emitOpError("must be a !fir.complex type");
+    return mlir::success();
+  }];
+
+  let extraClassDeclaration = [{
+    constexpr static llvm::StringRef realAttrName() { return "real"; }
+    constexpr static llvm::StringRef imagAttrName() { return "imaginary"; }
+
+    mlir::Attribute getReal() { return getAttr(realAttrName()); }
+    mlir::Attribute getImaginary() { return getAttr(imagAttrName()); }
   }];
 }
 
