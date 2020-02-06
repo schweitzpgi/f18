@@ -145,6 +145,16 @@ M::FuncOp getOutputRuntimeFunc(M::OpBuilder &builder, M::Type type) {
   }
 }
 
+inline bool isCharacterLiteral(M::Type argTy) {
+  if (auto arrTy = argTy.dyn_cast<fir::SequenceType>())
+    return arrTy.getEleTy().isa<fir::CharacterType>();
+  return false;
+}
+
+inline int64_t getLength(M::Type argTy) {
+  return argTy.cast<fir::SequenceType>().getShape()[0];
+}
+
 /// The I/O library interface requires that COMPLEX and CHARACTER typed values
 /// be extracted and passed as separate values.
 L::SmallVector<M::Value, 4> splitArguments(M::OpBuilder &builder,
@@ -153,10 +163,11 @@ L::SmallVector<M::Value, 4> splitArguments(M::OpBuilder &builder,
   M::Value one;
   M::Type argTy = arg.getType();
   M::MLIRContext *context = argTy.getContext();
-  bool isComplex = argTy.isa<fir::CplxType>();
-  bool isBoxChar = argTy.isa<fir::BoxCharType>();
+  const bool isComplex = argTy.isa<fir::CplxType>();
+  const bool isCharLit = isCharacterLiteral(argTy);
+  const bool isBoxChar = argTy.isa<fir::BoxCharType>();
 
-  if (isComplex || isBoxChar) {
+  if (isComplex || isCharLit || isBoxChar) {
     // Only create these constants when needed and not every time
     zero = builder.create<M::ConstantOp>(loc, builder.getI64IntegerAttr(0));
     one = builder.create<M::ConstantOp>(loc, builder.getI64IntegerAttr(1));
@@ -178,6 +189,13 @@ L::SmallVector<M::Value, 4> splitArguments(M::OpBuilder &builder,
     M::Value sizePart =
         builder.create<fir::ExtractValueOp>(loc, sizeTy, arg, one);
     return {pointerPart, sizePart};
+  }
+  if (isCharLit) {
+    M::Value variable = builder.create<fir::AllocaOp>(loc, argTy);
+    builder.create<fir::StoreOp>(loc, arg, variable);
+    M::Value sizePart = builder.create<M::ConstantOp>(
+        loc, builder.getI64IntegerAttr(getLength(argTy)));
+    return {variable, sizePart};
   }
   return {arg};
 }
