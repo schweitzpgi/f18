@@ -649,36 +649,42 @@ class FirConverter : public AbstractConverter {
 
   void genCharacterAssignement(
       const Ev::Assignment::IntrinsicAssignment &assignment) {
-    // Helper to get address and length from an Expr that is a character
-    // variable designator
-    auto getAddrAndLength{[&](const SomeExpr &charDesignatorExpr)
-                              -> CharacterOpsBuilder::CharValue {
-      M::Value addr = genExprAddr(charDesignatorExpr);
-      const auto &charExpr{
-          std::get<Ev::Expr<Ev::SomeCharacter>>(charDesignatorExpr.u)};
-      std::optional<Ev::Expr<Ev::SubscriptInteger>> lenExpr{charExpr.LEN()};
+    // TODO: Move these helpers in a way they can be used here,
+    // in ConvertExpr and IO.
+
+    // Helper to get length from expression
+    auto getCharLen{[&](const SomeExpr &charExpr) {
+      const auto &someCharExpr{
+          std::get<Ev::Expr<Ev::SomeCharacter>>(charExpr.u)};
+      /// FIXME: Not sure length can always be computed with LEN().
+      std::optional<Ev::Expr<Ev::SubscriptInteger>> lenExpr{someCharExpr.LEN()};
       assert(lenExpr && "could not get expression to compute character length");
-      M::Value len{genExprValue(Ev::AsGenericExpr(std::move(*lenExpr)))};
-      return CharacterOpsBuilder::CharValue{addr, len};
+      return genExprValue(Ev::AsGenericExpr(std::move(*lenExpr)));
     }};
 
+    // Helper to get address and length from an Expr that is a character
+    // variable designator
+    auto getCharRef{[&](const SomeExpr &charDesignatorExpr)
+                        -> CharacterOpsBuilder::CharRef {
+      M::Value addr{genExprAddr(charDesignatorExpr)};
+      M::Value len{getCharLen(charDesignatorExpr)};
+      return CharacterOpsBuilder::CharRef{addr, len};
+    }};
+
+    // Helper to get value and length from an Expr that is a character
+    // variable designator. The value may be an actual value or a
+    // reference.
+    auto getCharValue{
+        [&](const SomeExpr &charExpr) -> CharacterOpsBuilder::CharValue {
+          M::Value value{genExprValue(charExpr)};
+          M::Value len{getCharLen(charExpr)};
+          return CharacterOpsBuilder::CharValue{value, len};
+        }};
+
+    auto lhs{getCharRef(assignment.lhs)};
+    auto rhs{getCharValue(assignment.rhs)};
     CharacterOpsBuilder charBuilder{*builder, toLocation()};
-
-    // RHS evaluation.
-    // FIXME:  Only works with rhs that are variable reference.
-    // Other expression evaluation are not simple copies.
-    auto rhs{getAddrAndLength(assignment.rhs)};
-    // A temp is needed to evaluate rhs until proven it does not depend on lhs.
-    auto tempToEvalRhs{charBuilder.createTemp(rhs.getCharacterType(), rhs.len)};
-    charBuilder.createCopy(tempToEvalRhs, rhs, rhs.len);
-
-    // Copy the minimum of the lhs and rhs lengths and pad the lhs remainder
-    auto lhs{getAddrAndLength(assignment.lhs)};
-    auto cmpLen{
-        charBuilder.create<M::CmpIOp>(M::CmpIPredicate::slt, lhs.len, rhs.len)};
-    auto copyCount{charBuilder.create<M::SelectOp>(cmpLen, lhs.len, rhs.len)};
-    charBuilder.createCopy(lhs, tempToEvalRhs, copyCount);
-    charBuilder.createPadding(lhs, copyCount, lhs.len);
+    charBuilder.createAssign(lhs, rhs);
   }
 
   void genFIR(const Pa::AssignmentStmt &stmt) {

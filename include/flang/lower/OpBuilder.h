@@ -23,6 +23,7 @@ class StringRef;
 namespace fir {
 class CharacterType;
 class ReferenceType;
+class SequenceType;
 using KindTy = int;
 } // namespace fir
 
@@ -115,24 +116,74 @@ public:
   CharacterOpsBuilder(OpBuilderWrapper &b) : OpBuilderWrapper{b} {}
   /// Interchange format to avoid inserting unbox/embox everywhere while
   /// evaluating character expressions.
-  struct CharValue {
-    fir::ReferenceType getReferenceType();
-    fir::CharacterType getCharacterType();
 
-    mlir::Value reference;
+  /// A readable character entity
+  struct CharValue {
+    /// Get fir.char<kind> type with the same kind as value.
+    fir::CharacterType getCharacterType() const;
+    /// Get fir.ref<fir.char<kind>> type.
+    fir::ReferenceType getReferenceType() const;
+    /// Get fir.sequence<? x fir.char<kind>> type.
+    fir::SequenceType getSequenceType() const;
+    /// Get fir.ref<fir.sequence<? x fir.char<kind>>> type.
+    fir::ReferenceType getSequenceRefType() const;
+
+    /// value is a fir.ref<...>
+    bool isRef() const;
+    /// value is not a fir.ref<...>
+    bool isValue() const { return !isRef(); };
+
+    /// Value must be of type:
+    /// - fir.char<kind>
+    /// - fir.sequence<? x fir.char<kind>> type.
+    /// - fir.ref<fir.char<kind>>
+    /// - fir.ref<fir.sequence<? x fir.char<kind>>> type.
+    mlir::Value value;
     mlir::Value len;
   };
 
+  /// A readable and writable character entity.
+  struct CharRef : CharValue {
+    /// value must be of type:
+    /// - fir.ref<fir.char<kind>>
+    /// - fir.ref<fir.sequence<? x fir.char<kind>>> type.
+  };
+
+  /// A readable character entity that can be indexed.
+  struct AddressableValue : CharValue {
+    /// value must be of type:
+    /// - fir.sequence<? x fir.char<kind>> type.
+    /// - fir.ref<fir.sequence<? x fir.char<kind>>> type.
+  };
+
+  /// A readable and writable character entity that can be indexed.
+  struct AddressableRef : AddressableValue {
+    /// value can be of type:
+    /// - fir.ref<fir.sequence<? x fir.char<kind>>> type.
+  };
+
+  /// Creates necessary fir.convert ops to get character sequence types
+  /// to be used inside FIR loops.
+  AddressableValue convertToAddressableValue(CharValue &);
+  AddressableRef convertToAddressableRef(CharRef &);
+
+  mlir::Value createExtractCharAt(AddressableValue &, mlir::Value index);
+  void createStoreCharAt(AddressableRef &, mlir::Value index, mlir::Value c);
+
   /// Copy the \p count first characters of \p src into \p dest.
-  void createCopy(CharValue &dest, CharValue &src, mlir::Value count);
+  void createCopy(CharRef &dest, CharValue &src, mlir::Value count);
 
   /// Set characters of \p str at position [\p lower, \p upper) to blanks.
   /// \p lower and \upper bounds are zero based.
   /// If \p upper <= \p lower, no padding is done.
-  void createPadding(CharValue &str, mlir::Value lower, mlir::Value upper);
+  void createPadding(CharRef &str, mlir::Value lower, mlir::Value upper);
 
   /// Allocate storage (on the stack) for character given the kind and length.
-  CharValue createTemp(fir::CharacterType type, mlir::Value len);
+  CharRef createTemp(fir::CharacterType type, mlir::Value len);
+
+  /// lower \p lhs = \p rhs where \p lhs and \p rhs are scalar characters.
+  /// It handles cases where \p lhs and \p rhs may overlap.
+  void createAssign(CharRef &lhs, CharValue &rhs);
 
 private:
   mlir::Value createBlankConstant(fir::CharacterType type);

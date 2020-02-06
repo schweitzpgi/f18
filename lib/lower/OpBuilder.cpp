@@ -117,35 +117,83 @@ M::Value Br::LoopBuilder::convertToIndexType(M::Value integer) {
 
 // CharacterOpsBuilder implementation
 
-void Br::CharacterOpsBuilder::createCopy(CharValue &dest, CharValue &src,
-                                         M::Value count) {
-  auto refType{dest.getReferenceType()};
-  // Cast to character sequence reference type for fir::CoordinateOp.
-  auto sequenceType{getSequenceRefType(refType)};
-  auto destRef{create<fir::ConvertOp>(sequenceType, dest.reference)};
-  auto srcRef{create<fir::ConvertOp>(sequenceType, src.reference)};
-
-  LoopBuilder{*this}.createLoop(count, [&](OpBuilderWrapper &handler,
-                                           M::Value index) {
-    auto destAddr{handler.create<fir::CoordinateOp>(refType, destRef, index)};
-    auto srcAddr{handler.create<fir::CoordinateOp>(refType, srcRef, index)};
-    auto val{handler.create<fir::LoadOp>(srcAddr)};
-    handler.create<fir::StoreOp>(val, destAddr);
-  });
+mlir::Value Br::CharacterOpsBuilder::createExtractCharAt(AddressableValue &str,
+                                                         mlir::Value index) {
+  if (str.isRef()) {
+    auto addr{
+        create<fir::CoordinateOp>(str.getReferenceType(), str.value, index)};
+    return create<fir::LoadOp>(addr);
+  }
+  return create<fir::ExtractValueOp>(str.getCharacterType(), str.value, index);
 }
 
-void Br::CharacterOpsBuilder::createPadding(CharValue &str, M::Value lower,
-                                            M::Value upper) {
-  auto refType{str.getReferenceType()};
-  auto sequenceType{getSequenceRefType(refType)};
-  auto strRef{create<fir::ConvertOp>(sequenceType, str.reference)};
-  auto blank{createBlankConstant(str.getCharacterType())};
+void Br::CharacterOpsBuilder::createStoreCharAt(AddressableRef &str,
+                                                mlir::Value index,
+                                                mlir::Value c) {
+  auto addr{
+      create<fir::CoordinateOp>(str.getReferenceType(), str.value, index)};
+  create<fir::StoreOp>(c, addr);
+}
+
+Br::CharacterOpsBuilder::AddressableValue
+Br::CharacterOpsBuilder::convertToAddressableValue(CharValue &str) {
+  auto newValue{str.value};
+  mlir::Type seqType{};
+  if (str.isRef()) {
+    seqType = str.getSequenceRefType();
+  } else {
+    seqType = str.getSequenceType();
+  }
+  if (newValue.getType() != seqType) {
+    newValue = create<fir::ConvertOp>(seqType, newValue);
+  }
+  return AddressableValue{newValue, str.len};
+}
+
+Br::CharacterOpsBuilder::AddressableRef
+Br::CharacterOpsBuilder::convertToAddressableRef(CharRef &str) {
+  auto newValue{create<fir::ConvertOp>(str.getSequenceRefType(), str.value)};
+  return AddressableRef{newValue, str.len};
+}
+
+void Br::CharacterOpsBuilder::createCopy(CharRef &dest, CharValue &src,
+                                         M::Value count) {
+  auto destArray{convertToAddressableRef(dest)};
+  auto srcArray{convertToAddressableValue(src)};
 
   LoopBuilder{*this}.createLoop(
-      lower, upper, [&](OpBuilderWrapper &handler, M::Value index) {
-        auto strAddr{handler.create<fir::CoordinateOp>(refType, strRef, index)};
-        handler.create<fir::StoreOp>(blank, strAddr);
+      count, [&](OpBuilderWrapper &handler, M::Value index) {
+        CharacterOpsBuilder charHanlder{handler};
+        auto charVal{charHanlder.createExtractCharAt(srcArray, index)};
+        charHanlder.createStoreCharAt(destArray, index, charVal);
       });
+}
+
+void Br::CharacterOpsBuilder::createPadding(CharRef &str, M::Value lower,
+                                            M::Value upper) {
+  auto strArray{convertToAddressableRef(str)};
+  auto blank{createBlankConstant(str.getCharacterType())};
+  LoopBuilder{*this}.createLoop(
+      lower, upper, [&](OpBuilderWrapper &handler, M::Value index) {
+        CharacterOpsBuilder{handler}.createStoreCharAt(strArray, index, blank);
+      });
+}
+
+void Br::CharacterOpsBuilder::createAssign(CharRef &lhs, CharValue &rhs) {
+  CharValue safe_rhs{rhs};
+  if (rhs.isRef()) {
+    // If rhs is in memory, always assumes rhs might overlap with lhs
+    // in a way that require a temp for the copy. That can be optimize later.
+    auto temp{createTemp(rhs.getCharacterType(), rhs.len)};
+    createCopy(temp, rhs, rhs.len);
+    safe_rhs = temp;
+  }
+
+  // Copy the minimum of the lhs and rhs lengths and pad the lhs remainder
+  auto cmpLen{create<M::CmpIOp>(M::CmpIPredicate::slt, lhs.len, rhs.len)};
+  auto copyCount{create<M::SelectOp>(cmpLen, lhs.len, rhs.len)};
+  createCopy(lhs, safe_rhs, copyCount);
+  createPadding(lhs, copyCount, lhs.len);
 }
 
 M::Value Br::CharacterOpsBuilder::createBlankConstant(fir::CharacterType type) {
@@ -154,23 +202,64 @@ M::Value Br::CharacterOpsBuilder::createBlankConstant(fir::CharacterType type) {
   return create<fir::ConvertOp>(type, asciiSpace);
 }
 
-Br::CharacterOpsBuilder::CharValue
+Br::CharacterOpsBuilder::CharRef
 Br::CharacterOpsBuilder::createTemp(fir::CharacterType type, M::Value len) {
   // FIXME Does this need to be emitted somewhere safe ?
   // convert-expr.cc generates alloca at the beginning of the mlir block.
-  return CharValue{create<fir::AllocaOp>(type, len), len};
+  return CharRef{create<fir::AllocaOp>(type, len), len};
 }
 
-fir::ReferenceType Br::CharacterOpsBuilder::CharValue::getReferenceType() {
-  auto type{reference.getType().dyn_cast<fir::ReferenceType>()};
-  assert(type && "expected reference type");
-  return type;
+fir::CharacterType
+Br::CharacterOpsBuilder::CharValue::getCharacterType() const {
+  auto type{value.getType()};
+  if (auto refType{type.dyn_cast<fir::ReferenceType>()}) {
+    type = refType.getEleTy();
+  }
+  if (auto seqType{type.dyn_cast<fir::SequenceType>()}) {
+    type = seqType.getEleTy();
+  }
+  if (auto charType{type.dyn_cast<fir::CharacterType>()}) {
+    return charType;
+  }
+  llvm_unreachable("Invalid character value type");
+  return mlir::Type{}.dyn_cast<fir::CharacterType>();
 }
 
-fir::CharacterType Br::CharacterOpsBuilder::CharValue::getCharacterType() {
-  auto type{getReferenceType().getEleTy().dyn_cast<fir::CharacterType>()};
-  assert(type && "expected character type");
-  return type;
+// If the CharValue is already a sequence type, we do not want to
+// lose the shape that might be important, plus lowering to LLVM,
+// there would be errors if converting between arrays of different
+// sizes.
+fir::SequenceType
+extractSequenceType(const Br::CharacterOpsBuilder::CharValue &str) {
+  auto type{str.value.getType()};
+  if (auto refType{type.dyn_cast<fir::ReferenceType>()}) {
+    type = refType.getEleTy();
+  }
+  if (auto seqType{type.dyn_cast<fir::SequenceType>()}) {
+    return seqType;
+  }
+  // Return fir.array<? x ...> if str is not a sequence type.
+  // TODO: Could be improved if len is a constant and we can get its value.
+  fir::SequenceType::Shape shape{fir::SequenceType::getUnknownExtent()};
+  return fir::SequenceType::get(shape, str.getCharacterType());
+}
+
+fir::SequenceType Br::CharacterOpsBuilder::CharValue::getSequenceType() const {
+  return extractSequenceType(*this);
+}
+
+fir::ReferenceType
+Br::CharacterOpsBuilder::CharValue::getReferenceType() const {
+  return fir::ReferenceType::get(getCharacterType());
+}
+
+fir::ReferenceType
+Br::CharacterOpsBuilder::CharValue::getSequenceRefType() const {
+  return fir::ReferenceType::get(extractSequenceType(*this));
+}
+
+bool Br::CharacterOpsBuilder::CharValue::isRef() const {
+  return value.getType().isa<fir::ReferenceType>();
 }
 
 // ComplexOpsBuilder implementation

@@ -228,6 +228,12 @@ class ExprLowering {
 
   M::Value genval(Se::SymbolRef sym) {
     auto var = gen(sym);
+    // Do not load character reference
+    if (auto type{var.getType().dyn_cast<fir::ReferenceType>()}) {
+      if (type.getEleTy().isa<fir::CharacterType>()) {
+        return var;
+      }
+    }
     if (fir::isReferenceLike(var.getType())) {
       return builder.create<fir::LoadOp>(getLoc(), var);
     }
@@ -457,7 +463,7 @@ class ExprLowering {
 
   /// Construct a CHARACTER literal
   template <int KIND, typename E>
-  M::Value genCharLit(const E &data, std::size_t size) {
+  M::Value genCharLit(const E &data, std::int64_t len) {
     auto context = builder.getContext();
     auto valTag = M::Identifier::get(fir::StringLitOp::value(), context);
     // FIXME: for wider char types, use an array of i16 or i32
@@ -465,10 +471,10 @@ class ExprLowering {
     auto strAttr = M::StringAttr::get((const char *)data.c_str(), context);
     M::NamedAttribute dataAttr(valTag, strAttr);
     auto sizeTag = M::Identifier::get(fir::StringLitOp::size(), context);
-    M::NamedAttribute sizeAttr(sizeTag, builder.getI64IntegerAttr(size));
+    M::NamedAttribute sizeAttr(sizeTag, builder.getI64IntegerAttr(len));
     L::SmallVector<M::NamedAttribute, 2> attrs{dataAttr, sizeAttr};
     auto type =
-        fir::SequenceType::get({size}, fir::CharacterType::get(context, KIND));
+        fir::SequenceType::get({len}, fir::CharacterType::get(context, KIND));
     return builder.create<fir::StringLitOp>(
         getLoc(), L::ArrayRef<M::Type>{type}, llvm::None, attrs);
   }
@@ -526,7 +532,7 @@ class ExprLowering {
       assert(false && "array of complex unhandled");
       return {};
     } else if constexpr (TC == CharacterCat) {
-      return genCharLit<KIND>(con.GetScalarValue().value(), con.size());
+      return genCharLit<KIND>(con.GetScalarValue().value(), con.LEN());
     } else {
       assert(false && "unhandled constant");
       return {};
