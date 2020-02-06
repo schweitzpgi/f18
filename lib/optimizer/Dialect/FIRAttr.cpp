@@ -9,11 +9,13 @@
 #include "flang/optimizer/Dialect/FIRAttr.h"
 #include "flang/optimizer/Dialect/FIRDialect.h"
 #include "flang/optimizer/Dialect/FIRType.h"
+#include "flang/optimizer/Support/KindMapping.h"
 #include "mlir/IR/AttributeSupport.h"
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/DialectImplementation.h"
 #include "mlir/IR/Types.h"
 #include "mlir/Parser.h"
+#include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/Twine.h"
 
@@ -22,11 +24,45 @@ using namespace fir;
 namespace fir {
 namespace detail {
 
+struct RealAttributeStorage : public mlir::AttributeStorage {
+  using KeyTy = std::pair<int, llvm::APFloat>;
+
+  RealAttributeStorage(int kind, const llvm::APFloat &value)
+      : kind(kind), value(value) {}
+  RealAttributeStorage(const KeyTy &key)
+      : RealAttributeStorage(key.first, key.second) {}
+
+  static unsigned hashKey(const KeyTy &key) {
+    auto hashVal = llvm::hash_combine(key.first);
+    return llvm::hash_combine(hashVal, key.second);
+  }
+
+  bool operator==(const KeyTy &key) const {
+    return key.first == kind &&
+           key.second.compare(value) == llvm::APFloatBase::cmpEqual;
+  }
+
+  static RealAttributeStorage *
+  construct(mlir::AttributeStorageAllocator &allocator, const KeyTy &key) {
+    return new (allocator.allocate<RealAttributeStorage>())
+        RealAttributeStorage(key);
+  }
+
+  int getFKind() const { return kind; }
+  llvm::APFloat getValue() const { return value; }
+
+private:
+  int kind;
+  llvm::APFloat value;
+};
+
 /// An attribute representing a reference to a type.
 struct TypeAttributeStorage : public mlir::AttributeStorage {
   using KeyTy = mlir::Type;
 
-  TypeAttributeStorage(mlir::Type value) : value(value) {}
+  TypeAttributeStorage(mlir::Type value) : value(value) {
+    assert(value && "must not be of Type null");
+  }
 
   /// Key equality function.
   bool operator==(const KeyTy &key) const { return key == value; }
@@ -38,6 +74,9 @@ struct TypeAttributeStorage : public mlir::AttributeStorage {
         TypeAttributeStorage(key);
   }
 
+  mlir::Type getType() const { return value; }
+
+private:
   mlir::Type value;
 };
 } // namespace detail
@@ -46,13 +85,13 @@ ExactTypeAttr ExactTypeAttr::get(mlir::Type value) {
   return Base::get(value.getContext(), FIR_EXACTTYPE, value);
 }
 
-mlir::Type ExactTypeAttr::getType() const { return getImpl()->value; }
+mlir::Type ExactTypeAttr::getType() const { return getImpl()->getType(); }
 
 SubclassAttr SubclassAttr::get(mlir::Type value) {
   return Base::get(value.getContext(), FIR_SUBCLASS, value);
 }
 
-mlir::Type SubclassAttr::getType() const { return getImpl()->value; }
+mlir::Type SubclassAttr::getType() const { return getImpl()->getType(); }
 
 using AttributeUniquer = mlir::detail::AttributeUniquer;
 
@@ -72,6 +111,59 @@ PointIntervalAttr PointIntervalAttr::get(mlir::MLIRContext *ctxt) {
   return AttributeUniquer::get<PointIntervalAttr>(ctxt, getId());
 }
 
+// RealAttr
+
+RealAttr RealAttr::get(mlir::MLIRContext *ctxt,
+                       const RealAttr::ValueType &key) {
+  return Base::get(ctxt, getId(), key);
+}
+
+int RealAttr::getFKind() const { return getImpl()->getFKind(); }
+
+llvm::APFloat RealAttr::getValue() const { return getImpl()->getValue(); }
+
+// FIR attribute parsing
+
+namespace {
+mlir::Attribute parseFirRealAttr(FIROpsDialect *dialect,
+                                 mlir::DialectAsmParser &parser,
+                                 mlir::Type type) {
+  int kind;
+  if (parser.parseLess() || parser.parseInteger(kind) || parser.parseComma()) {
+    parser.emitError(parser.getNameLoc(), "expected '<' kind ','");
+    return {};
+  }
+  KindMapping kindMap(dialect->getContext());
+  llvm::APFloat value(0.);
+  if (parser.parseOptionalKeyword("i")) {
+    // `i` not present, so literal float must be present
+    double dontCare;
+    if (parser.parseFloat(dontCare) || parser.parseGreater()) {
+      parser.emitError(parser.getNameLoc(), "expected real constant '>'");
+      return {};
+    }
+    auto fltStr = parser.getFullSymbolSpec()
+                      .drop_until([](char c) { return c == ','; })
+                      .drop_front()
+                      .drop_while([](char c) { return c == ' ' || c == '\t'; })
+                      .take_until([](char c) {
+                        return c == '>' || c == ' ' || c == '\t';
+                      });
+    value = llvm::APFloat(kindMap.getFloatSemantics(kind), fltStr);
+  } else {
+    // `i` is present, so literal bitstring (hex) must be present
+    llvm::StringRef hex;
+    if (parser.parseKeyword(&hex) || parser.parseGreater()) {
+      parser.emitError(parser.getNameLoc(), "expected real constant '>'");
+      return {};
+    }
+    auto bits = llvm::APInt(kind * 8, hex.drop_front(), 16);
+    value = llvm::APFloat(kindMap.getFloatSemantics(kind), bits);
+  }
+  return RealAttr::get(dialect->getContext(), {kind, value});
+}
+} // namespace
+
 mlir::Attribute parseFirAttribute(FIROpsDialect *dialect,
                                   mlir::DialectAsmParser &parser,
                                   mlir::Type type) {
@@ -84,35 +176,33 @@ mlir::Attribute parseFirAttribute(FIROpsDialect *dialect,
 
   if (attrName == ExactTypeAttr::getAttrName()) {
     mlir::Type type;
-    if (parser.parseLess() || parser.parseType(type) || parser.parseGreater()) {
+    if (parser.parseLess() || parser.parseType(type) || parser.parseGreater())
       parser.emitError(loc, "expected a type");
-    }
     return ExactTypeAttr::get(type);
   }
   if (attrName == SubclassAttr::getAttrName()) {
     mlir::Type type;
-    if (parser.parseLess() || parser.parseType(type) || parser.parseGreater()) {
+    if (parser.parseLess() || parser.parseType(type) || parser.parseGreater())
       parser.emitError(loc, "expected a subtype");
-    }
     return SubclassAttr::get(type);
   }
-  if (attrName == PointIntervalAttr::getAttrName()) {
+  if (attrName == PointIntervalAttr::getAttrName())
     return PointIntervalAttr::get(dialect->getContext());
-  }
-  if (attrName == LowerBoundAttr::getAttrName()) {
+  if (attrName == LowerBoundAttr::getAttrName())
     return LowerBoundAttr::get(dialect->getContext());
-  }
-  if (attrName == UpperBoundAttr::getAttrName()) {
+  if (attrName == UpperBoundAttr::getAttrName())
     return UpperBoundAttr::get(dialect->getContext());
-  }
-  if (attrName == ClosedIntervalAttr::getAttrName()) {
+  if (attrName == ClosedIntervalAttr::getAttrName())
     return ClosedIntervalAttr::get(dialect->getContext());
-  }
+  if (attrName == RealAttr::getAttrName())
+    return parseFirRealAttr(dialect, parser, type);
 
   llvm::Twine msg{"unknown FIR attribute: "};
   parser.emitError(loc, msg.concat(attrName));
   return {};
 }
+
+// FIR attribute pretty printer
 
 void printFirAttribute(FIROpsDialect *dialect, mlir::Attribute attr,
                        mlir::DialectAsmPrinter &p) {
@@ -133,6 +223,11 @@ void printFirAttribute(FIROpsDialect *dialect, mlir::Attribute attr,
     os << fir::LowerBoundAttr::getAttrName();
   } else if (attr.dyn_cast_or_null<fir::UpperBoundAttr>()) {
     os << fir::UpperBoundAttr::getAttrName();
+  } else if (auto a = attr.dyn_cast_or_null<fir::RealAttr>()) {
+    os << fir::RealAttr::getAttrName() << '<' << a.getFKind() << ", i x";
+    llvm::SmallString<40> ss;
+    a.getValue().bitcastToAPInt().toStringUnsigned(ss, 16);
+    os << ss << '>';
   } else {
     assert(false && "attribute pretty-printer is not implemented");
   }
