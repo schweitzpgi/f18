@@ -905,7 +905,8 @@ struct DispatchOpConversion : public FIROpConversion<DispatchOp> {
     auto dispatch = mlir::cast<DispatchOp>(op);
     auto ty = convertType(dispatch.getFunctionType());
     // get the table, lookup the method, fetch the func-ptr
-    rewriter.replaceOpWithNewOp<mlir::LLVM::CallOp>(dispatch, ty, operands);
+    rewriter.replaceOpWithNewOp<mlir::LLVM::CallOp>(dispatch, ty, operands,
+                                                    llvm::None);
     TODO(dispatch);
     return matchSuccess();
   }
