@@ -516,6 +516,13 @@ mlir::Type StoreOp::elementType(mlir::Type refType) {
   return {};
 }
 
+// StringLitOp
+
+bool StringLitOp::isWideValue() {
+  auto eleTy = getType().cast<fir::SequenceType>().getEleTy();
+  return eleTy.cast<fir::CharacterType>().getFKind() != 1;
+}
+
 // WhereOp
 
 void WhereOp::build(mlir::Builder *builder, mlir::OperationState &result,

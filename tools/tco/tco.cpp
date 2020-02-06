@@ -34,54 +34,54 @@
 
 namespace {
 
-namespace Cl = llvm::cl;
+using namespace llvm;
 
-Cl::opt<std::string> inputFilename(Cl::Positional, Cl::desc("<input file>"),
-                                   Cl::init("-"));
+cl::opt<std::string> inputFilename(cl::Positional, cl::desc("<input file>"),
+                                   cl::init("-"));
 
-Cl::opt<std::string> outputFilename("o", Cl::desc("Specify output filename"),
-                                    Cl::value_desc("filename"), Cl::init("-"));
+cl::opt<std::string> outputFilename("o", cl::desc("Specify output filename"),
+                                    cl::value_desc("filename"), cl::init("-"));
 
-Cl::opt<bool> emitFir("emit-fir", Cl::desc("Parse and pretty-print the input"),
-                      Cl::init(false));
+cl::opt<bool> emitFir("emit-fir", cl::desc("Parse and pretty-print the input"),
+                      cl::init(false));
 
-void printModuleBody(mlir::ModuleOp mod) {
+void printModuleBody(mlir::ModuleOp mod, raw_ostream &output) {
   // don't output the terminator bogo-op
   auto e{--mod.end()};
   for (auto i{mod.begin()}; i != e; ++i) {
-    i->print(llvm::outs());
-    llvm::outs() << "\n\n";
+    i->print(output);
+    output << "\n\n";
   }
 }
 
 // compile a .fir file
 int compileFIR() {
   // check that there is a file to load
-  llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> fileOrErr =
-      llvm::MemoryBuffer::getFileOrSTDIN(inputFilename);
+  ErrorOr<std::unique_ptr<MemoryBuffer>> fileOrErr =
+      MemoryBuffer::getFileOrSTDIN(inputFilename);
 
   if (std::error_code EC = fileOrErr.getError()) {
-    llvm::errs() << "Could not open file: " << EC.message() << '\n';
+    errs() << "Could not open file: " << EC.message() << '\n';
     return 1;
   }
 
   // load the file into a module
-  llvm::SourceMgr sourceMgr;
-  sourceMgr.AddNewSourceBuffer(std::move(*fileOrErr), llvm::SMLoc());
+  SourceMgr sourceMgr;
+  sourceMgr.AddNewSourceBuffer(std::move(*fileOrErr), SMLoc());
   auto context = std::make_unique<mlir::MLIRContext>();
   auto owningRef = mlir::parseSourceFile(sourceMgr, context.get());
 
   if (!owningRef) {
-    llvm::errs() << "Error can't load file " << inputFilename << '\n';
+    errs() << "Error can't load file " << inputFilename << '\n';
     return 2;
   }
   if (mlir::failed(owningRef->verify())) {
-    llvm::errs() << "Error verifying FIR module\n";
+    errs() << "Error verifying FIR module\n";
     return 4;
   }
 
   std::error_code ec;
-  llvm::ToolOutputFile out(outputFilename, ec, llvm::sys::fs::OF_None);
+  ToolOutputFile out(outputFilename, ec, sys::fs::OF_None);
 
   // run passes
   fir::NameUniquer uniquer;
@@ -90,7 +90,10 @@ int compileFIR() {
   mlir::applyPassManagerCLOptions(pm);
   if (emitFir) {
     // parse the input and pretty-print it back out
+    // -emit-fir intentionally disables all the passes
   } else {
+    // add all the passes
+    // the user can disable them individually
     pm.addPass(fir::createMemToRegPass());
     pm.addPass(fir::createCSEPass());
     // convert fir dialect to affine
@@ -103,21 +106,27 @@ int compileFIR() {
     pm.addPass(fir::createFIRToLLVMPass(uniquer));
     pm.addPass(fir::createLLVMDialectToLLVMPass(out.os()));
   }
+
+  // run the pass manager
   if (mlir::succeeded(pm.run(*owningRef))) {
-    if (emitFir)
-      printModuleBody(*owningRef);
+    // passes ran successfully, so keep the output
+    if (emitFir) 
+      printModuleBody(*owningRef, out.os());
     out.keep();
     return 0;
   }
-  llvm::errs() << "FAILED: " << inputFilename << '\n';
+
+  // pass manager failed
+  printModuleBody(*owningRef, errs());
+  errs() << "\nFAILED: " << inputFilename << '\n';
   return 8;
 }
 } // namespace
 
 int main(int argc, char **argv) {
-  [[maybe_unused]] llvm::InitLLVM y(argc, argv);
+  [[maybe_unused]] InitLLVM y(argc, argv);
   mlir::registerPassManagerCLOptions();
   mlir::PassPipelineCLParser passPipe("", "Compiler passes to run");
-  Cl::ParseCommandLineOptions(argc, argv, "Tilikum Crossing Opt\n");
+  cl::ParseCommandLineOptions(argc, argv, "Tilikum Crossing Opt\n");
   return compileFIR();
 }

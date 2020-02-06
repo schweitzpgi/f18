@@ -52,6 +52,7 @@ struct SequenceTypeStorage;
 struct TypeDescTypeStorage;
 } // namespace detail
 
+/// Integral identifier for all the types comprising the FIR type system
 enum TypeKind {
   // The enum starts at the range reserved for this dialect.
   FIR_TYPE = mlir::Type::FIRST_FIR_TYPE,
