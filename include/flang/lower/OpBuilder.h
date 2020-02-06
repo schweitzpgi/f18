@@ -91,7 +91,7 @@ public:
   using BodyGenerator = std::function<void(OpBuilderWrapper &, mlir::Value)>;
 
   /// Build loop [\p lb, \p ub) with step \p step.
-  /// If \p is an empty value, 1 is used for the step.
+  /// If \p step is an empty value, 1 is used for the step.
   void createLoop(mlir::Value lb, mlir::Value ub, mlir::Value step,
                   const BodyGenerator &bodyGenerator);
 
