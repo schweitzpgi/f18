@@ -1723,12 +1723,17 @@ def fir_StringLitOp : fir_Op<"string_lit", [NoSideEffect]>,
   }];
 
   let parser = [{
-    mlir::StringAttr val;
-    mlir::ArrayAttr valList;
-    if (parser.parseAttribute(val, value(), result.attributes)) {
-      if (parser.parseAttribute(valList, xlist(), result.attributes))
-        return mlir::failure();
-    }
+    auto &builder = parser.getBuilder();
+    mlir::Attribute val;
+    llvm::SmallVector<mlir::NamedAttribute, 2> attrs;
+    if (parser.parseAttribute(val, "fake", attrs))
+      return mlir::failure();
+    if (auto v = val.dyn_cast<mlir::StringAttr>())
+      result.attributes.push_back(builder.getNamedAttr(value(), v));
+    else if (auto v = val.dyn_cast<mlir::ArrayAttr>())
+      result.attributes.push_back(builder.getNamedAttr(xlist(), v));
+    else
+      return mlir::failure();
     mlir::IntegerAttr sz;
     mlir::Type type;
     if (parser.parseLParen() ||
@@ -1753,10 +1758,12 @@ def fir_StringLitOp : fir_Op<"string_lit", [NoSideEffect]>,
     auto eleTy = getType().cast<fir::SequenceType>().getEleTy();
     if (!eleTy.dyn_cast<fir::CharacterType>())
       return emitOpError("must have !fir.char type");
-    if (auto xList = getAttr(xlist()).cast<mlir::ArrayAttr>())
+    if (auto xl = getAttr(xlist())) {
+      auto xList = xl.cast<mlir::ArrayAttr>();
       for (auto a : xList)
         if (!a.isa<mlir::IntegerAttr>())
 	  return emitOpError("values in list must be integers");
+    }
     return mlir::success();
   }];
 
