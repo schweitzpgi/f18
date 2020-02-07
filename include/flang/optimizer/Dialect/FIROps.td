@@ -1724,10 +1724,14 @@ def fir_StringLitOp : fir_Op<"string_lit", [NoSideEffect]>,
 
   let parser = [{
     mlir::StringAttr val;
+    mlir::ArrayAttr valList;
+    if (parser.parseAttribute(val, value(), result.attributes)) {
+      if (parser.parseAttribute(valList, xlist(), result.attributes))
+        return mlir::failure();
+    }
     mlir::IntegerAttr sz;
     mlir::Type type;
-    if (parser.parseAttribute(val, value(), result.attributes) ||
-        parser.parseLParen() ||
+    if (parser.parseLParen() ||
         parser.parseAttribute(sz, size(), result.attributes) ||
         parser.parseRParen() || parser.parseColonType(type))
       return mlir::failure();
@@ -1738,28 +1742,40 @@ def fir_StringLitOp : fir_Op<"string_lit", [NoSideEffect]>,
   }];
 
   let printer = [{
-    p << getOperationName() << ' ' << getAttr(value()) << '(';
-    p << getAttr(size()).cast<mlir::IntegerAttr>().getValue() << ") : ";
+    p << getOperationName() << ' ' << getValue() << '(';
+    p << getSize().cast<mlir::IntegerAttr>().getValue() << ") : ";
     p.printType(getType().cast<fir::SequenceType>().getEleTy());
   }];
 
   let verifier = [{
-    if (getAttr(size()).cast<mlir::IntegerAttr>().getValue().isNegative())
+    if (getSize().cast<mlir::IntegerAttr>().getValue().isNegative())
       return emitOpError("size must be non-negative");
     auto eleTy = getType().cast<fir::SequenceType>().getEleTy();
     if (!eleTy.dyn_cast<fir::CharacterType>())
       return emitOpError("must have !fir.char type");
+    if (auto xList = getAttr(xlist()).cast<mlir::ArrayAttr>())
+      for (auto a : xList)
+        if (!a.isa<mlir::IntegerAttr>())
+	  return emitOpError("values in list must be integers");
     return mlir::success();
   }];
 
   let extraClassDeclaration = [{
     static constexpr const char *size() { return "size"; }
     static constexpr const char *value() { return "value"; }
+    static constexpr const char *xlist() { return "xlist"; }
 
     // Get the LEN attribute of this character constant
     mlir::Attribute getSize() { return getAttr(size()); }
     // Get the string value of this character constant
-    mlir::Attribute getValue() { return getAttr(value()); }
+    mlir::Attribute getValue() {
+      if (auto attr = getAttr(value()))
+        return attr;
+      return getAttr(xlist());
+    }
+
+    /// Is this a wide character literal (1 character > 8 bits)
+    bool isWideValue();
   }];
 }
 
