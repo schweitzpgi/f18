@@ -1810,6 +1810,43 @@ class fir_UnaryArithmeticOp<string mnemonic, list<OpTrait> traits = []> :
   let printer = [{ return fir::printUnaryOp(this->getOperation(), p); }];
 }
 
+def fir_ConstfOp : fir_Op<"constf", [NoSideEffect]>,
+    Results<(outs fir_RealType)> {
+  let summary = "create a floating point constant";
+
+  let description = [{
+    FIXME
+  }];
+
+  let parser = [{
+    fir::RealAttr flt;
+    mlir::Type type;
+    if (parser.parseLParen() ||
+        parser.parseAttribute(flt, constAttrName(), result.attributes) ||
+        parser.parseRParen() || parser.parseColonType(type) ||
+        parser.addTypesToList(type, result.types))
+      return mlir::failure();
+    return mlir::success();
+  }];
+
+  let printer = [{
+    p << getOperationName() << ' ' << getAttr(constAttrName()) << " : ";
+    p.printType(getType());
+  }];
+
+  let verifier = [{
+    if (!getType().isa<fir::RealType>())
+      return emitOpError("must be a !fir.real type");
+    return mlir::success();
+  }];
+
+  let extraClassDeclaration = [{
+    constexpr static llvm::StringRef constAttrName() { return "constant"; }
+
+    mlir::Attribute getValue() { return getAttr(constAttrName()); }
+  }];
+}
+
 class RealUnaryArithmeticOp<string mnemonic, list<OpTrait> traits = []> :
       fir_UnaryArithmeticOp<mnemonic, traits>,
       Arguments<(ins AnyRealLike:$operand)>;
@@ -1857,6 +1894,57 @@ def fir_CmpfOp : fir_Op<"cmpf",
       return (CmpFPredicate)getAttrOfType<mlir::IntegerAttr>(
           getPredicateAttrName()).getInt();
     }
+  }];
+}
+
+def fir_ConstcOp : fir_Op<"constc", [NoSideEffect]>,
+    Results<(outs fir_ComplexType)> {
+  let summary = "create a complex constant";
+
+  let description = [{
+    FIXME
+  }];
+
+  let parser = [{
+    fir::RealAttr realp;
+    fir::RealAttr imagp;
+    mlir::Type type;
+    if (parser.parseLParen() ||
+        parser.parseAttribute(realp, realAttrName(), result.attributes) ||
+        parser.parseComma() ||
+        parser.parseAttribute(imagp, imagAttrName(), result.attributes) ||
+        parser.parseRParen() ||
+        parser.parseColonType(type) ||
+        parser.addTypesToList(type, result.types))
+      return mlir::failure();
+    return mlir::success();
+  }];
+
+  let printer = [{
+    p << getOperationName() << " (0x";
+    auto f1 = getAttr(realAttrName()).cast<mlir::FloatAttr>();
+    auto i1 = f1.getValue().bitcastToAPInt();
+    p.getStream().write_hex(i1.getZExtValue());
+    p << ", 0x";
+    auto f2 = getAttr(imagAttrName()).cast<mlir::FloatAttr>();
+    auto i2 = f2.getValue().bitcastToAPInt();
+    p.getStream().write_hex(i2.getZExtValue());
+    p << ") : ";
+    p.printType(getType());
+  }];
+
+  let verifier = [{
+    if (!getType().isa<fir::CplxType>())
+      return emitOpError("must be a !fir.complex type");
+    return mlir::success();
+  }];
+
+  let extraClassDeclaration = [{
+    constexpr static llvm::StringRef realAttrName() { return "real"; }
+    constexpr static llvm::StringRef imagAttrName() { return "imaginary"; }
+
+    mlir::Attribute getReal() { return getAttr(realAttrName()); }
+    mlir::Attribute getImaginary() { return getAttr(imagAttrName()); }
   }];
 }
 

@@ -80,6 +80,26 @@ LLVMTypeID getFloatLikeTypeID(KindTy kind, const MAP &map) {
   return doLookup<LLVMTypeID, KEY>(defaultRealKind, map, kind);
 }
 
+template <char KEY, typename MAP>
+const llvm::fltSemantics &getFloatSemanticsOfKind(KindTy kind, const MAP &map) {
+  switch (doLookup<LLVMTypeID, KEY>(defaultRealKind, map, kind)) {
+  case LLVMTypeID::HalfTyID:
+    return llvm::APFloat::IEEEhalf();
+  case LLVMTypeID::FloatTyID:
+    return llvm::APFloat::IEEEsingle();
+  case LLVMTypeID::DoubleTyID:
+    return llvm::APFloat::IEEEdouble();
+  case LLVMTypeID::X86_FP80TyID:
+    return llvm::APFloat::x87DoubleExtended();
+  case LLVMTypeID::FP128TyID:
+    return llvm::APFloat::IEEEquad();
+  case LLVMTypeID::PPC_FP128TyID:
+    return llvm::APFloat::PPCDoubleDouble();
+  default:
+    llvm_unreachable("Invalid floating type");
+  }
+}
+
 MatchResult parseCode(char &code, const char *&ptr) {
   if (*ptr != 'a' && *ptr != 'c' && *ptr != 'i' && *ptr != 'l' && *ptr != 'r')
     return {};
@@ -210,6 +230,10 @@ LLVMTypeID KindMapping::getRealTypeID(KindTy kind) {
 
 LLVMTypeID KindMapping::getComplexTypeID(KindTy kind) {
   return getFloatLikeTypeID<'c'>(kind, floatMap);
+}
+
+const llvm::fltSemantics &KindMapping::getFloatSemantics(KindTy kind) {
+  return getFloatSemanticsOfKind<'r'>(kind, floatMap);
 }
 
 } // namespace fir
