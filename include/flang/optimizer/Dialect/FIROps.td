@@ -189,7 +189,7 @@ class fir_AllocatableOp<string mnemonic, list<OpTrait> traits =[]> :
     if (parser.parseType(intype))
       return mlir::failure();
     auto &builder = parser.getBuilder();
-    result.addAttribute("in_type", mlir::TypeAttr::get(intype));
+    result.addAttribute(inType(), mlir::TypeAttr::get(intype));
     llvm::SmallVector<mlir::OpAsmParser::OperandType, 8> operands;
     llvm::SmallVector<mlir::Type, 8> typeVec;
     bool hasOperands = false;
@@ -224,7 +224,7 @@ class fir_AllocatableOp<string mnemonic, list<OpTrait> traits =[]> :
   }];
 
   let printer = [{
-    p << getOperationName() << ' ' << getAttr("in_type");
+    p << getOperationName() << ' ' << getAttr(inType());
     if (hasLenParams()) {
       p << '(';
       p.printOperands(getLenParams());
@@ -234,11 +234,12 @@ class fir_AllocatableOp<string mnemonic, list<OpTrait> traits =[]> :
       p << ", ";
       p.printOperand(sh);
     }
-    p.printOptionalAttrDict(getAttrs(), {"in_type", lenpName()});
+    p.printOptionalAttrDict(getAttrs(), {inType(), lenpName()});
   }];
 
   string extraAllocClassDeclaration = [{
-    constexpr static llvm::StringRef lenpName() { return "len_param_count"; }
+    static constexpr llvm::StringRef inType() { return "in_type"; }
+    static constexpr llvm::StringRef lenpName() { return "len_param_count"; }
     mlir::Type getAllocatedType();
     bool hasLenParams() { return bool{getAttr(lenpName())}; }
     unsigned numLenParams() {
@@ -253,6 +254,20 @@ class fir_AllocatableOp<string mnemonic, list<OpTrait> traits =[]> :
       return {operand_begin() + numLenParams(), operand_end()};
     }
     static mlir::Type getRefTy(mlir::Type ty);
+
+    /// Get the input type of the allocation
+    mlir::Type getInType() {
+      return getAttrOfType<mlir::TypeAttr>(inType()).getValue();
+    }
+  }];
+
+  // Verify checks common to all allocation operations
+  string allocVerify = [{
+    llvm::SmallVector<llvm::StringRef, 8> visited;
+    if (verifyInType(getInType(), visited))
+      return emitOpError("invalid type for allocation");
+    if (verifyRecordLenParams(getInType(), numLenParams()))
+      return emitOpError("LEN params do not correspond to type");
   }];
 }
 
@@ -272,9 +287,9 @@ def fir_AllocaOp : fir_AllocatableOp<"alloca"> {
       %1 = fir.call @foo(%0) : (!fir.ref<f32>) -> i32
   }];
 
-  let verifier = [{
+  let verifier = allocVerify#[{
     mlir::Type outType = getType();
-    if (!outType.dyn_cast<fir::ReferenceType>())
+    if (!outType.isa<fir::ReferenceType>())
       return emitOpError("must be a !fir.ref type");
     return mlir::success();
   }];
@@ -412,7 +427,7 @@ def fir_AllocMemOp : fir_AllocatableOp<"allocmem"> {
       fir.freemem %0 : !fir.heap<!fir.array<10xf32>>
   }];
 
-  let verifier = [{
+  let verifier = allocVerify#[{
     mlir::Type outType = getType();
     if (!outType.dyn_cast<fir::HeapType>())
       return emitOpError("must be a !fir.heap type");
