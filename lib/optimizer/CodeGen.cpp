@@ -1379,6 +1379,8 @@ struct FirEndOpConversion : public FIROpConversion<FirEndOp> {
 };
 
 /// lower a gendims operation into a sequence of writes to a temp
+/// TODO: should this be returning a value or a ref? A !fir.dims object has
+/// very restricted application
 struct GenDimsOpConversion : public FIROpConversion<GenDimsOp> {
   using FIROpConversion::FIROpConversion;
 
@@ -1394,10 +1396,10 @@ struct GenDimsOpConversion : public FIROpConversion<GenDimsOp> {
     unsigned offIndex = 0;
     auto c0 = genConstantOffset(loc, rewriter, 0);
     auto ipty = lowering.indexType().getPointerTo();
-    for (auto op : operands) {
-      auto offset = genConstantOffset(loc, rewriter, offIndex);
-      auto gep = genGEP(loc, ipty, rewriter, alloca, c0, offset);
-      rewriter.create<mlir::LLVM::StoreOp>(loc, op, gep);
+    for (auto opd : operands) {
+      auto offset = genConstantOffset(loc, rewriter, offIndex++);
+      auto gep = genGEP(loc, ipty, rewriter, alloca, c0, c0, offset);
+      rewriter.create<mlir::LLVM::StoreOp>(loc, opd, gep);
     }
     rewriter.replaceOpWithNewOp<mlir::LLVM::LoadOp>(gendims, ptrTy, alloca);
     return matchSuccess();

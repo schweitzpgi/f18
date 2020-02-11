@@ -822,7 +822,7 @@ def fir_FirEndOp : fir_Op<"end", [Terminator]> {
 // Operations on !fir.box<T> type objects
 
 def fir_EmboxOp : fir_Op<"embox", [NoSideEffect]>, Results<(outs fir_BoxType)>,
-    Arguments<(ins AnyReferenceLike:$memref, Variadic<AnyIntegerType>:$args)> {
+    Arguments<(ins AnyReferenceLike:$memref, Variadic<fir_DimsType>:$args)> {
   let summary = "boxes a given reference and (optional) dimension information";
 
   let description = [{
@@ -854,7 +854,7 @@ def fir_EmboxOp : fir_Op<"embox", [NoSideEffect]>, Results<(outs fir_BoxType)>,
       operands.push_back(dims);
     } else if (!parser.parseOptionalLSquare()) {
       mlir::AffineMapAttr map;
-      if (parser.parseAttribute(map, "layout_map", result.attributes) ||
+      if (parser.parseAttribute(map, layoutName(), result.attributes) ||
           parser.parseRSquare())
         return mlir::failure();
     }
@@ -877,7 +877,7 @@ def fir_EmboxOp : fir_Op<"embox", [NoSideEffect]>, Results<(outs fir_BoxType)>,
     if (getNumOperands() == 2) {
       p << ", ";
       p.printOperands(dims());
-    } else if (auto map = getAttr("layout_map")) {
+    } else if (auto map = getAttr(layoutName())) {
       p << " [" << map << ']';
     }
     p << " : ";
@@ -885,7 +885,8 @@ def fir_EmboxOp : fir_Op<"embox", [NoSideEffect]>, Results<(outs fir_BoxType)>,
   }];
 
   let extraClassDeclaration = [{
-    constexpr static llvm::StringRef lenpName() { return "len_param_count"; }
+    static constexpr llvm::StringRef layoutName() { return "layout_map"; }
+    static constexpr llvm::StringRef lenpName() { return "len_param_count"; }
     bool hasLenParams() { return bool{getAttr(lenpName())}; }
     unsigned numLenParams() {
       if (auto x = getAttrOfType<mlir::IntegerAttr>(lenpName()))
@@ -896,7 +897,7 @@ def fir_EmboxOp : fir_Op<"embox", [NoSideEffect]>, Results<(outs fir_BoxType)>,
       return {operand_begin(), operand_begin() + numLenParams()};
     }
     operand_range dims() {
-      return {operand_begin() + numLenParams(), operand_end()};
+      return {operand_begin() + numLenParams() + 1, operand_end()};
     }
   }];
 }
