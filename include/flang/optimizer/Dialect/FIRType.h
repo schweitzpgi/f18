@@ -316,6 +316,7 @@ public:
     return getTypeList()[index].second;
   }
   unsigned getNumFields() { return getTypeList().size(); }
+  unsigned getNumLenParams() { return getLenParamList().size(); }
 
   static RecordType get(mlir::MLIRContext *ctxt, llvm::StringRef name);
   void finalize(llvm::ArrayRef<TypePair> lenPList,
