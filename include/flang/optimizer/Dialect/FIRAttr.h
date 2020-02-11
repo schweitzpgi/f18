@@ -21,8 +21,9 @@ namespace fir {
 class FIROpsDialect;
 
 namespace detail {
+struct RealAttributeStorage;
 struct TypeAttributeStorage;
-}
+} // namespace detail
 
 enum AttributeKind {
   FIR_ATTR = mlir::Attribute::FIRST_FIR_ATTR,
@@ -42,7 +43,7 @@ public:
   using Base::Base;
   using ValueType = mlir::Type;
 
-  static llvm::StringRef getAttrName() { return "instance"; }
+  constexpr static llvm::StringRef getAttrName() { return "instance"; }
   static ExactTypeAttr get(mlir::Type value);
 
   mlir::Type getType() const;
@@ -58,7 +59,7 @@ public:
   using Base::Base;
   using ValueType = mlir::Type;
 
-  static llvm::StringRef getAttrName() { return "subsumed"; }
+  constexpr static llvm::StringRef getAttrName() { return "subsumed"; }
   static SubclassAttr get(mlir::Type value);
 
   mlir::Type getType() const;
@@ -67,12 +68,18 @@ public:
   constexpr static unsigned getId() { return AttributeKind::FIR_SUBCLASS; }
 };
 
+// Attributes for building SELECT CASE multiway branches
+
+/// A closed interval (including the bound values) is an interval with both an
+/// upper and lower bound as given as ssa-values.
+/// A case selector of `CASE (n:m)` corresponds to any value from `n` to `m` and
+/// is encoded as `#fir.interval, %n, %m`.
 class ClosedIntervalAttr
     : public mlir::Attribute::AttrBase<ClosedIntervalAttr> {
 public:
   using Base::Base;
 
-  static llvm::StringRef getAttrName() { return "interval"; }
+  constexpr static llvm::StringRef getAttrName() { return "interval"; }
   static ClosedIntervalAttr get(mlir::MLIRContext *ctxt);
   constexpr static bool kindof(unsigned kind) { return kind == getId(); }
   constexpr static unsigned getId() {
@@ -80,11 +87,15 @@ public:
   }
 };
 
+/// An upper bound is an open interval (including the bound value) as given as
+/// an ssa-value.
+/// A case selector of `CASE (:m)` corresponds to any value up to and including
+/// `m` and is encoded as `#fir.upper, %m`.
 class UpperBoundAttr : public mlir::Attribute::AttrBase<UpperBoundAttr> {
 public:
   using Base::Base;
 
-  static llvm::StringRef getAttrName() { return "upper"; }
+  constexpr static llvm::StringRef getAttrName() { return "upper"; }
   static UpperBoundAttr get(mlir::MLIRContext *ctxt);
   constexpr static bool kindof(unsigned kind) { return kind == getId(); }
   constexpr static unsigned getId() {
@@ -92,11 +103,15 @@ public:
   }
 };
 
+/// A lower bound is an open interval (including the bound value) as given as
+/// an ssa-value.
+/// A case selector of `CASE (n:)` corresponds to any value down to and
+/// including `n` and is encoded as `#fir.lower, %n`.
 class LowerBoundAttr : public mlir::Attribute::AttrBase<LowerBoundAttr> {
 public:
   using Base::Base;
 
-  static llvm::StringRef getAttrName() { return "lower"; }
+  constexpr static llvm::StringRef getAttrName() { return "lower"; }
   static LowerBoundAttr get(mlir::MLIRContext *ctxt);
   constexpr static bool kindof(unsigned kind) { return kind == getId(); }
   constexpr static unsigned getId() {
@@ -104,22 +119,37 @@ public:
   }
 };
 
+/// A pointer interval is an closed interval as given as an ssa-value. The
+/// interval contains exactly one value.
+/// A case selector of `CASE (p)` corresponds to exactly the value `p` and is
+/// encoded as `#fir.point, %p`.
 class PointIntervalAttr : public mlir::Attribute::AttrBase<PointIntervalAttr> {
 public:
   using Base::Base;
 
-  static llvm::StringRef getAttrName() { return "point"; }
+  constexpr static llvm::StringRef getAttrName() { return "point"; }
   static PointIntervalAttr get(mlir::MLIRContext *ctxt);
   constexpr static bool kindof(unsigned kind) { return kind == getId(); }
   constexpr static unsigned getId() { return AttributeKind::FIR_POINT; }
 };
 
-class RealAttr : public mlir::Attribute::AttrBase<RealAttr, mlir::Attribute> {
+/// A real attribute is used to workaround MLIR's default parsing of a real
+/// constant.
+/// `#fir.real<10, 3.14>` is used to introduce a real constant of value `3.14`
+/// with a kind of `10`.
+class RealAttr
+    : public mlir::Attribute::AttrBase<RealAttr, mlir::Attribute,
+                                       detail::RealAttributeStorage> {
 public:
   using Base::Base;
+  using ValueType = std::pair<int, llvm::APFloat>;
 
-  static llvm::StringRef getAttrName() { return "real"; }
-  static RealAttr get(mlir::MLIRContext *ctxt, const llvm::APFloat &flt);
+  constexpr static llvm::StringRef getAttrName() { return "real"; }
+  static RealAttr get(mlir::MLIRContext *ctxt, const ValueType &key);
+
+  int getFKind() const;
+  llvm::APFloat getValue() const;
+
   constexpr static bool kindof(unsigned kind) { return kind == getId(); }
   constexpr static unsigned getId() { return AttributeKind::FIR_REAL_ATTR; }
 };
