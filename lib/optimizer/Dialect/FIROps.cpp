@@ -20,6 +20,43 @@
 
 namespace fir {
 
+/// return true if the sequence type is abstract or the record type is malformed
+/// or contains an abstract sequence type
+static bool verifyInType(mlir::Type inType,
+                         llvm::SmallVectorImpl<llvm::StringRef> &visited) {
+  if (auto st = inType.dyn_cast<fir::SequenceType>()) {
+    auto shape = st.getShape();
+    if (shape.size() == 0)
+      return true;
+    for (auto ext : shape)
+      if (ext < 0)
+        return true;
+  } else if (auto rt = inType.dyn_cast<fir::RecordType>()) {
+    // don't recurse if we're already visiting this one
+    for (auto name : visited)
+      if (name == rt.getName())
+        return false;
+    // keep track of record types currently being visited
+    visited.push_back(rt.getName());
+    for (auto &field : rt.getTypeList())
+      if (verifyInType(field.second, visited))
+        return true;
+    visited.pop_back();
+  } else if (auto rt = inType.dyn_cast<fir::PointerType>()) {
+    return verifyInType(rt.getEleTy(), visited);
+  }
+  return false;
+}
+
+static bool verifyRecordLenParams(mlir::Type inType, unsigned numLenParams) {
+  if (numLenParams > 0) {
+    if (auto rt = inType.dyn_cast<fir::RecordType>())
+      return numLenParams != rt.getNumLenParams();
+    return true;
+  }
+  return false;
+}
+
 // AllocaOp
 
 mlir::Type AllocaOp::getAllocatedType() {
