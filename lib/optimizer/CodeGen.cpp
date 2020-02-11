@@ -1477,10 +1477,27 @@ struct GlobalOpConversion : public FIROpConversion<fir::GlobalOp> {
                     .getAttrOfType<mlir::StringAttr>(
                         mlir::SymbolTable::getSymbolAttrName())
                     .getValue();
-    mlir::Attribute value;
+    auto value = initializersToAttr(global.getOperation(), rewriter);
     rewriter.replaceOpWithNewOp<mlir::LLVM::GlobalOp>(
-        global, tyAttr, isConst, mlir::LLVM::Linkage::External, name, value);
+        global, tyAttr, isConst, mlir::LLVM::Linkage::LinkonceODR, name, value);
     return matchSuccess();
+  }
+
+  // convert the operations in the body into an initializer attr
+  // TODO: only accidentally correct for very simple cases at the moment
+  mlir::Attribute
+  initializersToAttr(mlir::Operation *global,
+                     mlir::ConversionPatternRewriter &rewriter) const {
+    mlir::Attribute val;
+    if (global->getNumRegions() > 0) {
+      mlir::Block &block = global->getRegion(0).front();
+      for (auto &ini : block) {
+        if (auto cop = dyn_cast<mlir::ConstantOp>(ini)) {
+          val = cop.value();
+        }
+      }
+    }
+    return val;
   }
 };
 
