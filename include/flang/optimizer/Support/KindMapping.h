@@ -15,6 +15,7 @@
 namespace llvm {
 template <typename>
 class Optional;
+struct fltSemantics;
 } // namespace llvm
 
 namespace mlir {
@@ -70,6 +71,9 @@ public:
   LLVMTypeID getComplexTypeID(KindTy kind);
 
   mlir::MLIRContext *getContext() const { return context; }
+
+  /// Get the float semantics of !fir.real<kind>
+  const llvm::fltSemantics &getFloatSemantics(KindTy kind);
 
 private:
   MatchResult badMapString(llvm::Twine const &ptr);
