@@ -529,6 +529,7 @@ mlir::ParseResult parseLoopOp(mlir::OpAsmParser &parser,
   // Parse the optional attribute list.
   if (parser.parseOptionalAttrDict(result.attributes))
     return mlir::failure();
+  result.addTypes(builder.getIndexType());
   return mlir::success();
 }
 

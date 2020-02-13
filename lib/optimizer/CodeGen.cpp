@@ -1481,7 +1481,7 @@ struct GlobalOpConversion : public FIROpConversion<fir::GlobalOp> {
                     .getValue();
     auto value = initializersToAttr(global.getOperation(), rewriter);
     rewriter.replaceOpWithNewOp<mlir::LLVM::GlobalOp>(
-        global, tyAttr, isConst, mlir::LLVM::Linkage::LinkonceODR, name, value);
+        global, tyAttr, isConst, mlir::LLVM::Linkage::External, name, value);
     return matchSuccess();
   }
 
