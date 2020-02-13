@@ -77,6 +77,11 @@ def AnyRefOrBox : TypeConstraint<Or<[fir_ReferenceType.predicate,
     "any reference or box">;
 
 def fir_DimsType : Type<CPred<"$_self.isa<fir::DimsType>()">, "dim type">;
+def AnyEmboxLike : TypeConstraint<Or<[AnyInteger.predicate,
+    Index.predicate, fir_IntegerType.predicate, fir_DimsType.predicate]>,
+    "any legal embox argument type">;
+def AnyEmboxArg : Type<AnyEmboxLike.predicate, "embox argument type">;
+
 def fir_TypeDescType : Type<CPred<"$_self.isa<fir::TypeDescType>()">,
     "type desc type">;
 def fir_FieldType : Type<CPred<"$_self.isa<fir::FieldType>()">, "field type">;
@@ -289,6 +294,8 @@ def fir_AllocaOp : fir_AllocatableOp<"alloca"> {
       %1 = fir.call @foo(%0) : (!fir.ref<f32>) -> i32
   }];
 
+  let results = (outs fir_ReferenceType);
+
   let verifier = allocVerify#[{
     mlir::Type outType = getType();
     if (!outType.isa<fir::ReferenceType>())
@@ -385,6 +392,12 @@ def fir_StoreOp : fir_Op<"store", []>,
     p << " : " << memref().getType();
   }];
 
+  let verifier = [{
+    if (value().getType() != fir::dyn_cast_ptrEleTy(memref().getType()))
+      return emitOpError("store value type must match memory reference type");
+    return mlir::success();
+  }];
+
   let extraClassDeclaration = [{
     static mlir::Type elementType(mlir::Type refType);
   }];
@@ -429,6 +442,8 @@ def fir_AllocMemOp : fir_AllocatableOp<"allocmem"> {
       fir.freemem %0 : !fir.heap<!fir.array<10xf32>>
   }];
 
+  let results = (outs fir_HeapType);
+
   let verifier = allocVerify#[{
     mlir::Type outType = getType();
     if (!outType.dyn_cast<fir::HeapType>())
@@ -441,8 +456,7 @@ def fir_AllocMemOp : fir_AllocatableOp<"allocmem"> {
   }];
 }
 
-def fir_FreeMemOp : fir_Op<"freemem", []>,
-    Arguments<(ins fir_HeapType:$heapref)> {
+def fir_FreeMemOp : fir_Op<"freemem", []> {
   let summary = "free a heap object";
 
   let description = [{
@@ -456,30 +470,17 @@ def fir_FreeMemOp : fir_Op<"freemem", []>,
       fir.freemem %0 : !fir.heap<!fir.array<10xf32>>
   }];
 
-  let parser = [{
-    mlir::Type type;
-    mlir::OpAsmParser::OperandType oper;
-    if (parser.parseOperand(oper) ||
-        parser.parseOptionalAttrDict(result.attributes) ||
-        parser.parseColonType(type) ||
-        parser.resolveOperand(oper, type, result.operands))
-      return mlir::failure();
-    return mlir::success();
-  }];
+  let arguments = (ins fir_HeapType:$heapref);
 
-  let printer = [{
-    p << getOperationName() << ' ';
-    p.printOperand(heapref());
-    p.printOptionalAttrDict(getAttrs(), {});
-    p << " : " << getOperand().getType();
-  }];
+  let assemblyFormat = "$heapref attr-dict `:` type($heapref)";
 }
 
 // Terminator operations
 
 class fir_SwitchTerminatorOp<string mnemonic, list<OpTrait> traits = []> :
     fir_Op<mnemonic, !listconcat(traits, [Terminator])>,
-    Arguments<(ins Variadic<AnyType>:$args)>, Results<(outs)> {
+    Arguments<(ins Variadic<AnyType>:$args)>,
+    Results<(outs)> {
   let builders = [OpBuilder<
     "Builder *, OperationState &result, Value selector,"
     "ArrayRef<Value> properOperands, ArrayRef<Block *> destinations,"
@@ -499,7 +500,7 @@ class fir_SwitchTerminatorOp<string mnemonic, list<OpTrait> traits = []> :
 
   string extraSwitchClassDeclaration = [{
     using Conditions = mlir::Value;
-    constexpr static auto AttrName = "cases";
+    static constexpr auto AttrName = "cases";
 
     // The number of destination conditions that may be tested
     unsigned getNumConditions() { return getNumDest(); }
@@ -816,13 +817,9 @@ def fir_UnreachableOp : fir_Op<"unreachable", [Terminator]> {
     program, for example.
   }];
 
-  let parser = [{
-    return mlir::success();
-  }];
+  let parser = "return mlir::success();";
 
-  let printer = [{
-    p << getOperationName();
-  }];
+  let printer = "p << getOperationName();";
 }
 
 def fir_FirEndOp : fir_Op<"end", [Terminator]> {
@@ -838,15 +835,31 @@ def fir_FirEndOp : fir_Op<"end", [Terminator]> {
 
 // Operations on !fir.box<T> type objects
 
-def fir_EmboxOp : fir_Op<"embox", [NoSideEffect]>, Results<(outs fir_BoxType)>,
-    Arguments<(ins AnyReferenceLike:$memref, Variadic<fir_DimsType>:$args)> {
+def fir_EmboxOp : fir_Op<"embox", [NoSideEffect]> {
   let summary = "boxes a given reference and (optional) dimension information";
 
   let description = [{
     Create a boxed reference value. In Fortran, the implementation can require
     extra information about an entity, such as its type, rank, etc.  This
-    auxilliary information is packaged and abstracted as a value with box type.
+    auxilliary information is packaged and abstracted as a value with box type
+    by the calling routine. (In Fortran, these are called descriptors.)
+
+    Syntax:
+      `fir.embox` mem-ref [`,` layout] `:` `(` arg-types `)` `->` res-type
+
+      where layout is dims | affine-map
+
+    Example:
+
+      %4 = fir.dims(%c1, %c10, %c1) : (index, index, index) -> !fir.dims<1>
+      %5 = ... : !fir.ref<!fir.array<10:i32>>
+      %6 = fir.embox %5, %4 : (!fir.ref<!fir.array<10:i32>>, !fir.dims<1>)
+                            -> !fir.box<!fir.array<10:i32>>
   }];
+
+  let arguments = (ins AnyReferenceLike:$memref, Variadic<AnyEmboxArg>:$args);
+
+  let results = (outs fir_BoxType);
 
   let parser = [{
     mlir::FunctionType type;
@@ -875,7 +888,8 @@ def fir_EmboxOp : fir_Op<"embox", [NoSideEffect]>, Results<(outs fir_BoxType)>,
           parser.parseRSquare())
         return mlir::failure();
     }
-    if (parser.parseColonType(type) ||
+    if (parser.parseOptionalAttrDict(result.attributes) ||
+        parser.parseColonType(type) ||
         parser.resolveOperands(operands, type.getInputs(),
             parser.getNameLoc(), result.operands) ||
         parser.addTypesToList(type.getResults(), result.types))
@@ -897,8 +911,39 @@ def fir_EmboxOp : fir_Op<"embox", [NoSideEffect]>, Results<(outs fir_BoxType)>,
     } else if (auto map = getAttr(layoutName())) {
       p << " [" << map << ']';
     }
+    p.printOptionalAttrDict(getAttrs(), {layoutName(), lenpName()});
     p << " : ";
     p.printFunctionalType(getOperation());
+  }];
+
+  let verifier = [{
+    if (hasLenParams()) {
+      auto lenParams = numLenParams();
+      auto eleTy = fir::dyn_cast_ptrEleTy(memref().getType());
+      if (!eleTy)
+        return emitOpError("must embox a memory reference type");
+      if (auto rt = eleTy.dyn_cast<fir::RecordType>()) {
+        if (lenParams != rt.getNumLenParams())
+          return emitOpError("number of LEN params does not correspond"
+                             " to the !fir.type type");
+      } else {
+        return emitOpError("LEN parameters require !fir.type type");
+      }
+      for (auto lp : getLenParams())
+        if (lp.getType().isa<fir::DimsType>())
+          return emitOpError("LEN parameters must be integral type");
+    }
+    if (dims().size() == 0) {
+      // Ok. If there is no dims and no layout map, then emboxing a scalar.
+      // TODO: Should the type be enforced? It already must agree.
+    } else if (dims().size() == 1) {
+      auto d = *dims().begin();
+      if (!d.getType().isa<fir::DimsType>())
+        return emitOpError("dimension argument must have !fir.dims type");
+    } else {
+      return emitOpError("embox can only have one !fir.dim argument");
+    }
+    return mlir::success();
   }];
 
   let extraClassDeclaration = [{
@@ -920,8 +965,9 @@ def fir_EmboxOp : fir_Op<"embox", [NoSideEffect]>, Results<(outs fir_BoxType)>,
 }
 
 def fir_EmboxCharOp : fir_Op<"emboxchar", [NoSideEffect]> {
-  let results = (outs fir_BoxCharType);
   let arguments = (ins AnyReferenceLike:$memref, AnyIntegerLike:$len);
+  let results = (outs fir_BoxCharType);
+
   let summary = "boxes a given CHARACTER reference and its LEN parameter";
 
   let description = [{
@@ -951,8 +997,8 @@ def fir_EmboxCharOp : fir_Op<"emboxchar", [NoSideEffect]> {
 }
 
 def fir_EmboxProcOp : fir_Op<"emboxproc", [NoSideEffect]>,
-    Results<(outs fir_BoxProcType)>,
-    Arguments<(ins SymbolRefAttr:$funcname, AnyReferenceLike:$host)> {
+    Arguments<(ins SymbolRefAttr:$funcname, AnyReferenceLike:$host)>,
+    Results<(outs fir_BoxProcType)> {
   let summary = "boxes a given procedure and optional host context";
 
   let description = [{
@@ -1033,21 +1079,29 @@ def fir_EmboxProcOp : fir_Op<"emboxproc", [NoSideEffect]>,
   }];
 }
 
-def fir_UnboxOp : fir_SimpleOp<"unbox", [NoSideEffect]>,
-    Results<(outs fir_ReferenceType, AnyIntegerLike, AnyIntegerLike,
-             fir_TypeDescType, AnyIntegerLike, fir_DimsType)>,
-    Arguments<(ins fir_BoxType:$box)> {
+def fir_UnboxOp : fir_SimpleOp<"unbox", [NoSideEffect]> {
   let summary = "unbox the boxed value into a tuple value";
 
   let description = [{
     Unboxes a value of `box` type into a tuple of information abstracted in
     that boxed value.
   }];
+
+  let arguments = (ins fir_BoxType:$box);
+
+  let results = (outs
+    fir_ReferenceType,  // pointer to data
+    AnyIntegerLike,     // size of a data element
+    AnyIntegerLike,     // rank of data
+    fir_TypeDescType,   // abstract type descriptor
+    AnyIntegerLike,     // attribute flags (bitfields)
+    fir_DimsType        // dimension information (if any)
+  );
 }
 
 def fir_UnboxCharOp : fir_SimpleOp<"unboxchar", [NoSideEffect]>,
-    Results<(outs fir_ReferenceType, AnyIntegerLike)>,
-    Arguments<(ins fir_BoxCharType:$boxchar)> {
+    Arguments<(ins fir_BoxCharType:$boxchar)>,
+    Results<(outs fir_ReferenceType, AnyIntegerLike)> {
   let summary = "unbox a boxchar value into a pair value";
 
   let description = [{
@@ -1057,8 +1111,8 @@ def fir_UnboxCharOp : fir_SimpleOp<"unboxchar", [NoSideEffect]>,
 }
 
 def fir_UnboxProcOp : fir_SimpleOp<"unboxproc", [NoSideEffect]>,
-    Results<(outs FunctionType, fir_ReferenceType)>,
-    Arguments<(ins fir_BoxProcType:$boxproc)> {
+    Arguments<(ins fir_BoxProcType:$boxproc)>,
+    Results<(outs FunctionType, fir_ReferenceType)> {
   let summary = "unbox a boxproc value into a pair value";
 
   let description = [{
@@ -1098,7 +1152,8 @@ def fir_BoxAddrOp : fir_SimpleOneResultOp<"box_addr", [NoSideEffect]>,
 }
 
 def fir_BoxCharLenOp : fir_SimpleOp<"boxchar_len", [NoSideEffect]>,
-    Results<(outs AnyIntegerLike)>, Arguments<(ins fir_BoxCharType:$val)> {
+    Arguments<(ins fir_BoxCharType:$val)>,
+    Results<(outs AnyIntegerLike)> {
   let summary = "return the LEN type parameter from a boxchar value";
 
   let description = [{
@@ -1107,8 +1162,8 @@ def fir_BoxCharLenOp : fir_SimpleOp<"boxchar_len", [NoSideEffect]>,
 }
 
 def fir_BoxDimsOp : fir_Op<"box_dims", [NoSideEffect]>,
-    Results<(outs AnyIntegerLike, AnyIntegerLike, AnyIntegerLike)>,
-    Arguments<(ins fir_BoxType:$val, AnyIntegerLike:$dim)> {
+    Arguments<(ins fir_BoxType:$val, AnyIntegerLike:$dim)>,
+    Results<(outs AnyIntegerLike, AnyIntegerLike, AnyIntegerLike)> {
   let summary = "return the dynamic dimension information for the boxed value";
 
   let description = [{
@@ -1156,7 +1211,8 @@ def fir_BoxEleSizeOp : fir_SimpleOneResultOp<"box_elesize", [NoSideEffect]>,
 }
 
 def fir_BoxIsAllocOp : fir_SimpleOp<"box_isalloc", [NoSideEffect]>,
-    Results<(outs BoolLike)>, Arguments<(ins fir_BoxType:$val)> {
+    Arguments<(ins fir_BoxType:$val)>,
+    Results<(outs BoolLike)> {
   let summary = "is the boxed value an ALLOCATABLE?";
 
   let description = [{
@@ -1169,7 +1225,8 @@ def fir_BoxIsAllocOp : fir_SimpleOp<"box_isalloc", [NoSideEffect]>,
 }
 
 def fir_BoxIsArrayOp : fir_SimpleOp<"box_isarray", [NoSideEffect]>,
-    Results<(outs BoolLike)>, Arguments<(ins fir_BoxType:$val)> {
+    Arguments<(ins fir_BoxType:$val)>,
+    Results<(outs BoolLike)> {
   let summary = "is the boxed value an array?";
 
   let description = [{
@@ -1183,7 +1240,8 @@ def fir_BoxIsArrayOp : fir_SimpleOp<"box_isarray", [NoSideEffect]>,
 }
 
 def fir_BoxIsPtrOp : fir_SimpleOp<"box_isptr", [NoSideEffect]>,
-    Results<(outs BoolLike)>, Arguments<(ins fir_BoxType:$val)> {
+    Arguments<(ins fir_BoxType:$val)>,
+    Results<(outs BoolLike)> {
   let summary = "is the boxed value a POINTER?";
 
   let description = [{
@@ -1196,7 +1254,8 @@ def fir_BoxIsPtrOp : fir_SimpleOp<"box_isptr", [NoSideEffect]>,
 }
 
 def fir_BoxProcHostOp : fir_SimpleOp<"boxproc_host", [NoSideEffect]>,
-    Results<(outs fir_ReferenceType)>, Arguments<(ins fir_BoxProcType:$val)> {
+    Arguments<(ins fir_BoxProcType:$val)>,
+    Results<(outs fir_ReferenceType)> {
   let summary = "returns the host instance pointer (or null)";
 
   let description = [{
@@ -1226,8 +1285,8 @@ def fir_BoxTypeDescOp : fir_SimpleOneResultOp<"box_tdesc", [NoSideEffect]>,
 // Record and array type operations
 
 def fir_CoordinateOp : fir_Op<"coordinate_of", [NoSideEffect]>,
-    Results<(outs fir_ReferenceType)>, Arguments<(ins AnyRefOrBox:$ref,
-    Variadic<AnyCoordinateType>:$coor)> {
+    Arguments<(ins AnyRefOrBox:$ref, Variadic<AnyCoordinateType>:$coor)>,
+    Results<(outs fir_ReferenceType)> {
   let summary = "Finds the coordinate (location) of a value in memory";
 
   let description = [{
@@ -1376,8 +1435,8 @@ def fir_FieldIndexOp : fir_OneResultOp<"field_index", [NoSideEffect]>,
   }];
 
   let extraClassDeclaration = [{
-    constexpr static llvm::StringRef fieldAttrName() { return "field_id"; }
-    constexpr static llvm::StringRef typeAttrName() { return "on_type"; }
+    static constexpr llvm::StringRef fieldAttrName() { return "field_id"; }
+    static constexpr llvm::StringRef typeAttrName() { return "on_type"; }
   }];
 }
 
@@ -1495,8 +1554,8 @@ def fir_LenParamIndexOp : fir_OneResultOp<"len_param_index", [NoSideEffect]>,
   }];
 
   let extraClassDeclaration = [{
-    constexpr static llvm::StringRef fieldAttrName() { return "field_id"; }
-    constexpr static llvm::StringRef typeAttrName() { return "on_type"; }
+    static constexpr llvm::StringRef fieldAttrName() { return "field_id"; }
+    static constexpr llvm::StringRef typeAttrName() { return "on_type"; }
     mlir::Type getOnType() {
       return getAttrOfType<TypeAttr>(typeAttrName()).getValue();
     }
@@ -1512,9 +1571,17 @@ def fir_LoopOp : fir_Op<"loop", [ImplicitFirTerminator]> {
   let description = [{
     A generalized Fortran loop construct.
   }];
-  let arguments = (ins Index:$lowerBound, Index:$upperBound,
-                   Variadic<Index>:$optstep, OptionalAttr<I32Attr>:$constep,
-                   OptionalAttr<UnitAttr>:$unordered);
+
+  let arguments = (ins
+    Index:$lowerBound,
+    Index:$upperBound,
+    Variadic<Index>:$optStep,
+    OptionalAttr<I32Attr>:$constantStep,
+    OptionalAttr<UnitAttr>:$unordered
+  );
+
+  let results = (outs Index);
+
   let regions = (region SizedRegion<1>:$region);
   let skipDefaultBuilders = 1;
   let builders = [
@@ -1524,15 +1591,16 @@ def fir_LoopOp : fir_Op<"loop", [ImplicitFirTerminator]> {
               "mlir::Value lowerBound, mlir::Value upperBound,"
               "llvm::ArrayRef<mlir::Value> step">
   ];
-  let parser = [{ return parseLoopOp(parser, result); }];
+
+  let parser = "return parseLoopOp(parser, result);";
 
   let printer = [{
     p << getOperationName() << ' ' << getInductionVar() << " = "
       << lowerBound() << " to " << upperBound();
-    auto s = optstep();
+    auto s = optStep();
     if (s.begin() != s.end()) {
       p << " step ";
-      p.printOperands(s.begin(), s.end());
+      p.printOperand(*s.begin());
     }
     if (unordered())
       p << " unordered";
@@ -1542,8 +1610,9 @@ def fir_LoopOp : fir_Op<"loop", [ImplicitFirTerminator]> {
   }];
 
   let verifier = [{
-    auto step = optstep();
+    auto step = optStep();
     if (step.begin() != step.end()) {
+      // FIXME: size of step must be 1
       auto *s = (*step.begin()).getDefiningOp();
       if (auto cst = dyn_cast_or_null<mlir::ConstantIndexOp>(s))
         if (cst.getValue() == 0)
@@ -1636,9 +1705,10 @@ def fir_WhereOp : fir_Op<"where", [ImplicitFirTerminator]> {
 
 // Procedure call operations
 
-def fir_CallOp : fir_Op<"call", []>, Results<(outs Variadic<AnyType>)>,
+def fir_CallOp : fir_Op<"call", []>,
     Arguments<(ins OptionalAttr<SymbolRefAttr>:$callee,
-               Variadic<AnyType>:$args)> {
+               Variadic<AnyType>:$args)>,
+    Results<(outs Variadic<AnyType>)> {
   let summary = "call a procedure";
 
   let description = [{
@@ -1646,14 +1716,14 @@ def fir_CallOp : fir_Op<"call", []>, Results<(outs Variadic<AnyType>)>,
     in the FIR dialect, e.g. `fir.call @sub(%12)` or `fir.call %20(%22,%23)`.
   }];
 
-  let parser = [{ return parseCallOp(parser, result); }];
-  let printer = [{ printCallOp(p, *this); }];
+  let parser = "return parseCallOp(parser, result);";
+  let printer = "printCallOp(p, *this);";
 }
 
 def fir_DispatchOp : fir_Op<"dispatch", []>,
-    Results<(outs Variadic<AnyType>)>,
     Arguments<(ins StrAttr:$method, fir_BoxType:$object,
-               Variadic<AnyType>:$args)> {
+               Variadic<AnyType>:$args)>,
+    Results<(outs Variadic<AnyType>)> {
   let summary = "call a type-bound procedure";
 
   let description = [{
@@ -1714,12 +1784,18 @@ def fir_DispatchOp : fir_Op<"dispatch", []>,
 // Constant operations that support Fortran
 
 def fir_StringLitOp : fir_Op<"string_lit", [NoSideEffect]>,
-    Results<(outs AnyType)> {
+    Results<(outs fir_SequenceType)> {
   let summary = "create a string literal constant";
 
   let description = [{
     An FIR constant that represents a sequence of characters that correspond
-    to Fortran's CHARACTER type, including a LEN.
+    to Fortran's CHARACTER type, including a LEN.  We support CHARACTER values
+    of different KINDs (different constant sizes).
+
+    Example:
+
+      %1 = fir.string_lit "Hello, World!"(13) : !fir.char<1> // ASCII
+      %2 = fir.string_lit [158, 2345](2) : !fir.char<2>      // Wide chars
   }];
 
   let parser = [{
@@ -1841,7 +1917,7 @@ def fir_ConstfOp : fir_Op<"constf", [NoSideEffect]>,
   }];
 
   let extraClassDeclaration = [{
-    constexpr static llvm::StringRef constAttrName() { return "constant"; }
+    static constexpr llvm::StringRef constAttrName() { return "constant"; }
 
     mlir::Attribute getValue() { return getAttr(constAttrName()); }
   }];
@@ -1865,15 +1941,17 @@ def fir_ModfOp : RealArithmeticOp<"modf">;
 // Pow is a builtin call and not a primitive
 
 def fir_CmpfOp : fir_Op<"cmpf",
-    [NoSideEffect, SameTypeOperands, SameOperandsAndResultShape]>,
-    Results<(outs AnyLogicalLike)>,
-    Arguments<(ins AnyRealLike:$lhs, AnyRealLike:$rhs)> {
+    [NoSideEffect, SameTypeOperands, SameOperandsAndResultShape]> {
   let summary = "floating-point comparison operator";
 
   let description = [{
     Extends the standard floating-point comparison to handle the extended
     floating-point types found in FIR.
   }];
+
+  let arguments = (ins AnyRealLike:$lhs, AnyRealLike:$rhs);
+
+  let results = (outs AnyLogicalLike);
 
   let builders = [OpBuilder<
     "Builder *builder, OperationState &result, CmpFPredicate predicate,"
@@ -1882,10 +1960,11 @@ def fir_CmpfOp : fir_Op<"cmpf",
   }]>];
 
   let parser = [{ return fir::parseCmpfOp(parser, result); }];
+
   let printer = [{ fir::printCmpfOp(p, *this); }];
 
   let extraClassDeclaration = [{
-    constexpr static llvm::StringRef getPredicateAttrName() {
+    static constexpr llvm::StringRef getPredicateAttrName() {
       return "predicate";
     }
     static CmpFPredicate getPredicateByName(llvm::StringRef name);
@@ -1940,8 +2019,8 @@ def fir_ConstcOp : fir_Op<"constc", [NoSideEffect]>,
   }];
 
   let extraClassDeclaration = [{
-    constexpr static llvm::StringRef realAttrName() { return "real"; }
-    constexpr static llvm::StringRef imagAttrName() { return "imaginary"; }
+    static constexpr llvm::StringRef realAttrName() { return "real"; }
+    static constexpr llvm::StringRef imagAttrName() { return "imaginary"; }
 
     mlir::Attribute getReal() { return getAttr(realAttrName()); }
     mlir::Attribute getImaginary() { return getAttr(imagAttrName()); }
@@ -1966,8 +2045,8 @@ def fir_DivcOp : ComplexArithmeticOp<"divc">;
 
 def fir_CmpcOp : fir_Op<"cmpc",
     [NoSideEffect, SameTypeOperands, SameOperandsAndResultShape]>,
-    Results<(outs AnyLogicalLike)>,
-    Arguments<(ins fir_ComplexType:$lhs, fir_ComplexType:$rhs)> {
+    Arguments<(ins fir_ComplexType:$lhs, fir_ComplexType:$rhs)>,
+    Results<(outs AnyLogicalLike)> {
   let summary = "complex floating-point comparison operator";
 
   let description = [{
@@ -1984,7 +2063,7 @@ def fir_CmpcOp : fir_Op<"cmpc",
   let printer = [{ fir::printCmpcOp(p, *this); }];
 
   let extraClassDeclaration = [{
-    constexpr static llvm::StringRef getPredicateAttrName() {
+    static constexpr llvm::StringRef getPredicateAttrName() {
       return "predicate";
     }
 
@@ -2113,20 +2192,21 @@ def fir_NoReassocOp : fir_OneResultOp<"no_reassoc",
     parenthesis.
   }];
 
-  let assemblyFormat = [{
-    $val attr-dict `:` type($val)
-  }];
+  let assemblyFormat = "$val attr-dict `:` type($val)";
 }
 
-def fir_GlobalEntryOp : fir_Op<"global_entry", []>,
-    Arguments<(ins StrAttr:$field, AnyType:$constant)> {
-  let summary = "map entry in a global";
+def fir_GlobalEntryOp : fir_Op<"global_entry", []> {
+
+  let summary = "map a field entry in a global";
 
   let description = [{
     An entry in a global.  Allows a constant to be bound to a specific
     field in a record even though the layout of the record has not yet
-    been reified.
+    been reified.  This may be necessary if the object layout decisions
+    are deferred to, for example, runtime by the implementation.
   }];
+
+  let arguments = (ins StrAttr:$field, AnyType:$constant);
 
   let parser = [{
     mlir::Type type;
