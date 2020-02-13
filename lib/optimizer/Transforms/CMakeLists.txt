@@ -6,9 +6,7 @@ add_llvm_library(FIRTransforms
 
 add_dependencies(FIRTransforms FIROpsIncGen)
 
-target_link_libraries(FIRTransforms
-  FIR
-)
+target_link_libraries(FIRTransforms FIROptimizer)
 
 install (TARGETS FIRTransforms
   ARCHIVE DESTINATION lib
