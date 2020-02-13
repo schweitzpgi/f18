@@ -2182,3 +2182,11 @@ std::unique_ptr<mlir::Pass>
 fir::createLLVMDialectToLLVMPass(raw_ostream &output) {
   return std::make_unique<LLVMIRLoweringPass>(output);
 }
+
+// Register the FIR to LLVM-IR pass
+static mlir::PassRegistration<FIRToLLVMLoweringPass>
+    passLowFIR("fir-to-llvmir",
+               "Conversion of the FIR dialect to the LLVM-IR dialect", [] {
+                 NameUniquer dummy;
+                 return std::make_unique<FIRToLLVMLoweringPass>(dummy);
+               });

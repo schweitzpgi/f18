@@ -55,23 +55,28 @@ using namespace llvm;
 namespace {
 
 // Some basic command-line options
-cl::opt<std::string> InputFilename(cl::Positional, cl::Required,
+cl::opt<std::string> inputFilename(cl::Positional, cl::Required,
                                    cl::desc("<input file>"));
 
-cl::opt<std::string> OutputFilename("o",
+cl::opt<std::string> outputFilename("o",
                                     cl::desc("Specify the output filename"),
                                     cl::value_desc("filename"),
                                     cl::init("a.mlir"));
 
-cl::list<std::string> IncludeDirs("I", cl::desc("include search paths"));
+cl::list<std::string> includeDirs("I", cl::desc("include search paths"));
 
-cl::list<std::string> ModuleDirs("module", cl::desc("module search paths"));
+cl::list<std::string> moduleDirs("module", cl::desc("module search paths"));
 
-cl::opt<std::string> ModuleSuffix("module-suffix",
+cl::opt<std::string> moduleSuffix("module-suffix",
                                   cl::desc("module file suffix override"),
                                   cl::init(".mod"));
 
-cl::opt<bool> EmitLLVM("emit-llvm", cl::desc("emit LLVM IR"), cl::init(false));
+cl::opt<bool> emitLLVM("emit-llvm",
+                       cl::desc("Add passes to lower to and emit LLVM IR"),
+                       cl::init(false));
+cl::opt<bool> emitFIR("emit-fir",
+                      cl::desc("Dump the FIR created by lowering and exit"),
+                      cl::init(false));
 
 // vestigal struct that should be deleted
 struct DriverOptions {
@@ -95,7 +100,7 @@ void convertFortranSourceToMLIR(
       options.isFixedForm = suffix == "f" || suffix == "F" || suffix == "ff";
     }
   }
-  options.searchDirectories = IncludeDirs;
+  options.searchDirectories = includeDirs;
   Fortran::parser::Parsing parsing{semanticsContext.allSources()};
   parsing.Prescan(path, options);
   if (!parsing.messages().empty() &&
@@ -138,31 +143,39 @@ void convertFortranSourceToMLIR(
   fir::KindMapping kindMap{&burnside.getMLIRContext()};
   burnside.lower(parseTree, nameUniquer);
   mlir::ModuleOp mlirModule = burnside.getModule();
-  mlir::PassManager pm = mlirModule.getContext();
+  std::error_code ec;
+  raw_fd_ostream out(outputFilename, ec);
+  if (ec) {
+    errs() << "could not open output file " << outputFilename << '\n';
+    return;
+  }
+  if (emitFIR) {
+    // dump FIR and exit
+    mlirModule.print(out);
+    return;
+  }
 
+  mlir::PassManager pm = mlirModule.getContext();
   pm.addPass(fir::createMemToRegPass());
   pm.addPass(fir::createCSEPass());
   pm.addPass(fir::createLowerToLoopPass());
   pm.addPass(fir::createFIRToStdPass(kindMap));
   pm.addPass(mlir::createLowerToCFGPass());
 
-  if (EmitLLVM) {
+  if (emitLLVM) {
     pm.addPass(fir::createFIRToLLVMPass(nameUniquer));
     std::error_code ec;
-    llvm::ToolOutputFile out(OutputFilename + ".ll", ec,
+    llvm::ToolOutputFile out(outputFilename + ".ll", ec,
                              llvm::sys::fs::OF_None);
     if (ec) {
-      errs() << "can't open output file " + OutputFilename + ".ll";
+      errs() << "can't open output file " + outputFilename + ".ll";
       return;
     }
     pm.addPass(fir::createLLVMDialectToLLVMPass(out.os()));
   }
 
   if (mlir::succeeded(pm.run(mlirModule))) {
-    std::error_code ec;
-    raw_fd_ostream out(OutputFilename, ec);
-    if (!ec)
-      mlirModule.print(out);
+    mlirModule.print(out);
   } else {
     errs() << "oops, pass manager reported failure\n";
     mlirModule.dump();
@@ -181,11 +194,11 @@ int main(int argc, char **argv) {
   DriverOptions driver;
   driver.prefix = argv[0] + ": "s;
 
-  if (IncludeDirs.size() == 0) {
-    IncludeDirs.push_back(".");
+  if (includeDirs.size() == 0) {
+    includeDirs.push_back(".");
   }
-  if (ModuleDirs.size() == 0) {
-    ModuleDirs.push_back(".");
+  if (moduleDirs.size() == 0) {
+    moduleDirs.push_back(".");
   }
 
   Fortran::parser::Options options;
@@ -201,12 +214,12 @@ int main(int argc, char **argv) {
   Fortran::parser::AllSources allSources;
   Fortran::semantics::SemanticsContext semanticsContext{
       defaultKinds, options.features, allSources};
-  semanticsContext.set_moduleDirectory(ModuleDirs.front())
-      .set_moduleFileSuffix(ModuleSuffix)
-      .set_searchDirectories(IncludeDirs)
+  semanticsContext.set_moduleDirectory(moduleDirs.front())
+      .set_moduleFileSuffix(moduleSuffix)
+      .set_searchDirectories(includeDirs)
       .set_warnOnNonstandardUsage(driver.warnOnNonstandardUsage)
       .set_warningsAreErrors(driver.warningsAreErrors);
 
-  convertFortranSourceToMLIR(InputFilename, options, driver, semanticsContext);
+  convertFortranSourceToMLIR(inputFilename, options, driver, semanticsContext);
   return exitStatus;
 }
