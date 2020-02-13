@@ -94,13 +94,13 @@ public:
   matchAndRewrite(LoopOp loop, mlir::PatternRewriter &rewriter) const override {
     auto low = loop.lowerBound();
     auto high = loop.upperBound();
-    auto optStep = loop.optstep();
+    auto optStep = loop.optStep();
     auto loc = loop.getLoc();
     mlir::Value step;
     if (optStep.begin() != optStep.end()) {
       step = *optStep.begin();
     } else {
-      auto conStep = loop.constep();
+      auto conStep = loop.constantStep();
       step = rewriter.create<mlir::ConstantIndexOp>(
           loc, conStep.hasValue() ? conStep.getValue().getSExtValue() : 1);
     }

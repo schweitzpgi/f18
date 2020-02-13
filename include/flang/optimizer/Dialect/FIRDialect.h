@@ -10,6 +10,7 @@
 #define OPTIMIZER_DIALECT_FIRDIALECT_H
 
 #include "mlir/IR/Dialect.h"
+#include "mlir/InitAllPasses.h"
 
 namespace llvm {
 class raw_ostream;
@@ -43,6 +44,42 @@ public:
   void printAttribute(mlir::Attribute attr,
                       mlir::DialectAsmPrinter &p) const override;
 };
+
+/// Register the dialect with MLIR
+inline void registerFIR() {
+  // we want to register exactly once
+  [[maybe_unused]] static bool init_once = [] {
+    mlir::registerDialect<FIROpsDialect>();
+    return true;
+  }();
+}
+
+/// Register the standard passes we use. This comes from registerAllPasses(),
+/// but is a smaller set since we aren't using many of the passes found there.
+inline void registerGeneralPasses() {
+  mlir::createCanonicalizerPass();
+  mlir::createCSEPass();
+  mlir::createVectorizePass({});
+  mlir::createLoopUnrollPass();
+  mlir::createLoopUnrollAndJamPass();
+  mlir::createSimplifyAffineStructuresPass();
+  mlir::createLoopFusionPass();
+  mlir::createLoopInvariantCodeMotionPass();
+  mlir::createAffineLoopInvariantCodeMotionPass();
+  mlir::createPipelineDataTransferPass();
+  mlir::createLowerAffinePass();
+  mlir::createLoopTilingPass(0);
+  mlir::createLoopCoalescingPass();
+  mlir::createAffineDataCopyGenerationPass(0, 0);
+  mlir::createMemRefDataFlowOptPass();
+  mlir::createStripDebugInfoPass();
+  mlir::createPrintOpStatsPass();
+  mlir::createInlinerPass();
+  mlir::createSymbolDCEPass();
+  mlir::createLocationSnapshotPass({});
+}
+
+inline void registerFIRPasses() { registerGeneralPasses(); }
 
 } // namespace fir
 
