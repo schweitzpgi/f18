@@ -1,13 +1,11 @@
-add_llvm_library(FIR
+add_llvm_library(FIRSupport
   InternalNames.cpp
   KindMapping.cpp
 )
 
-target_link_libraries(FIR
-  FIRDialect
-)
+target_link_libraries(FIRSupport FIRDialect)
 
-install (TARGETS FIR
+install (TARGETS FIRSupport
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
 )
