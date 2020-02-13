@@ -44,6 +44,9 @@ namespace lower {
 class AbstractConverter;
 class SymMap;
 
+/// Create an expression.
+/// Lowers `expr` to the FIR dialect of MLIR. The expression is lowered to a
+/// value result.
 mlir::Value createSomeExpression(mlir::Location loc,
                                  AbstractConverter &converter,
                                  const evaluate::Expr<evaluate::SomeType> &expr,
@@ -55,14 +58,21 @@ createI1LogicalExpression(mlir::Location loc, AbstractConverter &converter,
                           const evaluate::Expr<evaluate::SomeType> &expr,
                           SymMap &symMap, const IntrinsicLibrary &intrinsics);
 
+/// Create an address.
+/// Lowers `expr` to the FIR dialect of MLIR. The expression must be an entity
+/// and the address of the entity is returned.
 mlir::Value createSomeAddress(mlir::Location loc, AbstractConverter &converter,
                               const evaluate::Expr<evaluate::SomeType> &expr,
                               SymMap &symMap,
                               const IntrinsicLibrary &intrinsics);
 
+/// Create a temporary. A temp is allocated using `fir.alloca` and can be read
+/// and written using `fir.load` and `fir.store`, resp.  The temporary can be
+/// given a name via a front-end `Symbol` or a `StringRef`.
 mlir::Value createTemporary(mlir::Location loc, mlir::OpBuilder &builder,
                             SymMap &symMap, mlir::Type type,
-                            const semantics::Symbol *symbol);
+                            const semantics::Symbol *symbol = nullptr,
+                            llvm::StringRef name = {});
 
 } // namespace lower
 } // namespace Fortran
