@@ -19,8 +19,6 @@
 #include "mlir/Dialect/StandardOps/Ops.h"
 #include "mlir/IR/Builders.h"
 
-#define NAMIFY_HELPER(X) #X
-#define NAMIFY(X) NAMIFY_HELPER(IONAME(X))
 
 #define TODO() assert(false && "not yet implemented")
 
@@ -28,6 +26,8 @@ using namespace Io;
 namespace Fortran::lower {
 namespace {
 
+#define NAMIFY_HELPER(X) #X
+#define NAMIFY(X) NAMIFY_HELPER(IONAME(X))
 #define mkIOKey(X) mkKey(IONAME(X))
 
 /// Static table of IO runtime calls

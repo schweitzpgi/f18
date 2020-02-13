@@ -75,14 +75,20 @@ enum TypeKind {
   FIR_TYPEDESC,
 };
 
-bool isa_fir_type(mlir::Type);
+bool isa_fir_type(mlir::Type t);
 bool isa_std_type(mlir::Type t);
 bool isa_fir_or_std_type(mlir::Type t);
+bool isa_memref(mlir::Type t);
 
+/// Extract the `Type` pointed to from a FIR memory reference type. If `t` is
+/// not a memory reference type, then returns a null `Type`.
+mlir::Type dyn_cast_ptrEleTy(mlir::Type t);
+
+/// Boilerplate mixin template
 template <typename A, unsigned Id>
 struct IntrinsicTypeMixin {
-  constexpr static bool kindof(unsigned kind) { return kind == getId(); }
-  constexpr static unsigned getId() { return Id; }
+  static constexpr bool kindof(unsigned kind) { return kind == getId(); }
+  static constexpr unsigned getId() { return Id; }
 };
 
 class CharacterType
