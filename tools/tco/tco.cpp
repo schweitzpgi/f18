@@ -20,6 +20,7 @@
 #include "mlir/Conversion/LoopToStandard/ConvertLoopToStandard.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/Module.h"
+#include "mlir/InitAllDialects.h"
 #include "mlir/Parser.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
@@ -110,7 +111,7 @@ int compileFIR() {
   // run the pass manager
   if (mlir::succeeded(pm.run(*owningRef))) {
     // passes ran successfully, so keep the output
-    if (emitFir) 
+    if (emitFir)
       printModuleBody(*owningRef, out.os());
     out.keep();
     return 0;
@@ -124,6 +125,9 @@ int compileFIR() {
 } // namespace
 
 int main(int argc, char **argv) {
+  mlir::registerAllDialects();
+  fir::registerFIR();
+  fir::registerFIRPasses();
   [[maybe_unused]] InitLLVM y(argc, argv);
   mlir::registerPassManagerCLOptions();
   mlir::PassPipelineCLParser passPipe("", "Compiler passes to run");

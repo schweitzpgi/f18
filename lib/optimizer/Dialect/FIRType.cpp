@@ -181,14 +181,14 @@ SequenceType parseSequence(mlir::DialectAsmParser &parser, mlir::Location) {
 }
 
 bool verifyIntegerType(mlir::Type ty) {
-  return ty.dyn_cast<mlir::IntegerType>() || ty.dyn_cast<IntType>();
+  return ty.isa<mlir::IntegerType>() || ty.isa<IntType>();
 }
 
 bool verifyRecordMemberType(mlir::Type ty) {
-  return !(ty.dyn_cast<BoxType>() || ty.dyn_cast<BoxCharType>() ||
-           ty.dyn_cast<BoxProcType>() || ty.dyn_cast<DimsType>() ||
-           ty.dyn_cast<FieldType>() || ty.dyn_cast<LenType>() ||
-           ty.dyn_cast<ReferenceType>() || ty.dyn_cast<TypeDescType>());
+  return !(ty.isa<BoxType>() || ty.isa<BoxCharType>() ||
+           ty.isa<BoxProcType>() || ty.isa<DimsType>() || ty.isa<FieldType>() ||
+           ty.isa<LenType>() || ty.isa<ReferenceType>() ||
+           ty.isa<TypeDescType>());
 }
 
 bool verifySameLists(llvm::ArrayRef<RecordType::TypePair> a1,
@@ -297,9 +297,8 @@ RecordType parseDerived(mlir::DialectAsmParser &parser, mlir::Location) {
 
 // !fir.ptr<X> and !fir.heap<X> where X is !fir.ptr, !fir.heap, or !fir.ref
 // is undefined and disallowed.
-bool singleIndirectionLevel(mlir::Type ty) {
-  return !(ty.dyn_cast<ReferenceType>() || ty.dyn_cast<PointerType>() ||
-           ty.dyn_cast<HeapType>());
+inline bool singleIndirectionLevel(mlir::Type ty) {
+  return !fir::isa_memref(ty);
 }
 
 } // namespace
@@ -839,6 +838,20 @@ bool fir::isa_fir_or_std_type(mlir::Type t) {
   return isa_fir_type(t) || isa_std_type(t);
 }
 
+bool fir::isa_memref(mlir::Type t) {
+  return t.isa<ReferenceType>() || t.isa<PointerType>() || t.isa<HeapType>();
+}
+
+mlir::Type fir::dyn_cast_ptrEleTy(mlir::Type t) {
+  if (auto p = t.dyn_cast<fir::ReferenceType>())
+    return p.getEleTy();
+  if (auto p = t.dyn_cast<fir::PointerType>())
+    return p.getEleTy();
+  if (auto p = t.dyn_cast<fir::HeapType>())
+    return p.getEleTy();
+  return {};
+}
+
 // CHARACTER
 
 CharacterType fir::CharacterType::get(mlir::MLIRContext *ctxt, KindTy kind) {
@@ -943,7 +956,7 @@ mlir::Type fir::BoxProcType::getEleTy() const {
 mlir::LogicalResult fir::BoxProcType::verifyConstructionInvariants(
     llvm::Optional<mlir::Location> loc, mlir::MLIRContext *context,
     mlir::Type eleTy) {
-  if (eleTy.dyn_cast<mlir::FunctionType>() || eleTy.dyn_cast<ReferenceType>())
+  if (eleTy.isa<mlir::FunctionType>() || eleTy.isa<ReferenceType>())
     return mlir::success();
   return mlir::failure();
 }
@@ -961,9 +974,8 @@ mlir::Type fir::ReferenceType::getEleTy() const {
 mlir::LogicalResult fir::ReferenceType::verifyConstructionInvariants(
     llvm::Optional<mlir::Location> loc, mlir::MLIRContext *context,
     mlir::Type eleTy) {
-  if (eleTy.dyn_cast<DimsType>() || eleTy.dyn_cast<FieldType>() ||
-      eleTy.dyn_cast<LenType>() || eleTy.dyn_cast<ReferenceType>() ||
-      eleTy.dyn_cast<TypeDescType>())
+  if (eleTy.isa<DimsType>() || eleTy.isa<FieldType>() || eleTy.isa<LenType>() ||
+      eleTy.isa<ReferenceType>() || eleTy.isa<TypeDescType>())
     return mlir::failure();
   return mlir::success();
 }
@@ -985,11 +997,11 @@ mlir::Type fir::PointerType::getEleTy() const {
 mlir::LogicalResult fir::PointerType::verifyConstructionInvariants(
     llvm::Optional<mlir::Location> loc, mlir::MLIRContext *context,
     mlir::Type eleTy) {
-  if (eleTy.dyn_cast<BoxType>() || eleTy.dyn_cast<BoxCharType>() ||
-      eleTy.dyn_cast<BoxProcType>() || eleTy.dyn_cast<DimsType>() ||
-      eleTy.dyn_cast<FieldType>() || eleTy.dyn_cast<LenType>() ||
-      eleTy.dyn_cast<HeapType>() || eleTy.dyn_cast<PointerType>() ||
-      eleTy.dyn_cast<ReferenceType>() || eleTy.dyn_cast<TypeDescType>())
+  if (eleTy.isa<BoxType>() || eleTy.isa<BoxCharType>() ||
+      eleTy.isa<BoxProcType>() || eleTy.isa<DimsType>() ||
+      eleTy.isa<FieldType>() || eleTy.isa<LenType>() || eleTy.isa<HeapType>() ||
+      eleTy.isa<PointerType>() || eleTy.isa<ReferenceType>() ||
+      eleTy.isa<TypeDescType>())
     return mlir::failure();
   return mlir::success();
 }
@@ -1012,11 +1024,11 @@ mlir::LogicalResult
 fir::HeapType::verifyConstructionInvariants(llvm::Optional<mlir::Location> loc,
                                             mlir::MLIRContext *context,
                                             mlir::Type eleTy) {
-  if (eleTy.dyn_cast<BoxType>() || eleTy.dyn_cast<BoxCharType>() ||
-      eleTy.dyn_cast<BoxProcType>() || eleTy.dyn_cast<DimsType>() ||
-      eleTy.dyn_cast<FieldType>() || eleTy.dyn_cast<LenType>() ||
-      eleTy.dyn_cast<HeapType>() || eleTy.dyn_cast<PointerType>() ||
-      eleTy.dyn_cast<ReferenceType>() || eleTy.dyn_cast<TypeDescType>())
+  if (eleTy.isa<BoxType>() || eleTy.isa<BoxCharType>() ||
+      eleTy.isa<BoxProcType>() || eleTy.isa<DimsType>() ||
+      eleTy.isa<FieldType>() || eleTy.isa<LenType>() || eleTy.isa<HeapType>() ||
+      eleTy.isa<PointerType>() || eleTy.isa<ReferenceType>() ||
+      eleTy.isa<TypeDescType>())
     return mlir::failure();
   return mlir::success();
 }
@@ -1046,12 +1058,11 @@ mlir::LogicalResult fir::SequenceType::verifyConstructionInvariants(
     const SequenceType::Shape &shape, mlir::Type eleTy,
     mlir::AffineMapAttr map) {
   // DIMENSION attribute can only be applied to an intrinsic or record type
-  if (eleTy.dyn_cast<BoxType>() || eleTy.dyn_cast<BoxCharType>() ||
-      eleTy.dyn_cast<BoxProcType>() || eleTy.dyn_cast<DimsType>() ||
-      eleTy.dyn_cast<FieldType>() || eleTy.dyn_cast<LenType>() ||
-      eleTy.dyn_cast<HeapType>() || eleTy.dyn_cast<PointerType>() ||
-      eleTy.dyn_cast<ReferenceType>() || eleTy.dyn_cast<TypeDescType>() ||
-      eleTy.dyn_cast<SequenceType>())
+  if (eleTy.isa<BoxType>() || eleTy.isa<BoxCharType>() ||
+      eleTy.isa<BoxProcType>() || eleTy.isa<DimsType>() ||
+      eleTy.isa<FieldType>() || eleTy.isa<LenType>() || eleTy.isa<HeapType>() ||
+      eleTy.isa<PointerType>() || eleTy.isa<ReferenceType>() ||
+      eleTy.isa<TypeDescType>() || eleTy.isa<SequenceType>())
     return mlir::failure();
   return mlir::success();
 }
@@ -1124,7 +1135,7 @@ mlir::Type fir::RecordType::getType(llvm::StringRef ident) {
 /// This is the type of a type descriptor object (similar to a class instance)
 
 TypeDescType fir::TypeDescType::get(mlir::Type ofType) {
-  assert(!ofType.dyn_cast<ReferenceType>());
+  assert(!ofType.isa<ReferenceType>());
   return Base::get(ofType.getContext(), FIR_TYPEDESC, ofType);
 }
 
@@ -1133,10 +1144,10 @@ mlir::Type fir::TypeDescType::getOfTy() const { return getImpl()->getOfType(); }
 mlir::LogicalResult fir::TypeDescType::verifyConstructionInvariants(
     llvm::Optional<mlir::Location> loc, mlir::MLIRContext *context,
     mlir::Type eleTy) {
-  if (eleTy.dyn_cast<BoxType>() || eleTy.dyn_cast<BoxCharType>() ||
-      eleTy.dyn_cast<BoxProcType>() || eleTy.dyn_cast<DimsType>() ||
-      eleTy.dyn_cast<FieldType>() || eleTy.dyn_cast<LenType>() ||
-      eleTy.dyn_cast<ReferenceType>() || eleTy.dyn_cast<TypeDescType>())
+  if (eleTy.isa<BoxType>() || eleTy.isa<BoxCharType>() ||
+      eleTy.isa<BoxProcType>() || eleTy.isa<DimsType>() ||
+      eleTy.isa<FieldType>() || eleTy.isa<LenType>() ||
+      eleTy.isa<ReferenceType>() || eleTy.isa<TypeDescType>())
     return mlir::failure();
   return mlir::success();
 }
