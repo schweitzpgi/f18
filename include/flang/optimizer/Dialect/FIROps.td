@@ -101,29 +101,17 @@ class fir_Op<string mnemonic, list<OpTrait> traits>
 // Base class for FIR operations that take a single argument
 class fir_SimpleOp<string mnemonic, list<OpTrait> traits>
   : fir_Op<mnemonic, traits> {
-  let parser = [{
-    mlir::FunctionType type;
-    mlir::OpAsmParser::OperandType opnd;
-    if (parser.parseOperand(opnd) ||
-        parser.parseColonType(type) ||
-        parser.resolveOperand(opnd, type.getInput(0), result.operands) ||
-        parser.addTypesToList(type.getResults(), result.types))
-      return mlir::failure();
-    return mlir::success();
-  }];
 
-  let printer = [{
-    p << getOperationName() << ' ';
-    p.printOperand(*getODSOperands(0).begin());
-    p << " : ";
-    p.printFunctionalType(getOperation());
+  let assemblyFormat = [{
+    operands attr-dict `:` functional-type(operands, results)
   }];
 }
 
 // Base builder for allocate operations
 def fir_AllocateOpBuilder : OpBuilder<
   "Builder *builder, OperationState &result, Type inType,"
-  "ArrayRef<Value> sizes = {}, ArrayRef<NamedAttribute> attributes = {}",
+  "ArrayRef<Value> lenParams = {}, ArrayRef<Value> sizes = {},"
+  "ArrayRef<NamedAttribute> attributes = {}",
   [{
     result.addTypes(getRefTy(inType));
     result.addAttribute("in_type", mlir::TypeAttr::get(inType));
@@ -134,7 +122,8 @@ def fir_AllocateOpBuilder : OpBuilder<
 
 def fir_NamedAllocateOpBuilder : OpBuilder<
   "Builder *builder, OperationState &result, Type inType, StringRef name,"
-  "ArrayRef<Value> sizes = {}, ArrayRef<NamedAttribute> attributes = {}",
+  "ArrayRef<Value> lenParams = {}, ArrayRef<Value> sizes = {},"
+  "ArrayRef<NamedAttribute> attributes = {}",
   [{
     result.addTypes(getRefTy(inType));
     result.addAttribute("in_type", mlir::TypeAttr::get(inType));
@@ -194,8 +183,10 @@ class fir_AllocatableOp<string mnemonic, list<OpTrait> traits =[]> :
     llvm::SmallVector<mlir::Type, 8> typeVec;
     bool hasOperands = false;
     if (!parser.parseOptionalLParen()) {
+      // parse the LEN params of the derived type. (<params> : <types)
       if (parser.parseOperandList(operands,
                                   mlir::OpAsmParser::Delimiter::None) ||
+          parser.parseColonTypeList(typeVec) ||
           parser.parseRParen())
         return mlir::failure();
       auto lens = builder.getI32IntegerAttr(operands.size());
@@ -203,13 +194,17 @@ class fir_AllocatableOp<string mnemonic, list<OpTrait> traits =[]> :
       hasOperands = true;
     }
     if (!parser.parseOptionalComma()) {
+      // parse size to scale by, vector of n dimensions of type index
+      auto opSize = operands.size();
       if (parser.parseOperandList(operands, mlir::OpAsmParser::Delimiter::None))
         return mlir::failure();
+      for (auto i = opSize, end = operands.size(); i != end; ++i)
+        typeVec.push_back(builder.getIndexType());
       hasOperands = true;
     }
     if (hasOperands &&
-        parser.resolveOperands(operands, {builder.getIndexType()},
-            parser.getNameLoc(), result.operands))
+        parser.resolveOperands(operands, typeVec, parser.getNameLoc(),
+                               result.operands))
       return mlir::failure();
     mlir::Type restype = wrapResultType(intype);
     if (!restype) {
@@ -226,10 +221,17 @@ class fir_AllocatableOp<string mnemonic, list<OpTrait> traits =[]> :
   let printer = [{
     p << getOperationName() << ' ' << getAttr(inType());
     if (hasLenParams()) {
+      // print the LEN parameters to a derived type in parens
       p << '(';
       p.printOperands(getLenParams());
+      p << " : ";
+      mlir::interleaveComma(getLenParams(), p.getStream(),
+                            [&](const auto &opnd) {
+                                p.printType(opnd.getType());
+                            });
       p << ')';
     }
+    // print the shape of the allocation (if any); all must be index type
     for (auto sh : getShapeOperands()) {
       p << ", ";
       p.printOperand(sh);
@@ -917,9 +919,9 @@ def fir_EmboxOp : fir_Op<"embox", [NoSideEffect]>, Results<(outs fir_BoxType)>,
   }];
 }
 
-def fir_EmboxCharOp : fir_Op<"emboxchar", [NoSideEffect]>,
-    Results<(outs fir_BoxCharType)>,
-    Arguments<(ins AnyReferenceLike:$memref, AnyIntegerLike:$len)> {
+def fir_EmboxCharOp : fir_Op<"emboxchar", [NoSideEffect]> {
+  let results = (outs fir_BoxCharType);
+  let arguments = (ins AnyReferenceLike:$memref, AnyIntegerLike:$len);
   let summary = "boxes a given CHARACTER reference and its LEN parameter";
 
   let description = [{
@@ -936,26 +938,8 @@ def fir_EmboxCharOp : fir_Op<"emboxchar", [NoSideEffect]>,
                                    i32) -> !fir.boxchar<1>
   }];
 
-  let parser = [{
-    mlir::FunctionType type;
-    llvm::SmallVector<mlir::OpAsmParser::OperandType, 2> operands;
-    if (parser.parseOperandList(operands, 2,
-            mlir::OpAsmParser::Delimiter::None) ||
-        parser.parseColonType(type) ||
-        parser.resolveOperands(operands, type.getInputs(),
-            parser.getNameLoc(), result.operands) ||
-        parser.addTypesToList(type.getResults(), result.types))
-      return mlir::failure();
-    return mlir::success();
-  }];
-
-  let printer = [{
-    p << getOperationName() << ' ';
-    p.printOperand(memref());
-    p << ", ";
-    p.printOperand(len());
-    p << " : ";
-    p.printFunctionalType(getOperation());
+  let assemblyFormat = [{
+    $memref `,` $len attr-dict `:` functional-type(operands, results)
   }];
 
   let verifier = [{
@@ -2043,33 +2027,16 @@ def fir_AddrOfOp : fir_OneResultOp<"address_of", [NoSideEffect]> {
   }];
 }
 
-def fir_ConvertOp : fir_OneResultOp<"convert", [NoSideEffect]>,
-    Arguments<(ins AnyType:$value)> {
+def fir_ConvertOp : fir_OneResultOp<"convert", [NoSideEffect]> {
+  let arguments = (ins AnyType:$value);
   let summary = "encapsulates all Fortran scalar type conversions";
 
   let description = [{
     Generalized type conversion. Not all pairs of types have conversions.
   }];
 
-  let parser = [{
-    mlir::FunctionType type;
-    llvm::SmallVector<mlir::OpAsmParser::OperandType, 1> operands;
-    if (parser.parseOperandList(operands, 1,
-            mlir::OpAsmParser::Delimiter::None) ||
-        parser.parseOptionalAttrDict(result.attributes) ||
-        parser.parseColonType(type) ||
-        parser.resolveOperands(operands, type.getInputs(),
-            parser.getNameLoc(), result.operands) ||
-        parser.addTypesToList(type.getResults(), result.types))
-      return mlir::failure();
-    return mlir::success();
-  }];
-  let printer = [{
-    p << getOperationName() << ' ';
-    p.printOperand(value());
-    p.printOptionalAttrDict(getAttrs(), {});
-    p << " : ";
-    p.printFunctionalType(getOperation());
+  let assemblyFormat = [{
+    $value attr-dict `:` functional-type($value, results)
   }];
 }
 
@@ -2136,7 +2103,8 @@ def fir_GenTypeDescOp : fir_OneResultOp<"gentypedesc", [NoSideEffect]>,
 }
 
 def fir_NoReassocOp : fir_OneResultOp<"no_reassoc",
-    [SameOperandsAndResultType]>, Arguments<(ins fir_Type:$val)> {
+    [SameOperandsAndResultType]> {
+  let arguments = (ins AnyType:$val);
   let summary = "synthetic op to prevent reassociation";
 
   let description = [{
@@ -2145,20 +2113,8 @@ def fir_NoReassocOp : fir_OneResultOp<"no_reassoc",
     parenthesis.
   }];
 
-  let parser = [{
-    mlir::Type type;
-    mlir::OpAsmParser::OperandType opnd;
-    if (parser.parseOperand(opnd) ||
-        parser.parseColonType(type) ||
-        parser.resolveOperand(opnd, type, result.operands) ||
-        parser.addTypeToList(type, result.types))
-      return mlir::failure();
-    return mlir::success();
-  }];
-  let printer = [{
-    p << getOperationName() << ' ';
-    p.printOperand(val());
-    p << " : " << getType();
+  let assemblyFormat = [{
+    $val attr-dict `:` type($val)
   }];
 }
 
