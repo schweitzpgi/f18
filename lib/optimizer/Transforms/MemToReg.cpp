@@ -743,6 +743,13 @@ struct MemToReg
 
 } // namespace
 
+using MemToRegPass =
+    MemToReg<fir::LoadOp, fir::StoreOp, fir::AllocaOp, fir::UndefOp>;
+
 std::unique_ptr<mlir::OpPassBase<mlir::FuncOp>> fir::createMemToRegPass() {
-  return std::make_unique<MemToReg<LoadOp, StoreOp, AllocaOp, UndefOp>>();
+  return std::make_unique<MemToRegPass>();
 }
+
+// Register the Mem To Reg pass
+static mlir::PassRegistration<MemToRegPass>
+    pass("mem-to-reg", "Conversion from mem to reg form");

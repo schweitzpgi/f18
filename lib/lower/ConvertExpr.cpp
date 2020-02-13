@@ -875,7 +875,7 @@ M::Value Br::createSomeAddress(M::Location loc,
 /// `symbol` will be nullptr for an anonymous temporary
 M::Value Br::createTemporary(M::Location loc, M::OpBuilder &builder,
                              SymMap &symMap, M::Type type,
-                             const Se::Symbol *symbol) {
+                             const Se::Symbol *symbol, llvm::StringRef name) {
   if (symbol)
     if (auto val = symMap.lookupSymbol(*symbol)) {
       if (auto op = val.getDefiningOp())
@@ -890,7 +890,7 @@ M::Value Br::createTemporary(M::Location loc, M::OpBuilder &builder,
     ae = builder.create<fir::AllocaOp>(loc, type, symbol->name().ToString());
     symMap.addSymbol(*symbol, ae);
   } else {
-    ae = builder.create<fir::AllocaOp>(loc, type);
+    ae = builder.create<fir::AllocaOp>(loc, type, name);
   }
   builder.restoreInsertionPoint(insPt);
   return ae;
