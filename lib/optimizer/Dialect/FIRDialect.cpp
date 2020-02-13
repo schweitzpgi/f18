@@ -36,8 +36,6 @@ void selectBuild(mlir::OpBuilder *builder, mlir::OperationState *result,
   }
 }
 
-mlir::DialectRegistration<fir::FIROpsDialect> FIROps;
-
 } // namespace
 
 fir::FIROpsDialect::FIROpsDialect(mlir::MLIRContext *ctx)
