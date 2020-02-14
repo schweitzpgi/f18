@@ -43,13 +43,13 @@ public:
   using Base::Base;
   using ValueType = mlir::Type;
 
-  constexpr static llvm::StringRef getAttrName() { return "instance"; }
+  static constexpr llvm::StringRef getAttrName() { return "instance"; }
   static ExactTypeAttr get(mlir::Type value);
 
   mlir::Type getType() const;
 
-  constexpr static bool kindof(unsigned kind) { return kind == getId(); }
-  constexpr static unsigned getId() { return AttributeKind::FIR_EXACTTYPE; }
+  static constexpr bool kindof(unsigned kind) { return kind == getId(); }
+  static constexpr unsigned getId() { return AttributeKind::FIR_EXACTTYPE; }
 };
 
 class SubclassAttr
@@ -59,13 +59,13 @@ public:
   using Base::Base;
   using ValueType = mlir::Type;
 
-  constexpr static llvm::StringRef getAttrName() { return "subsumed"; }
+  static constexpr llvm::StringRef getAttrName() { return "subsumed"; }
   static SubclassAttr get(mlir::Type value);
 
   mlir::Type getType() const;
 
-  constexpr static bool kindof(unsigned kind) { return kind == getId(); }
-  constexpr static unsigned getId() { return AttributeKind::FIR_SUBCLASS; }
+  static constexpr bool kindof(unsigned kind) { return kind == getId(); }
+  static constexpr unsigned getId() { return AttributeKind::FIR_SUBCLASS; }
 };
 
 // Attributes for building SELECT CASE multiway branches
@@ -79,10 +79,10 @@ class ClosedIntervalAttr
 public:
   using Base::Base;
 
-  constexpr static llvm::StringRef getAttrName() { return "interval"; }
+  static constexpr llvm::StringRef getAttrName() { return "interval"; }
   static ClosedIntervalAttr get(mlir::MLIRContext *ctxt);
-  constexpr static bool kindof(unsigned kind) { return kind == getId(); }
-  constexpr static unsigned getId() {
+  static constexpr bool kindof(unsigned kind) { return kind == getId(); }
+  static constexpr unsigned getId() {
     return AttributeKind::FIR_CLOSEDCLOSED_INTERVAL;
   }
 };
@@ -95,10 +95,10 @@ class UpperBoundAttr : public mlir::Attribute::AttrBase<UpperBoundAttr> {
 public:
   using Base::Base;
 
-  constexpr static llvm::StringRef getAttrName() { return "upper"; }
+  static constexpr llvm::StringRef getAttrName() { return "upper"; }
   static UpperBoundAttr get(mlir::MLIRContext *ctxt);
-  constexpr static bool kindof(unsigned kind) { return kind == getId(); }
-  constexpr static unsigned getId() {
+  static constexpr bool kindof(unsigned kind) { return kind == getId(); }
+  static constexpr unsigned getId() {
     return AttributeKind::FIR_OPENCLOSED_INTERVAL;
   }
 };
@@ -111,10 +111,10 @@ class LowerBoundAttr : public mlir::Attribute::AttrBase<LowerBoundAttr> {
 public:
   using Base::Base;
 
-  constexpr static llvm::StringRef getAttrName() { return "lower"; }
+  static constexpr llvm::StringRef getAttrName() { return "lower"; }
   static LowerBoundAttr get(mlir::MLIRContext *ctxt);
-  constexpr static bool kindof(unsigned kind) { return kind == getId(); }
-  constexpr static unsigned getId() {
+  static constexpr bool kindof(unsigned kind) { return kind == getId(); }
+  static constexpr unsigned getId() {
     return AttributeKind::FIR_CLOSEDOPEN_INTERVAL;
   }
 };
@@ -127,10 +127,10 @@ class PointIntervalAttr : public mlir::Attribute::AttrBase<PointIntervalAttr> {
 public:
   using Base::Base;
 
-  constexpr static llvm::StringRef getAttrName() { return "point"; }
+  static constexpr llvm::StringRef getAttrName() { return "point"; }
   static PointIntervalAttr get(mlir::MLIRContext *ctxt);
-  constexpr static bool kindof(unsigned kind) { return kind == getId(); }
-  constexpr static unsigned getId() { return AttributeKind::FIR_POINT; }
+  static constexpr bool kindof(unsigned kind) { return kind == getId(); }
+  static constexpr unsigned getId() { return AttributeKind::FIR_POINT; }
 };
 
 /// A real attribute is used to workaround MLIR's default parsing of a real
@@ -144,14 +144,14 @@ public:
   using Base::Base;
   using ValueType = std::pair<int, llvm::APFloat>;
 
-  constexpr static llvm::StringRef getAttrName() { return "real"; }
+  static constexpr llvm::StringRef getAttrName() { return "real"; }
   static RealAttr get(mlir::MLIRContext *ctxt, const ValueType &key);
 
   int getFKind() const;
   llvm::APFloat getValue() const;
 
-  constexpr static bool kindof(unsigned kind) { return kind == getId(); }
-  constexpr static unsigned getId() { return AttributeKind::FIR_REAL_ATTR; }
+  static constexpr bool kindof(unsigned kind) { return kind == getId(); }
+  static constexpr unsigned getId() { return AttributeKind::FIR_REAL_ATTR; }
 };
 
 mlir::Attribute parseFirAttribute(FIROpsDialect *dialect,
