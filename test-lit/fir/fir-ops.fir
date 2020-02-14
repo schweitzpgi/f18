@@ -75,8 +75,8 @@ func @user_i64(i64)
 func @user_tdesc(!fir.tdesc<!fir.type<x>>)
 
 // expect the void return to be omitted
-// CHECK-LABEL: func @store_tuple(!fir.type<qq1{f1:i32}>)
-func @store_tuple(!fir.type<qq1{f1:i32}>) -> ()
+// CHECK-LABEL: func @store_tuple(tuple<!fir.type<qq1{f1:i32}>>)
+func @store_tuple(tuple<!fir.type<qq1{f1:i32}>>) -> ()
 
 // CHECK-LABEL: func @get_method_box() -> !fir.box<!fir.type<derived3{f:f32}>>
 // CHECK-LABEL: func @method_impl(!fir.box<!fir.type<derived3{f:f32}>>)
@@ -192,13 +192,13 @@ func @boxing_match() {
   %a3 = fir.insert_value %6, %c42, %z1 : (!fir.type<qq2{f1:i32,f2:f64}>, f64, i32) -> !fir.type<qq2{f1:i32,f2:f64}>
   fir.store %a3 to %d6 : !fir.ref<!fir.type<qq2{f1:i32,f2:f64}>>
   %7 = fir.emboxproc @method_impl, %e6 : ((!fir.box<!fir.type<derived3{f:f32}>>) -> (), !fir.ref<tuple<i32,f64>>) -> !fir.boxproc<(!fir.box<!fir.type<derived3{f:f32}>>) -> ()>
-  %8:2 = fir.unboxproc %7 : (!fir.boxproc<(!fir.box<!fir.type<derived3{f:f32}>>) -> ()>) -> ((!fir.box<!fir.type<derived3{f:f32}>>) -> (), !fir.ref<!fir.type<qq2{f1:i32,f2:f64}>>)
+  %8:2 = fir.unboxproc %7 : (!fir.boxproc<(!fir.box<!fir.type<derived3{f:f32}>>) -> ()>) -> ((!fir.box<!fir.type<derived3{f:f32}>>) -> (), !fir.ref<tuple<!fir.type<qq2{f1:i32,f2:f64}>>>)
   // CHECK: fir.emboxproc @method_impl, %{{.*}} : ((!fir.box<!fir.type<derived3{f:f32}>>) -> (), !fir.ref<tuple<i32, f64>>) -> !fir.boxproc<(!fir.box<!fir.type<derived3{f:f32}>>) -> ()>
-  // CHECK: fir.unboxproc %{{.*}} : (!fir.boxproc<(!fir.box<!fir.type<derived3{f:f32}>>) -> ()>) -> ((!fir.box<!fir.type<derived3{f:f32}>>) -> (), !fir.ref<!fir.type<qq2{f1:i32,f2:f64}>>)
+  // CHECK: fir.unboxproc %{{.*}} : (!fir.boxproc<(!fir.box<!fir.type<derived3{f:f32}>>) -> ()>) -> ((!fir.box<!fir.type<derived3{f:f32}>>) -> (), !fir.ref<tuple<!fir.type<qq2{f1:i32,f2:f64}>>>)
   %9 = call @box3() : () -> !fir.boxproc<(i32, i32) -> i64>
-  %10:2 = fir.unboxproc %9 : (!fir.boxproc<(i32, i32) -> i64>) -> ((i32, i32) -> i64, !fir.ref<!fir.type<qq1{f1:i32}>>)
-  %11 = fir.load %10#1 : !fir.ref<!fir.type<qq1{f1:i32}>>
-  fir.call @store_tuple(%11) : (!fir.type<qq1{f1:i32}>) -> ()
+  %10:2 = fir.unboxproc %9 : (!fir.boxproc<(i32, i32) -> i64>) -> ((i32, i32) -> i64, !fir.ref<tuple<!fir.type<qq1{f1:i32}>>>)
+  %11 = fir.load %10#1 : !fir.ref<tuple<!fir.type<qq1{f1:i32}>>>
+  fir.call @store_tuple(%11) : (tuple<!fir.type<qq1{f1:i32}>>) -> ()
   return
 }
 

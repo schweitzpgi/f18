@@ -6,7 +6,7 @@
 func @x(%lb : index, %ub : index, %step : index, %b : i1, %addr : !fir.ref<index>) {
   // CHECK: %[[COND:.*]] = icmp slt i64
   // CHECK: br i1 %[[COND]]
-  %iv = fir.loop %iv = %lb to %ub step %step unordered {
+  fir.loop %iv = %lb to %ub step %step unordered {
     // CHECK: br i1 %
     fir.where %b {
       // CHECK: store i64
