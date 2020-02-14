@@ -107,7 +107,17 @@ public:
     auto f = rewriter.create<mlir::loop::ForOp>(loc, low, high, step);
     f.region().getBlocks().clear();
     rewriter.inlineRegionBefore(loop.region(), f.region(), f.region().end());
-    rewriter.eraseOp(loop);
+    if (loop.hasLastValue()) {
+      // Compute the final value of the loop iterator.
+      // FIXME: If there are no iterations?
+      auto ty = low.getType();
+      auto d = rewriter.create<mlir::SubIOp>(loc, ty, high, low);
+      auto q = rewriter.create<mlir::SignedDivIOp>(loc, ty, d, step);
+      auto dist = rewriter.create<mlir::MulIOp>(loc, ty, q, step);
+      rewriter.replaceOpWithNewOp<mlir::AddIOp>(loop, ty, low, dist);
+    } else {
+      rewriter.eraseOp(loop);
+    }
     return matchSuccess();
   }
 };

@@ -509,15 +509,20 @@ mlir::ParseResult parseLoopOp(mlir::OpAsmParser &parser,
       parser.resolveOperand(ub, indexType, result.operands))
     return mlir::failure();
 
-  if (parser.parseOptionalKeyword(LoopOp::getStepKeyword()))
-    result.addAttribute(LoopOp::getStepKeyword(),
+  if (parser.parseOptionalKeyword(LoopOp::stepName())) {
+    result.addAttribute(LoopOp::stepName(),
                         builder.getIntegerAttr(builder.getIndexType(), 1));
-  else if (parser.parseOperand(step) ||
-           parser.resolveOperand(step, indexType, result.operands))
+  } else if (parser.parseOperand(step) ||
+             parser.resolveOperand(step, indexType, result.operands)) {
     return mlir::failure();
+  }
 
-  if (!parser.parseOptionalKeyword("unordered"))
-    result.addAttribute("unordered", builder.getUnitAttr());
+  // Parse the optional `unordered` keyword
+  bool isUnordered = false;
+  if (!parser.parseOptionalKeyword(LoopOp::unorderedName())) {
+    result.addAttribute(LoopOp::unorderedName(), builder.getUnitAttr());
+    isUnordered = true;
+  }
 
   // Parse the body region.
   mlir::Region *body = result.addRegion();
@@ -529,7 +534,8 @@ mlir::ParseResult parseLoopOp(mlir::OpAsmParser &parser,
   // Parse the optional attribute list.
   if (parser.parseOptionalAttrDict(result.attributes))
     return mlir::failure();
-  result.addTypes(builder.getIndexType());
+  if (!isUnordered)
+    result.addTypes(builder.getIndexType());
   return mlir::success();
 }
 
