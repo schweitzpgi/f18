@@ -2,7 +2,6 @@
 
 ! Test Pre-FIR Tree captures all the coarray related statements
 
-! CHECK: PFT root node:[[#%u, ROOT:]]
 ! CHECK: Subroutine test_coarray
 Subroutine test_coarray
   use iso_fortran_env, only: team_type, event_type, lock_type

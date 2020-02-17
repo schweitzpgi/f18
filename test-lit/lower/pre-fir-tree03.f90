@@ -2,7 +2,6 @@
 
 ! Test Pre-FIR Tree captures OpenMP related constructs
 
-! CHECK: PFT root node:[[#%u, ROOT:]]
 ! CHECK: Program test_omp
 program test_omp
   ! CHECK: PrintStmt

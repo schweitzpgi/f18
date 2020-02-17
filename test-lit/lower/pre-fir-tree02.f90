@@ -3,7 +3,6 @@
 ! Test Pre-FIR Tree captures all the intended nodes from the parse-tree
 ! Coarray and OpenMP related nodes are tested in other files.
 
-! CHECK: PFT root node:[[#%u, ROOT:]]
 ! CHECK: Program test_prog
 program test_prog
   ! Check specification part is not part of the tree.
