@@ -689,9 +689,12 @@ void annotateControl(PFT::Program &pft) {
   }
 }
 
-/// Dump a PFT.
 void dumpPFT(llvm::raw_ostream &outputStream, PFT::Program &pft) {
   PFTDumper{}.dumpPFT(outputStream, pft);
+}
+
+void PFT::Program::dump() {
+  dumpPFT(L::errs(), *this);
 }
 
 } // namespace Fortran::lower
