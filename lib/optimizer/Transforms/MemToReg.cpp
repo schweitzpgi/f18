@@ -280,7 +280,7 @@ struct MemToReg
       if (!LI)
         continue;
 
-      unsigned LoadIdx = LBI.getInstructionIndex(LI);
+      unsigned LoadIdx{LBI.getInstructionIndex(LI)};
 
       // Find the nearest store that has a lower index than this load.
       typename StoresByIndexTy::iterator I = llvm::lower_bound(
@@ -343,7 +343,7 @@ struct MemToReg
     // If any of the using blocks is also a definition block, check to see if
     // the definition occurs before or after the use.  If it happens before the
     // use, the value isn't really live-in.
-    for (unsigned i = 0, e = LiveInBlockWorklist.size(); i != e; ++i) {
+    for (std::size_t i = 0, e{LiveInBlockWorklist.size()}; i != e; ++i) {
       mlir::Block *BB = LiveInBlockWorklist[i];
       if (!DefBlocks.count(BB))
         continue;
@@ -521,7 +521,7 @@ struct MemToReg
     if ((!BB->hasNoPredecessors()) && (BB->getNumArguments() > 0)) {
       // add the values from block `Pred` to the argument list in the proper
       // positions
-      for (unsigned ai = 0, AI = BB->getNumArguments(); ai != AI; ++ai) {
+      for (unsigned ai = 0, AI{BB->getNumArguments()}; ai != AI; ++ai) {
         auto allocaNo = argToAllocaMap[std::make_pair(BB, ai)];
         setParam(Pred, ai, IncomingVals[allocaNo], BB, AI);
         // use the block argument, not the live def in the pred block
@@ -607,7 +607,7 @@ struct MemToReg
 
     assert(!allocas.empty());
 
-    for (unsigned allocaNum = 0, End = allocas.size(); allocaNum != End;
+    for (std::size_t allocaNum = 0, End{allocas.size()}; allocaNum != End;
          ++allocaNum) {
       auto ae = allocas[allocaNum];
       assert(ae.template getParentOfType<mlir::FuncOp>() == F);
@@ -677,7 +677,7 @@ struct MemToReg
     // of the alloca's.  We do this in case there is a load of a value that
     // has not been stored yet.  In this case, it will get this null value.
     RenamePassData::ValVector values(allocas.size());
-    for (unsigned i = 0, e = allocas.size(); i != e; ++i)
+    for (std::size_t i = 0, e{allocas.size()}; i != e; ++i)
       values[i] = builder->create<UNDEF>(allocas[i].getLoc(),
                                          allocas[i].getAllocatedType());
 
