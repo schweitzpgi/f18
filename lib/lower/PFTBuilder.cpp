@@ -7,6 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "flang/lower/PFTBuilder.h"
+#include "NSAliases.h"
 #include "flang/parser/dump-parse-tree.h"
 #include "flang/parser/parse-tree-visitor.h"
 #include "llvm/ADT/DenseMap.h"
@@ -689,9 +690,12 @@ void annotateControl(PFT::Program &pft) {
   }
 }
 
-/// Dump a PFT.
 void dumpPFT(llvm::raw_ostream &outputStream, PFT::Program &pft) {
   PFTDumper{}.dumpPFT(outputStream, pft);
+}
+
+void PFT::Program::dump() {
+  dumpPFT(L::errs(), *this);
 }
 
 } // namespace Fortran::lower
