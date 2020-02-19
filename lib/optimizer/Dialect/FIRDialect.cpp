@@ -45,7 +45,7 @@ fir::FIROpsDialect::FIROpsDialect(mlir::MLIRContext *ctx)
            RealType, RecordType, ReferenceType, SequenceType, TypeDescType>();
   addAttributes<ClosedIntervalAttr, ExactTypeAttr, LowerBoundAttr,
                 PointIntervalAttr, RealAttr, SubclassAttr, UpperBoundAttr>();
-  addOperations<GlobalOp, DispatchTableOp,
+  addOperations<DispatchTableOp,
 #define GET_OP_LIST
 #include "flang/optimizer/Dialect/FIROps.cpp.inc"
                 >();
