@@ -19,7 +19,7 @@
 #include <memory>
 
 namespace Fortran::lower {
-namespace PFT {
+namespace pft {
 
 struct Evaluation;
 struct Program;
@@ -135,6 +135,7 @@ struct Evaluation {
   /// Hide non-nullable pointers to the parse-tree node.
   template <typename A>
   using MakeRefType = const A *const;
+
   using EvalVariant =
       common::CombineVariants<common::MapTemplate<MakeRefType, EvalTuple>,
                               std::variant<CGJump>>;
@@ -146,22 +147,22 @@ struct Evaluation {
                       },
                       u);
   }
+  
   template <typename A>
   constexpr const A *getIf() const {
     if constexpr (!std::is_same_v<A, CGJump>) {
-      if (auto *ptr{std::get_if<MakeRefType<A>>(&u)}) {
+      if (auto *ptr{std::get_if<MakeRefType<A>>(&u)})
         return *ptr;
-      }
     } else {
       return std::get_if<CGJump>(&u);
     }
     return nullptr;
   }
+  
   template <typename A>
   constexpr bool isA() const {
-    if constexpr (!std::is_same_v<A, CGJump>) {
+    if constexpr (!std::is_same_v<A, CGJump>)
       return std::holds_alternative<MakeRefType<A>>(u);
-    }
     return std::holds_alternative<CGJump>(u);
   }
 
@@ -182,25 +183,30 @@ struct Evaluation {
   /// Construct ctor
   template <typename A>
   Evaluation(const A &a, const ParentType &parent) : u{&a}, parent{parent} {
-    static_assert(PFT::isConstruct<A>, "must be a construct");
+    static_assert(pft::isConstruct<A>, "must be a construct");
   }
 
   constexpr bool isActionOrGenerated() const {
     return visit(common::visitors{
         [](auto &r) {
           using T = std::decay_t<decltype(r)>;
-          return isActionStmt<T> || isGenerated<T>;
+          return pft::isActionStmt<T> || isGenerated<T>;
         },
     });
+  }
+
+  constexpr bool isActionStmt() const {
+    return visit(common::visitors{
+        [](auto &r) { return pft::isActionStmt<std::decay_t<decltype(r)>>; }});
   }
 
   constexpr bool isStmt() const {
     return visit(common::visitors{
         [](auto &r) {
           using T = std::decay_t<decltype(r)>;
-          static constexpr bool isStmt{isActionStmt<T> || isOtherStmt<T> ||
+          static constexpr bool isStmt{pft::isActionStmt<T> || isOtherStmt<T> ||
                                        isConstructStmt<T>};
-          static_assert(!(isStmt && PFT::isConstruct<T>),
+          static_assert(!(isStmt && pft::isConstruct<T>),
                         "statement classification is inconsistent");
           return isStmt;
         },
@@ -226,12 +232,10 @@ struct Evaluation {
 
   EvaluationCollection *getConstructEvals() {
     auto *evals{subs.get()};
-    if (isStmt() && !evals) {
+    if (isStmt() && !evals)
       return nullptr;
-    }
-    if (isConstruct() && evals) {
+    if (isConstruct() && evals)
       return evals;
-    }
     llvm_unreachable("evaluation subs is inconsistent");
     return nullptr;
   }
@@ -354,7 +358,7 @@ struct BlockDataUnit : public ProgramUnit {
   BlockDataUnit(const BlockDataUnit &) = delete;
 };
 
-/// A Program is the top-level PFT
+/// A Program is the top-level root of the PFT.
 struct Program {
   using Units = std::variant<FunctionLikeUnit, ModuleLikeUnit, BlockDataUnit>;
 
@@ -364,11 +368,14 @@ struct Program {
 
   std::list<Units> &getUnits() { return units; }
 
+  /// LLVM dump method on a Program.
+  void dump();
+
 private:
   std::list<Units> units;
 };
 
-} // namespace PFT
+} // namespace pft
 
 /// Create an PFT from the parse tree.
 ///
@@ -382,15 +389,16 @@ private:
 /// units.  Function like units will contain lists of evaluations.  Evaluations
 /// are either statements or constructs, where a construct contains a list of
 /// evaluations. The resulting PFT structure can then be used to create FIR.
-std::unique_ptr<PFT::Program> createPFT(const parser::Program &root);
+std::unique_ptr<pft::Program> createPFT(const parser::Program &root);
 
 /// Decorate the PFT with control flow annotations
 ///
 /// The PFT must be decorated with control-flow annotations to prepare it for
 /// use in generating a CFG-like structure.
-void annotateControl(PFT::Program &);
+void annotateControl(pft::Program &pft);
 
-void dumpPFT(llvm::raw_ostream &o, PFT::Program &);
+/// Dumper for displaying a PFT structure.
+void dumpPFT(llvm::raw_ostream &o, pft::Program &pft);
 
 } // namespace Fortran::lower
 
