@@ -1214,10 +1214,10 @@ struct CoordinateOpConversion : public FIROpConversion<CoordinateOp> {
       if (coor.getNumOperands() == 2) {
         auto coorPtr = *coor.coor().begin();
         auto s = coorPtr.getDefiningOp();
-        if (dyn_cast_or_null<LenParamIndexOp>(s)) {
-          auto &lenParam = operands[1]; // byte offset
-          auto bc =
-              rewriter.create<mlir::LLVM::BitcastOp>(loc, voidPtrTy(), base);
+        if (s && isa<LenParamIndexOp>(s)) {
+          mlir::Value lenParam = operands[1]; // byte offset
+          auto vty = voidPtrTy();
+          auto bc = rewriter.create<mlir::LLVM::BitcastOp>(loc, vty, base);
           auto uty = unwrap(ty);
           auto gep = genGEP(loc, uty, rewriter, bc, lenParam);
           rewriter.replaceOpWithNewOp<mlir::LLVM::BitcastOp>(coor, uty, gep);
@@ -1228,6 +1228,7 @@ struct CoordinateOpConversion : public FIROpConversion<CoordinateOp> {
       auto pty = unwrap(convertType(boxTy.getEleTy())).getPointerTo();
       // Extract the boxed reference
       auto p = genGEP(loc, pty, rewriter, base, c0, c0_);
+      // base = box->data : ptr
       base = rewriter.create<mlir::LLVM::LoadOp>(loc, pty, p);
     }
 
