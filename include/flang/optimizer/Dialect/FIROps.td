@@ -2153,6 +2153,101 @@ def fir_NoReassocOp : fir_OneResultOp<"no_reassoc",
   let assemblyFormat = "$val attr-dict `:` type($val)";
 }
 
+def fir_GlobalOp :
+    fir_Op<"global", [IsolatedFromAbove, Symbol, ImplicitFirTerminator]> {
+  let summary = "Global data";
+
+  let description = [{
+    Global data object. FIXME
+  }];
+
+  let parser = [{
+    // Parse the name as a symbol reference attribute.
+    SymbolRefAttr nameAttr;
+    if (parser.parseAttribute(nameAttr, mlir::SymbolTable::getSymbolAttrName(),
+                              result.attributes))
+      return failure();
+
+    auto &builder = parser.getBuilder();
+    auto name = nameAttr.getRootReference();
+    result.attributes.back().second = builder.getStringAttr(name);
+
+    if (!parser.parseOptionalKeyword(getConstantName())) {
+      // if "constant" keyword then mark this as a constant, not a variable
+      result.addAttribute(getConstantName(), builder.getUnitAttr());
+    }
+
+    mlir::Type globalType;
+    if (parser.parseColonType(globalType))
+      return mlir::failure();
+
+    result.addAttribute(getTypeAttrName(), mlir::TypeAttr::get(globalType));
+
+    // Parse the optional initializer body.
+    mlir::Region *body = result.addRegion();
+    if (parser.parseOptionalRegion(
+          *body, llvm::ArrayRef<mlir::OpAsmParser::OperandType>{},
+          llvm::ArrayRef<mlir::Type>{}))
+      return mlir::failure();
+
+    ensureTerminator(*body, builder, result.location);
+    return mlir::success();
+  }];
+
+  let printer = [{
+    auto varName = getAttrOfType<StringAttr>(
+      mlir::SymbolTable::getSymbolAttrName()).getValue();
+    p << getOperationName() << " @" << varName;
+    if (getAttr(getConstantName()))
+      p << ' ' << getConstantName();
+    p << " : ";
+    p.printType(getType());
+    Region &body = getOperation()->getRegion(0);
+    if (!body.empty())
+      p.printRegion(body, /*printEntryBlockArgs=*/false,
+                    /*printBlockTerminators=*/false);
+  }];
+
+  let verifier = [{
+    // FIXME
+    return mlir::success();
+  }];
+
+  let regions = (region SizedRegion<1>:$region);
+
+  let skipDefaultBuilders = 1;
+  let builders = [
+    OpBuilder<"mlir::Builder *builder, mlir::OperationState &result,"
+              "llvm::StringRef name, mlir::Type type,"
+              "llvm::ArrayRef<NamedAttribute> attrs = {}",
+    [{
+      result.addAttribute(getTypeAttrName(), mlir::TypeAttr::get(type));
+      result.addAttribute(mlir::SymbolTable::getSymbolAttrName(),
+                          builder->getStringAttr(name));
+      for (const auto &pair : attrs)
+        result.addAttribute(pair.first, pair.second);
+    }]>
+  ];
+
+  let extraClassDeclaration = [{
+    static constexpr llvm::StringRef getConstantName() { return "constant"; }
+    static constexpr llvm::StringRef getTypeAttrName() { return "type"; }
+
+    GlobalOp create(mlir::Location location, llvm::StringRef name,
+                    mlir::Type type, llvm::ArrayRef<NamedAttribute> attrs);
+
+    mlir::Type getType() {
+      return getAttrOfType<TypeAttr>(getTypeAttrName()).getValue();
+    }
+
+    void appendInitialValue(mlir::Operation *op);
+
+    mlir::Region &front() {
+      return getOperation()->getRegion(0);
+    }
+  }];
+}
+
 def fir_GlobalEntryOp : fir_Op<"global_entry", []> {
 
   let summary = "map a field entry in a global";
@@ -2187,6 +2282,7 @@ def fir_GlobalEntryOp : fir_Op<"global_entry", []> {
     result.addAttribute("in_type", mlir::TypeAttr::get(type));
     return mlir::success();
   }];
+
   let printer = [{
     p << getOperationName() << ' ' << getAttr("field") << ", ";
     p.printOperand(constant());

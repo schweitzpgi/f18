@@ -10,7 +10,9 @@
 #define OPTIMIZER_DIALECT_FIROPS_H
 
 #include "mlir/IR/Builders.h"
+#include "mlir/IR/OpDefinition.h"
 #include "mlir/IR/OpImplementation.h"
+#include "mlir/IR/SymbolTable.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/StringRef.h"
 
@@ -46,40 +48,6 @@ enum class CmpFPredicate {
   AlwaysTrue,
   // Number of predicates.
   NumPredicates
-};
-
-/// `fir.global` is a typed symbol with an optional list of initializers.
-class GlobalOp
-    : public mlir::Op<GlobalOp, OpTrait::ZeroOperands, OpTrait::ZeroResult,
-                      OpTrait::IsIsolatedFromAbove,
-                      OpTrait::SingleBlockImplicitTerminator<FirEndOp>::Impl> {
-public:
-  using Op::Op;
-  using Op::print;
-
-  static llvm::StringRef getOperationName() { return "fir.global"; }
-  static llvm::StringRef getTypeAttrName() { return "type"; }
-
-  static void build(mlir::Builder *builder, OperationState &result,
-                    llvm::StringRef name, mlir::Type type,
-                    llvm::ArrayRef<NamedAttribute> attrs);
-
-  static GlobalOp create(Location loc, llvm::StringRef name, mlir::Type type,
-                         llvm::ArrayRef<NamedAttribute> attrs = {});
-
-  /// Operation hooks.
-  static ParseResult parse(OpAsmParser &parser, OperationState &result);
-  void print(OpAsmPrinter &p);
-  LogicalResult verify();
-
-  mlir::Type getType() {
-    return getAttrOfType<TypeAttr>(getTypeAttrName()).getValue();
-  }
-
-  void appendInitialValue(mlir::Operation *op);
-
-private:
-  mlir::Region &front();
 };
 
 /// `fir.dispatch_table` is an untyped symbol that is a list of associations
