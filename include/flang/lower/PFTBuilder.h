@@ -19,7 +19,7 @@
 #include <memory>
 
 namespace Fortran::lower {
-namespace PFT {
+namespace pft {
 
 struct Evaluation;
 struct Program;
@@ -182,7 +182,7 @@ struct Evaluation {
   /// Construct ctor
   template <typename A>
   Evaluation(const A &a, const ParentType &parent) : u{&a}, parent{parent} {
-    static_assert(PFT::isConstruct<A>, "must be a construct");
+    static_assert(pft::isConstruct<A>, "must be a construct");
   }
 
   constexpr bool isActionOrGenerated() const {
@@ -200,7 +200,7 @@ struct Evaluation {
           using T = std::decay_t<decltype(r)>;
           static constexpr bool isStmt{isActionStmt<T> || isOtherStmt<T> ||
                                        isConstructStmt<T>};
-          static_assert(!(isStmt && PFT::isConstruct<T>),
+          static_assert(!(isStmt && pft::isConstruct<T>),
                         "statement classification is inconsistent");
           return isStmt;
         },
@@ -354,7 +354,7 @@ struct BlockDataUnit : public ProgramUnit {
   BlockDataUnit(const BlockDataUnit &) = delete;
 };
 
-/// A Program is the top-level PFT
+/// A Program is the top-level root of the PFT.
 struct Program {
   using Units = std::variant<FunctionLikeUnit, ModuleLikeUnit, BlockDataUnit>;
 
@@ -363,6 +363,9 @@ struct Program {
   Program(const Program &) = delete;
 
   std::list<Units> &getUnits() { return units; }
+
+  /// LLVM dump method on a Program.
+  void dump();
 
 private:
   std::list<Units> units;
@@ -382,15 +385,16 @@ private:
 /// units.  Function like units will contain lists of evaluations.  Evaluations
 /// are either statements or constructs, where a construct contains a list of
 /// evaluations. The resulting PFT structure can then be used to create FIR.
-std::unique_ptr<PFT::Program> createPFT(const parser::Program &root);
+std::unique_ptr<pft::Program> createPFT(const parser::Program &root);
 
 /// Decorate the PFT with control flow annotations
 ///
 /// The PFT must be decorated with control-flow annotations to prepare it for
 /// use in generating a CFG-like structure.
-void annotateControl(PFT::Program &);
+void annotateControl(pft::Program &pft);
 
-void dumpPFT(llvm::raw_ostream &o, PFT::Program &);
+/// Dumper for displaying a PFT structure.
+void dumpPFT(llvm::raw_ostream &o, pft::Program &pft);
 
 } // namespace Fortran::lower
 

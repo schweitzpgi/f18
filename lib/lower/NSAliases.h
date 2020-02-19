@@ -23,7 +23,9 @@ namespace mlir {}
 namespace Fortran {
 namespace common {}
 namespace evaluate {}
-namespace lower {}
+namespace lower {
+namespace pft {}
+} // namespace lower
 namespace lower::mangle {}
 namespace parser {}
 namespace runtime {
@@ -40,6 +42,7 @@ namespace L = llvm;
 namespace Ma = Fortran::lower::mangle;
 namespace M = mlir;
 namespace Pa = Fortran::parser;
+namespace PFT = Fortran::lower::pft;
 namespace Rt = Fortran::runtime;
 namespace Se = Fortran::semantics;
 
