@@ -386,72 +386,9 @@ GlobalOp GlobalOp::create(mlir::Location location, llvm::StringRef name,
   return cast<GlobalOp>(Operation::create(state));
 }
 
-void GlobalOp::build(mlir::Builder *builder, mlir::OperationState &result,
-                     llvm::StringRef name, mlir::Type type,
-                     llvm::ArrayRef<mlir::NamedAttribute> attrs) {
-  result.addAttribute(getTypeAttrName(), mlir::TypeAttr::get(type));
-  result.addAttribute(mlir::SymbolTable::getSymbolAttrName(),
-                      builder->getStringAttr(name));
-  for (const auto &pair : attrs)
-    result.addAttribute(pair.first, pair.second);
-}
-
-mlir::ParseResult GlobalOp::parse(mlir::OpAsmParser &parser,
-                                  mlir::OperationState &result) {
-  // Parse the name as a symbol reference attribute.
-  SymbolRefAttr nameAttr;
-  if (parser.parseAttribute(nameAttr, mlir::SymbolTable::getSymbolAttrName(),
-                            result.attributes))
-    return failure();
-
-  auto &builder = parser.getBuilder();
-  auto name = nameAttr.getRootReference();
-  result.attributes.back().second = builder.getStringAttr(name);
-
-  if (!parser.parseOptionalKeyword("constant")) {
-    // if "constant" keyword then mark this as a constant, not a variable
-    result.addAttribute("constant", builder.getUnitAttr());
-  }
-
-  mlir::Type globalType;
-  if (parser.parseColonType(globalType))
-    return mlir::failure();
-
-  result.addAttribute(getTypeAttrName(), mlir::TypeAttr::get(globalType));
-
-  // Parse the optional initializer body.
-  mlir::Region *body = result.addRegion();
-  if (parser.parseOptionalRegion(
-          *body, llvm::ArrayRef<mlir::OpAsmParser::OperandType>{},
-          llvm::ArrayRef<mlir::Type>{}))
-    return mlir::failure();
-
-  ensureTerminator(*body, builder, result.location);
-  return mlir::success();
-}
-
-void GlobalOp::print(mlir::OpAsmPrinter &p) {
-  auto varName =
-      getAttrOfType<StringAttr>(mlir::SymbolTable::getSymbolAttrName())
-          .getValue();
-  p << getOperationName() << " @" << varName;
-  if (getAttr("constant"))
-    p << " constant";
-  p << " : ";
-  p.printType(getType());
-  Region &body = getOperation()->getRegion(0);
-  if (!body.empty())
-    p.printRegion(body, /*printEntryBlockArgs=*/false,
-                  /*printBlockTerminators=*/false);
-}
-
-mlir::LogicalResult GlobalOp::verify() { return mlir::success(); }
-
 void GlobalOp::appendInitialValue(mlir::Operation *op) {
   front().front().push_back(op);
 }
-
-mlir::Region &GlobalOp::front() { return this->getOperation()->getRegion(0); }
 
 // LoadOp
 
