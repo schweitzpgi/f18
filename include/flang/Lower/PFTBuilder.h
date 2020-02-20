@@ -189,16 +189,21 @@ struct Evaluation {
     return visit(common::visitors{
         [](auto &r) {
           using T = std::decay_t<decltype(r)>;
-          return isActionStmt<T> || isGenerated<T>;
+          return pft::isActionStmt<T> || isGenerated<T>;
         },
     });
+  }
+
+  constexpr bool isActionStmt() const {
+    return visit(common::visitors{
+        [](auto &r) { return pft::isActionStmt<std::decay_t<decltype(r)>>; }});
   }
 
   constexpr bool isStmt() const {
     return visit(common::visitors{
         [](auto &r) {
           using T = std::decay_t<decltype(r)>;
-          static constexpr bool isStmt{isActionStmt<T> || isOtherStmt<T> ||
+          static constexpr bool isStmt{pft::isActionStmt<T> || isOtherStmt<T> ||
                                        isConstructStmt<T>};
           static_assert(!(isStmt && pft::isConstruct<T>),
                         "statement classification is inconsistent");
@@ -371,7 +376,7 @@ private:
   std::list<Units> units;
 };
 
-} // namespace PFT
+} // namespace pft
 
 /// Create an PFT from the parse tree.
 ///
