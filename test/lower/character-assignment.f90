@@ -67,3 +67,30 @@ subroutine assign_spec_expr_len4(s1, s2, l1, l2)
   character(l2, 4) :: s2
   s1 = s2
 end subroutine
+
+subroutine assign_hello_world1(s1)
+  character(*, 1) :: s1
+  s1 = "Hello World!"
+end subroutine
+
+! FIXME: Tests with constant with string_lit + kind 2 or 4 fails when lowering
+! to LLVM IR.
+!
+!subroutine assign_hello_world2(s1)
+!  character(*, 2) :: s1
+!  s1 = 2_"Hello World!"
+!end subroutine
+!
+! bbc -emit-llvm error:
+! f18-llvm-project/llvm/lib/IR/Instructions.cpp:1364:
+! void llvm::StoreInst::AssertOK(): Assertion `getOperand(0)->getType() ==
+! cast<PointerType>(getOperand(1)->getType())->getElementType() && "Ptr must be
+! a pointer to Val type!"' failed.
+!
+! Yet, the types look ok at the FIR level:
+!
+!    %0 = fir.string_lit "H"(12) : !fir.char<2>
+!    %c12_i64 = constant 12 : i64
+!    %1 = fir.alloca !fir.array<12x!fir.char<2>>
+!    fir.store %0 to %1 : !fir.ref<!fir.array<12x!fir.char<2>>>
+

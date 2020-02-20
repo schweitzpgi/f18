@@ -19,7 +19,6 @@
 #include "mlir/Dialect/StandardOps/Ops.h"
 #include "mlir/IR/Builders.h"
 
-
 #define TODO() assert(false && "not yet implemented")
 
 using namespace Io;
@@ -145,12 +144,6 @@ M::FuncOp getOutputRuntimeFunc(M::OpBuilder &builder, M::Type type) {
   }
 }
 
-inline bool isCharacterLiteral(M::Type argTy) {
-  if (auto arrTy = argTy.dyn_cast<fir::SequenceType>())
-    return arrTy.getEleTy().isa<fir::CharacterType>();
-  return false;
-}
-
 inline int64_t getLength(M::Type argTy) {
   return argTy.cast<fir::SequenceType>().getShape()[0];
 }
@@ -159,43 +152,16 @@ inline int64_t getLength(M::Type argTy) {
 /// be extracted and passed as separate values.
 L::SmallVector<M::Value, 4> splitArguments(M::OpBuilder &builder,
                                            M::Location loc, M::Value arg) {
-  M::Value zero;
-  M::Value one;
   M::Type argTy = arg.getType();
-  M::MLIRContext *context = argTy.getContext();
-  const bool isComplex = argTy.isa<fir::CplxType>();
-  const bool isCharLit = isCharacterLiteral(argTy);
-  const bool isBoxChar = argTy.isa<fir::BoxCharType>();
-
-  if (isComplex || isCharLit || isBoxChar) {
-    // Only create these constants when needed and not every time
-    zero = builder.create<M::ConstantOp>(loc, builder.getI64IntegerAttr(0));
-    one = builder.create<M::ConstantOp>(loc, builder.getI64IntegerAttr(1));
-  }
-  if (isComplex) {
-    auto eleTy =
-        fir::RealType::get(context, argTy.cast<fir::CplxType>().getFKind());
-    M::Value realPart =
-        builder.create<fir::ExtractValueOp>(loc, eleTy, arg, zero);
-    M::Value imaginaryPart =
-        builder.create<fir::ExtractValueOp>(loc, eleTy, arg, one);
+  if (argTy.isa<fir::CplxType>()) {
+    ComplexOpsBuilder cmplxBuilder{builder, loc};
+    auto [realPart, imaginaryPart] = cmplxBuilder.extractParts(arg);
     return {realPart, imaginaryPart};
   }
-  if (isBoxChar) {
-    M::Type ptrTy = fir::ReferenceType::get(M::IntegerType::get(8, context));
-    M::Type sizeTy = M::IntegerType::get(64, context);
-    M::Value pointerPart =
-        builder.create<fir::ExtractValueOp>(loc, ptrTy, arg, zero);
-    M::Value sizePart =
-        builder.create<fir::ExtractValueOp>(loc, sizeTy, arg, one);
-    return {pointerPart, sizePart};
-  }
-  if (isCharLit) {
-    M::Value variable = builder.create<fir::AllocaOp>(loc, argTy);
-    builder.create<fir::StoreOp>(loc, arg, variable);
-    M::Value sizePart = builder.create<M::ConstantOp>(
-        loc, builder.getI64IntegerAttr(getLength(argTy)));
-    return {variable, sizePart};
+  if (argTy.isa<fir::BoxCharType>()) {
+    CharacterOpsBuilder charBuilder{builder, loc};
+    auto [addr, length] = charBuilder.createUnbox(arg);
+    return {addr, length};
   }
   return {arg};
 }

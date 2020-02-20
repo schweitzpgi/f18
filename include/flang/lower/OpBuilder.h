@@ -23,6 +23,7 @@ class StringRef;
 namespace fir {
 class CharacterType;
 class ReferenceType;
+class SequenceType;
 using KindTy = int;
 } // namespace fir
 
@@ -113,29 +114,37 @@ public:
   CharacterOpsBuilder(mlir::OpBuilder &b, mlir::Location l)
       : OpBuilderWrapper{b, l} {}
   CharacterOpsBuilder(OpBuilderWrapper &b) : OpBuilderWrapper{b} {}
-  /// Interchange format to avoid inserting unbox/embox everywhere while
-  /// evaluating character expressions.
-  struct CharValue {
-    fir::ReferenceType getReferenceType();
-    fir::CharacterType getCharacterType();
-
-    mlir::Value reference;
-    mlir::Value len;
-  };
+  /// All mlir::Value of these pseudo-fir ops must be of type fir.boxchar unless
+  /// otherwise stated.
 
   /// Copy the \p count first characters of \p src into \p dest.
-  void createCopy(CharValue &dest, CharValue &src, mlir::Value count);
+  /// \p count can have any integer type.
+  void createCopy(mlir::Value dest, mlir::Value src, mlir::Value count);
 
   /// Set characters of \p str at position [\p lower, \p upper) to blanks.
   /// \p lower and \upper bounds are zero based.
   /// If \p upper <= \p lower, no padding is done.
-  void createPadding(CharValue &str, mlir::Value lower, mlir::Value upper);
+  /// \p upper and \p lower can have any integer type.
+  void createPadding(mlir::Value str, mlir::Value lower, mlir::Value upper);
+
+  mlir::Value createSubstring(mlir::Value str,
+                              llvm::ArrayRef<mlir::Value> bounds);
 
   /// Allocate storage (on the stack) for character given the kind and length.
-  CharValue createTemp(fir::CharacterType type, mlir::Value len);
+  /// Returns the related fir.boxchar. The storage is uninitialized.
+  mlir::Value createTemp(fir::CharacterType type, mlir::Value len);
 
-private:
-  mlir::Value createBlankConstant(fir::CharacterType type);
+  /// Lower \p lhs = \p rhs where \p lhs and \p rhs are scalar characters.
+  /// It handles cases where \p lhs and \p rhs may overlap.
+  void createAssign(mlir::Value lhs, mlir::Value rhs);
+
+  /// Embox /p addr and /p len and return fir.boxchar.
+  /// Take care of type conversions before emboxing.
+  /// /p len is converted to i64 if needed.
+  mlir::Value createEmbox(mlir::Value addr, mlir::Value len);
+
+  /// Unbox /boxchar into (fir.ref<fir.char<kind>>, i64).
+  std::pair<mlir::Value, mlir::Value> createUnbox(mlir::Value boxChar);
 };
 
 /// Provide helper to generate Complex manipulations in FIR.
@@ -149,12 +158,12 @@ public:
       : OpBuilderWrapper{b, l} {}
   ComplexOpsBuilder(OpBuilderWrapper &bw) : OpBuilderWrapper{bw} {}
 
-  // Type helper. They do not create MLIR operations.
+  /// Type helper. They do not create MLIR operations.
   mlir::Type getComplexPartType(mlir::Value cplx);
   mlir::Type getComplexPartType(mlir::Type complexType);
   mlir::Type getComplexPartType(fir::KindTy complexKind);
 
-  // Complex operation creation helper. They create MLIR operations.
+  /// Complex operation creation helper. They create MLIR operations.
   mlir::Value createComplex(fir::KindTy kind, mlir::Value real,
                             mlir::Value imag);
   mlir::Value extractComplexPart(mlir::Value cplx, bool isImagPart);
@@ -165,6 +174,10 @@ public:
   mlir::Value extract(mlir::Value cplx);
   template <Part partId>
   mlir::Value insert(mlir::Value cplx, mlir::Value part);
+  /// Returns (Real, Imag) pair of \p cplx
+  std::pair<mlir::Value, mlir::Value> extractParts(mlir::Value cplx) {
+    return {extract<Part::Real>(cplx), extract<Part::Imag>(cplx)};
+  }
 
   mlir::Value createComplexCompare(mlir::Value cplx1, mlir::Value cplx2,
                                    bool eq);

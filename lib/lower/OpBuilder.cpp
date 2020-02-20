@@ -115,62 +115,247 @@ M::Value Br::LoopBuilder::convertToIndexType(M::Value integer) {
   return create<fir::ConvertOp>(getIndexType(), integer);
 }
 
-// CharacterOpsBuilder implementation
+namespace {
+/// CharacterOpsBuilder implementation
+struct CharacterOpsBuilderImpl : public OpBuilderWrapper {
+  /// Interchange format to avoid inserting unbox/embox everywhere while
+  /// evaluating character expressions.
 
-void Br::CharacterOpsBuilder::createCopy(CharValue &dest, CharValue &src,
-                                         M::Value count) {
-  auto refType{dest.getReferenceType()};
-  // Cast to character sequence reference type for fir::CoordinateOp.
-  auto sequenceType{getSequenceRefType(refType)};
-  auto destRef{create<fir::ConvertOp>(sequenceType, dest.reference)};
-  auto srcRef{create<fir::ConvertOp>(sequenceType, src.reference)};
+  /// Opened char box
+  struct Char {
+    /// Get fir.char<kind> type with the same kind as inside ref.
+    fir::CharacterType getCharacterType() const {
+      auto type{ref.getType().cast<fir::ReferenceType>().getEleTy()};
+      if (auto seqType{type.dyn_cast<fir::SequenceType>()}) {
+        type = seqType.getEleTy();
+      }
+      if (auto charType{type.dyn_cast<fir::CharacterType>()}) {
+        return charType;
+      }
+      llvm_unreachable("Invalid character value type");
+      return mlir::Type{}.dyn_cast<fir::CharacterType>();
+    }
+    /// Get fir.ref<fir.char<kind>> type.
+    fir::ReferenceType getReferenceType() const {
+      return fir::ReferenceType::get(getCharacterType());
+    }
+    /// Get fir.ref<fir.array<len x fir.char<kind>>> type.
+    fir::ReferenceType getSequenceRefType() const {
+      // If the Char is already a sequence type, we do not want to
+      // lose the shape that might be important, plus lowering to LLVM,
+      // there would be errors if converting between arrays of different
+      // sizes.
+      auto refType{ref.getType().cast<fir::ReferenceType>()};
+      if (refType.getEleTy().isa<fir::SequenceType>()) {
+        return refType;
+      }
+      // Return fir.array<? x ...> if str is not a sequence type.
+      // TODO: Could be improved if len is a constant and we can get its value.
+      fir::SequenceType::Shape shape{fir::SequenceType::getUnknownExtent()};
+      auto seqType{fir::SequenceType::get(shape, getCharacterType())};
+      return fir::ReferenceType::get(seqType);
+    }
 
-  LoopBuilder{*this}.createLoop(count, [&](OpBuilderWrapper &handler,
-                                           M::Value index) {
-    auto destAddr{handler.create<fir::CoordinateOp>(refType, destRef, index)};
-    auto srcAddr{handler.create<fir::CoordinateOp>(refType, srcRef, index)};
-    auto val{handler.create<fir::LoadOp>(srcAddr)};
-    handler.create<fir::StoreOp>(val, destAddr);
-  });
+    /// Value is fir.ref<fir.array<len x fir.char<kind>>> type.
+    /// It can be used fir.coordinate_of.
+    bool isAddressable() const {
+      auto refType{ref.getType().cast<fir::ReferenceType>()};
+      return refType.getEleTy().isa<fir::SequenceType>();
+    };
+
+    /// ref must be of type:
+    /// - fir.ref<fir.char<kind>>
+    /// - fir.ref<fir.array<len x fir.char<kind>>> type.
+    mlir::Value ref;
+    mlir::Value len;
+  };
+
+  /// Just a helper type to avoid forgetting casting char ref to the right type
+  /// before fir loops.
+  struct AddressableChar : Char {
+    /// ref must be of type: fir.ref<fir.array<len x fir.char<kind>>>.
+    bool isAddressable() const { return true; }
+  };
+
+  AddressableChar convertToAddressableChar(Char str) {
+    if (str.isAddressable()) {
+      return {str};
+    }
+    auto newRef{create<fir::ConvertOp>(str.getSequenceRefType(), str.ref)};
+    return {newRef, str.len};
+  }
+
+  Char createUnboxChar(mlir::Value boxChar) {
+    auto boxCharType{boxChar.getType().cast<fir::BoxCharType>()};
+    auto refType{fir::ReferenceType::get(boxCharType.getEleTy())};
+    auto lenType{M::IntegerType::get(64, builder.getContext())};
+    auto unboxed{create<fir::UnboxCharOp>(refType, lenType, boxChar)};
+    return {unboxed.getResult(0), unboxed.getResult(1)};
+  }
+
+  mlir::Value createEmbox(Char str) {
+    auto kind{str.getCharacterType().getFKind()};
+    auto boxCharType{fir::BoxCharType::get(builder.getContext(), kind)};
+    auto refType{str.getReferenceType()};
+    // So far, fir.emboxChar fails lowering to llvm when it is given
+    // fir.ref<fir.array<lenxfir.char<kind>>> types, so convert to
+    // fir.ref<fir.char<kind>> if needed.
+    if (refType != str.ref.getType())
+      str.ref = create<fir::ConvertOp>(refType, str.ref);
+    // BoxChar length is i64, convert in case the provided length is not.
+    auto lenType{M::IntegerType::get(64, builder.getContext())};
+    if (str.len.getType() != lenType)
+      str.len = create<fir::ConvertOp>(lenType, str.len);
+    return create<fir::EmboxCharOp>(boxCharType, str.ref, str.len);
+  }
+
+  mlir::Value createLoadCharAt(AddressableChar str, mlir::Value index) {
+    auto addr{
+        create<fir::CoordinateOp>(str.getReferenceType(), str.ref, index)};
+    return create<fir::LoadOp>(addr);
+  }
+  void createStoreCharAt(AddressableChar str, mlir::Value index,
+                         mlir::Value c) {
+    auto addr{
+        create<fir::CoordinateOp>(str.getReferenceType(), str.ref, index)};
+    create<fir::StoreOp>(c, addr);
+  }
+
+  void createCopy(Char dest, Char src, M::Value count) {
+    auto destArray{convertToAddressableChar(dest)};
+    auto srcArray{convertToAddressableChar(src)};
+
+    LoopBuilder{*this}.createLoop(
+        count, [&](OpBuilderWrapper &handler, M::Value index) {
+          CharacterOpsBuilderImpl charHanlder{handler};
+          auto charVal{charHanlder.createLoadCharAt(srcArray, index)};
+          charHanlder.createStoreCharAt(destArray, index, charVal);
+        });
+  }
+
+  void createPadding(Char str, M::Value lower, M::Value upper) {
+    auto strArray{convertToAddressableChar(str)};
+    auto blank{createBlankConstant(str.getCharacterType())};
+    LoopBuilder{*this}.createLoop(
+        lower, upper, [&](OpBuilderWrapper &handler, M::Value index) {
+          CharacterOpsBuilderImpl{handler}.createStoreCharAt(strArray, index,
+                                                             blank);
+        });
+  }
+
+  Char createTemp(fir::CharacterType type, mlir::Value len) {
+    // FIXME Does this need to be emitted somewhere safe ?
+    // convert-expr.cc generates alloca at the beginning of the mlir block.
+    auto indexType{M::IndexType::get(builder.getContext())};
+    auto ten{createIntegerConstant(indexType, 10)};
+    llvm::SmallVector<mlir::Value, 0> lengths;
+    llvm::SmallVector<mlir::Value, 3> sizes{len};
+    auto ref{builder.create<fir::AllocaOp>(loc, type, lengths, sizes)};
+    return {ref, ten};
+  }
+
+  void createAssign(Char lhs, Char rhs) {
+    Char safe_rhs{rhs};
+    // TODO disable copy for easy stuff like constant rhs ?.
+    // we need to know a boxchar holds constant data then.
+    // Add an attribute to such box ?
+    if (true) {
+      // If rhs is in memory, always assumes rhs might overlap with lhs
+      // in a way that require a temp for the copy. That can be optimize later.
+      auto temp{createTemp(rhs.getCharacterType(), rhs.len)};
+      createCopy(temp, rhs, rhs.len);
+      safe_rhs = temp;
+    }
+
+    // Copy the minimum of the lhs and rhs lengths and pad the lhs remainder
+    auto cmpLen{create<M::CmpIOp>(M::CmpIPredicate::slt, lhs.len, rhs.len)};
+    auto copyCount{create<M::SelectOp>(cmpLen, lhs.len, rhs.len)};
+    createCopy(lhs, safe_rhs, copyCount);
+    createPadding(lhs, copyCount, lhs.len);
+  }
+
+  mlir::Value createBlankConstant(fir::CharacterType type) {
+    auto byteTy{M::IntegerType::get(8, builder.getContext())};
+    auto asciiSpace{createIntegerConstant(byteTy, 0x20)};
+    return create<fir::ConvertOp>(type, asciiSpace);
+  }
+
+  Char createSubstring(Char str, llvm::ArrayRef<mlir::Value> bounds) {
+
+    auto nbounds{bounds.size()};
+    if (nbounds < 1 || nbounds > 2) {
+      M::emitError(loc, "Incorrect number of bounds in substring");
+      return {mlir::Value{}, mlir::Value{}};
+    }
+    auto indexedChar{convertToAddressableChar(str)};
+    auto indexType{M::IndexType::get(builder.getContext())};
+    auto lowerBound{create<fir::ConvertOp>(indexType, bounds[0])};
+    // FIR CoordinateOp is zero based but Fortran substring are one based.
+    auto oneIndex{createIntegerConstant(indexType, 1)};
+    auto offsetIndex{create<M::SubIOp>(lowerBound, oneIndex).getResult()};
+    auto substringRef{create<fir::CoordinateOp>(str.getReferenceType(),
+                                                indexedChar.ref, offsetIndex)};
+
+    // Compute the length.
+    mlir::Value substringLen{};
+    if (nbounds < 2) {
+      substringLen = create<M::SubIOp>(str.len, bounds[0]);
+    } else {
+      substringLen = create<M::SubIOp>(bounds[1], bounds[0]);
+    }
+    auto one{createIntegerConstant(substringLen.getType(), 1)};
+    substringLen = create<M::AddIOp>(substringLen, one);
+
+    // TODO: Do we need to set the length to zero in case the
+    // Fortran user gave wrong bounds and the length is negative ? YES: 9.4.1
+    // (2). Expose integer max/min somewhere to avoid reimplementing it
+    // everywhere.
+    return {substringRef, substringLen};
+  }
+};
+} // namespace
+
+void Br::CharacterOpsBuilder::createCopy(mlir::Value dest, mlir::Value src,
+                                         mlir::Value count) {
+  CharacterOpsBuilderImpl impl{*this};
+  impl.createCopy(impl.createUnboxChar(dest), impl.createUnboxChar(src), count);
 }
 
-void Br::CharacterOpsBuilder::createPadding(CharValue &str, M::Value lower,
-                                            M::Value upper) {
-  auto refType{str.getReferenceType()};
-  auto sequenceType{getSequenceRefType(refType)};
-  auto strRef{create<fir::ConvertOp>(sequenceType, str.reference)};
-  auto blank{createBlankConstant(str.getCharacterType())};
-
-  LoopBuilder{*this}.createLoop(
-      lower, upper, [&](OpBuilderWrapper &handler, M::Value index) {
-        auto strAddr{handler.create<fir::CoordinateOp>(refType, strRef, index)};
-        handler.create<fir::StoreOp>(blank, strAddr);
-      });
+void Br::CharacterOpsBuilder::createPadding(mlir::Value str, mlir::Value lower,
+                                            mlir::Value upper) {
+  CharacterOpsBuilderImpl impl{*this};
+  impl.createPadding(impl.createUnboxChar(str), lower, upper);
 }
 
-M::Value Br::CharacterOpsBuilder::createBlankConstant(fir::CharacterType type) {
-  auto byteTy{M::IntegerType::get(8, builder.getContext())};
-  auto asciiSpace{createIntegerConstant(byteTy, 0x20)};
-  return create<fir::ConvertOp>(type, asciiSpace);
+mlir::Value
+Br::CharacterOpsBuilder::createSubstring(mlir::Value str,
+                                         llvm::ArrayRef<mlir::Value> bounds) {
+  CharacterOpsBuilderImpl impl{*this};
+  return impl.createEmbox(
+      impl.createSubstring(impl.createUnboxChar(str), bounds));
 }
 
-Br::CharacterOpsBuilder::CharValue
-Br::CharacterOpsBuilder::createTemp(fir::CharacterType type, M::Value len) {
-  // FIXME Does this need to be emitted somewhere safe ?
-  // convert-expr.cc generates alloca at the beginning of the mlir block.
-  return CharValue{create<fir::AllocaOp>(type, len), len};
+mlir::Value Br::CharacterOpsBuilder::createTemp(fir::CharacterType type,
+                                                mlir::Value len) {
+  CharacterOpsBuilderImpl impl{*this};
+  return impl.createEmbox(impl.createTemp(type, len));
 }
 
-fir::ReferenceType Br::CharacterOpsBuilder::CharValue::getReferenceType() {
-  auto type{reference.getType().dyn_cast<fir::ReferenceType>()};
-  assert(type && "expected reference type");
-  return type;
+void Br::CharacterOpsBuilder::createAssign(mlir::Value lhs, mlir::Value rhs) {
+  CharacterOpsBuilderImpl impl{*this};
+  impl.createAssign(impl.createUnboxChar(lhs), impl.createUnboxChar(rhs));
 }
 
-fir::CharacterType Br::CharacterOpsBuilder::CharValue::getCharacterType() {
-  auto type{getReferenceType().getEleTy().dyn_cast<fir::CharacterType>()};
-  assert(type && "expected character type");
-  return type;
+mlir::Value Br::CharacterOpsBuilder::createEmbox(mlir::Value addr,
+                                                 mlir::Value len) {
+  return CharacterOpsBuilderImpl{*this}.createEmbox(
+      CharacterOpsBuilderImpl::Char{addr, len});
+}
+
+std::pair<mlir::Value, mlir::Value>
+Br::CharacterOpsBuilder::createUnbox(mlir::Value boxChar) {
+  auto c{CharacterOpsBuilderImpl{*this}.createUnboxChar(boxChar)};
+  return {c.ref, c.len};
 }
 
 // ComplexOpsBuilder implementation

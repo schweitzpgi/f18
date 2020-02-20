@@ -34,10 +34,16 @@ void CallSubroutine(SubF18<T...> f, Fchar s1, Fchar s2, T... args) {
   f(s1, s2, args...);
 }
 
+using SimpleF18 = void (*)(Fchar);
+void CallSubroutine(SimpleF18 f, Fchar s1) { f(s1); }
+
 template<typename... T>
 void CallSubroutine(SubF77<T...> f, Fchar s1, Fchar s2, T... args) {
   f(s1.data, s2.data, args..., s1.len, s2.len);
 }
+
+using SimpleF77 = void (*)(char *, LenT);
+void CallSubroutine(SimpleF77 f, Fchar s1) { f(s1.data, s1.len); }
 
 // Define structures to create and manipulate Fortran Character
 // A canary is always added at the end of character storage so that
@@ -307,7 +313,7 @@ void TestSpecExprLenAssignement(Func testedSub, int &tests, int &passed) {
   assert(l1 == l2 && l1 < l3 && "Test requires l1 = l2 < l3");
   const std::string &desc{"assignment of character with specified expr length"};
 
-  // s1 = s2 ! l1 == l3
+  // s1 = s2 ! l1 == l2
   tests++;
   FcharData<Kind> expect1{
       s2.data.substr(0, l1) + s1.data.substr(l1, s1.len - l1)};
@@ -332,6 +338,32 @@ void TestSpecExprLenAssignement(Func testedSub, int &tests, int &passed) {
     passed++;
   }
 }
+// Test constant assignment to  character variable.
+extern "C" {
+// SUBROUTINE assign_hello_worldK(s, s2) !s2 unused
+//   CHARACTER(l1, K) :: s
+//   s1 = K_"Hello World!"
+// END SUBROUTINE
+void assign_hello_world1(Fchar s1);
+}
+
+template<int Kind, typename Func>
+void TestConstantAssignment(Func testedSub, int &tests, int &passed) {
+  // Make copies because data may be modified
+  FcharData<Kind> s1{Inputs<Kind>::s1};
+  FcharData<Kind> hW{"Hello World!"};
+  assert(s1.len > hW.len && "broken test");
+  using ST = typename CharStorage<Kind>::Type;
+  FcharData<Kind> hWTos1{
+      hW.data.substr(0, hW.len) + ST(s1.len - hW.len, /* space */ 0x20)};
+
+  CallSubroutine(testedSub, s1.getFchar());
+  auto description{"Constant assignment KIND=" + std::to_string(Kind)};
+  tests++;
+  if (Check(s1, hWTos1, description + " s1")) {
+    passed++;
+  }
+}
 
 int main(int, char **) {
   int tests{0}, passed{0};
@@ -351,6 +383,8 @@ int main(int, char **) {
   TestSpecExprLenAssignement<1>(assign_spec_expr_len1, tests, passed);
   TestSpecExprLenAssignement<2>(assign_spec_expr_len2, tests, passed);
   TestSpecExprLenAssignement<4>(assign_spec_expr_len4, tests, passed);
+
+  TestConstantAssignment<1>(assign_hello_world1, tests, passed);
 
   std::cout << passed << " tests passed out of " << tests << std::endl;
   return tests == passed ? 0 : -1;

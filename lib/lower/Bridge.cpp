@@ -644,36 +644,10 @@ class FirConverter : public AbstractConverter {
 
   void genCharacterAssignement(
       const Ev::Assignment::IntrinsicAssignment &assignment) {
-    // Helper to get address and length from an Expr that is a character
-    // variable designator
-    auto getAddrAndLength{[&](const SomeExpr &charDesignatorExpr)
-                              -> CharacterOpsBuilder::CharValue {
-      M::Value addr = genExprAddr(charDesignatorExpr);
-      const auto &charExpr{
-          std::get<Ev::Expr<Ev::SomeCharacter>>(charDesignatorExpr.u)};
-      std::optional<Ev::Expr<Ev::SubscriptInteger>> lenExpr{charExpr.LEN()};
-      assert(lenExpr && "could not get expression to compute character length");
-      M::Value len{genExprValue(Ev::AsGenericExpr(std::move(*lenExpr)))};
-      return CharacterOpsBuilder::CharValue{addr, len};
-    }};
-
+    auto lhs{genExprValue(assignment.lhs)};
+    auto rhs{genExprValue(assignment.rhs)};
     CharacterOpsBuilder charBuilder{*builder, toLocation()};
-
-    // RHS evaluation.
-    // FIXME:  Only works with rhs that are variable reference.
-    // Other expression evaluation are not simple copies.
-    auto rhs{getAddrAndLength(assignment.rhs)};
-    // A temp is needed to evaluate rhs until proven it does not depend on lhs.
-    auto tempToEvalRhs{charBuilder.createTemp(rhs.getCharacterType(), rhs.len)};
-    charBuilder.createCopy(tempToEvalRhs, rhs, rhs.len);
-
-    // Copy the minimum of the lhs and rhs lengths and pad the lhs remainder
-    auto lhs{getAddrAndLength(assignment.lhs)};
-    auto cmpLen{
-        charBuilder.create<M::CmpIOp>(M::CmpIPredicate::slt, lhs.len, rhs.len)};
-    auto copyCount{charBuilder.create<M::SelectOp>(cmpLen, lhs.len, rhs.len)};
-    charBuilder.createCopy(lhs, tempToEvalRhs, copyCount);
-    charBuilder.createPadding(lhs, copyCount, lhs.len);
+    charBuilder.createAssign(lhs, rhs);
   }
 
   void genFIR(const Pa::AssignmentStmt &stmt) {
@@ -900,6 +874,39 @@ class FirConverter : public AbstractConverter {
     return createFunction(*this, name, funcTy);
   }
 
+  /// The actual arguments have been pushed to the shadow stack and we may need
+  /// to create new value for a dummy if some of its properties depend on local
+  /// specification expressions.
+  void evaluateDummySpecificationPart(const Se::Symbol &dummy) {
+    // FIXME: this need to be replaced by a real lowering of specification part
+    // Going through declaration parts or the scope. Not only dummy must be
+    // taken care of Also, the order of specification evaluation might matters.
+
+    auto actualValue{localSymbols.lookupSymbol(dummy)};
+    assert(actualValue && "dummy has no actual argument");
+    auto dummyValue = actualValue;
+
+    // Set character length if it explicit
+    if (auto *type{dummy.GetType()}) {
+      if (type->category() == Se::DeclTypeSpec::Character) {
+        const auto &lenghtParam{type->characterTypeSpec().length()};
+        if (auto expr{lenghtParam.GetExplicit()}) {
+          CharacterOpsBuilder charBuilder{*builder, toLocation()};
+          auto lenValue = genExprValue(Ev::AsGenericExpr(std::move(*expr)));
+          auto unboxed = charBuilder.createUnbox(actualValue);
+          dummyValue = charBuilder.createEmbox(unboxed.first, lenValue);
+        }
+      }
+    }
+    // TODO more properties: e.g. bounds
+
+    // Use the shadow mechanism to replace the symbol in the scope.
+    // That is not a canonical use of it, this should be changed when doing a
+    // real specification part lowering.
+    localSymbols.pushShadowSymbol(dummy, dummyValue);
+    localSymbols.popShadowSymbol();
+  }
+
   /// Prepare to translate a new function
   void startNewFunction(PFT::FunctionLikeUnit &funit, L::StringRef name,
                         const Se::Symbol *symbol) {
@@ -918,6 +925,9 @@ class FirConverter : public AbstractConverter {
       auto *entryBlock{&func.front()};
       auto *details{symbol->detailsIf<Se::SubprogramDetails>()};
       assert(details && "details for semantics symbol must be subprogram");
+      // Push all arguments in the local symbols before evaluating their
+      // specification expressions in case the property of one dummy depends on
+      // an other argument.
       for (const auto &v :
            L::zip(details->dummyArgs(), entryBlock->getArguments())) {
         if (std::get<0>(v)) {
@@ -926,6 +936,11 @@ class FirConverter : public AbstractConverter {
           TODO(); // handle alternate return
         }
       }
+
+      for (const auto &dummy : details->dummyArgs())
+        if (dummy)
+          evaluateDummySpecificationPart(*dummy);
+
       if (details->isFunction()) {
         createTemporary(toLocation(), details->result());
       }

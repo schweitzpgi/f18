@@ -150,6 +150,14 @@ void convertFortranSourceToMLIR(
     errs() << "could not open output file " << outputFilename << '\n';
     return;
   }
+  std::error_code ec2;
+  llvm::ToolOutputFile llOut(outputFilename + ".ll", ec2,
+                             llvm::sys::fs::OF_None);
+  if (ec2) {
+    errs() << "can't open output file " + outputFilename + ".ll";
+    return;
+  }
+
   if (emitFIR) {
     // dump FIR and exit
     mlirModule.print(out);
@@ -165,18 +173,13 @@ void convertFortranSourceToMLIR(
 
   if (emitLLVM) {
     pm.addPass(fir::createFIRToLLVMPass(nameUniquer));
-    std::error_code ec;
-    llvm::ToolOutputFile out(outputFilename + ".ll", ec,
-                             llvm::sys::fs::OF_None);
-    if (ec) {
-      errs() << "can't open output file " + outputFilename + ".ll";
-      return;
-    }
-    pm.addPass(fir::createLLVMDialectToLLVMPass(out.os()));
+    pm.addPass(fir::createLLVMDialectToLLVMPass(llOut.os()));
   }
 
   if (mlir::succeeded(pm.run(mlirModule))) {
     mlirModule.print(out);
+    if (emitLLVM)
+      llOut.keep();
   } else {
     errs() << "oops, pass manager reported failure\n";
     mlirModule.dump();

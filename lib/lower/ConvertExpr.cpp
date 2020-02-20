@@ -206,21 +206,13 @@ class ExprLowering {
                                 genval(ex.right()));
   }
 
+  /// Returns a reference to a symbol or its box/boxChar descriptor if it has
+  /// one.
   M::Value gen(Se::SymbolRef sym) {
     // FIXME: not all symbols are local
     auto addr{createTemporary(getLoc(), builder, symMap, converter.genType(sym),
                               &*sym)};
     assert(addr && "failed generating symbol address");
-    // Get address from descriptor if symbol has one.
-    auto type{addr.getType()};
-    if (auto boxCharType{type.dyn_cast<fir::BoxCharType>()}) {
-      auto refType{fir::ReferenceType::get(boxCharType.getEleTy())};
-      auto lenType{M::IntegerType::get(64, builder.getContext())};
-      addr = builder.create<fir::UnboxCharOp>(getLoc(), refType, lenType, addr)
-                 .getResult(0);
-    } else if (type.isa<fir::BoxType>()) {
-      TODO();
-    }
     return addr;
   }
 
@@ -247,12 +239,9 @@ class ExprLowering {
     M::Value res{};
     switch (desc.field()) {
     case Ev::DescriptorInquiry::Field::Len:
-      if (auto boxCharType{descType.dyn_cast<fir::BoxCharType>()}) {
-        auto refType{fir::ReferenceType::get(boxCharType.getEleTy())};
+      if (descType.isa<fir::BoxCharType>()) {
         auto lenType{M::IntegerType::get(64, builder.getContext())};
-        res = builder
-                  .create<fir::UnboxCharOp>(getLoc(), refType, lenType, descRef)
-                  .getResult(1);
+        res = builder.create<fir::BoxCharLenOp>(getLoc(), lenType, descRef);
       } else if (descType.isa<fir::BoxType>()) {
         TODO();
       } else {
@@ -465,12 +454,24 @@ class ExprLowering {
     auto strAttr = M::StringAttr::get((const char *)data.c_str(), context);
     M::NamedAttribute dataAttr(valTag, strAttr);
     auto sizeTag = M::Identifier::get(fir::StringLitOp::size(), context);
-    M::NamedAttribute sizeAttr(sizeTag, builder.getI64IntegerAttr(size));
+    auto lenghtAttr = builder.getI64IntegerAttr(size);
+    M::NamedAttribute sizeAttr(sizeTag, lenghtAttr);
     L::SmallVector<M::NamedAttribute, 2> attrs{dataAttr, sizeAttr};
-    auto type =
-        fir::SequenceType::get({size}, fir::CharacterType::get(context, KIND));
-    return builder.create<fir::StringLitOp>(
-        getLoc(), L::ArrayRef<M::Type>{type}, llvm::None, attrs);
+    auto charType = fir::CharacterType::get(context, KIND);
+    auto seqType = fir::SequenceType::get({size}, charType);
+    auto stringLit = builder.create<fir::StringLitOp>(
+        getLoc(), L::ArrayRef<M::Type>{seqType}, llvm::None, attrs);
+
+    M::Value length = builder.create<M::ConstantOp>(getLoc(), lenghtAttr);
+    // Allocate and embox them constant directly
+    M::Value storage = builder.create<fir::AllocaOp>(getLoc(), seqType);
+    builder.create<fir::StoreOp>(getLoc(), stringLit, storage);
+    return CharacterOpsBuilder{builder, getLoc()}.createEmbox(storage, length);
+    // auto refType = fir::ReferenceType::get(charType);
+    // auto ref = builder.create<fir::ConvertOp>(getLoc(), refType, storage);
+    // auto boxCharType = fir::BoxCharType::get(builder.getContext(), KIND);
+    // return builder.create<fir::EmboxCharOp>(getLoc(), boxCharType, ref,
+    //                                         length);
   }
 
   template <Co::TypeCategory TC, int KIND>
@@ -557,34 +558,24 @@ class ExprLowering {
 
   M::Value gen(const Ev::Substring &s) {
     // Get base address
-    auto baseAddr{std::visit(
+    auto baseString{std::visit(
         Co::visitors{
             [&](const Ev::DataRef &x) { return gen(x); },
             [&](const Ev::StaticDataObject::Pointer &) -> M::Value { TODO(); },
         },
         s.parent())};
-    // Get a SequenceType to compute address with fir::CoordinateOp
-    auto charRefType{baseAddr.getType()};
-    auto arrayRefType{getSequenceRefType(charRefType)};
-    auto arrayView{
-        builder.create<fir::ConvertOp>(getLoc(), arrayRefType, baseAddr)};
-    // Compute lower bound
-    auto indexType{M::IndexType::get(builder.getContext())};
-    auto lowerBoundExpr{s.lower()};
-    auto lowerBoundValue{builder.create<fir::ConvertOp>(
-        getLoc(), indexType, genval(lowerBoundExpr))};
-    // FIR CoordinateOp is zero based but Fortran substring are one based.
-    auto one{builder.create<M::ConstantOp>(
-        getLoc(), indexType, builder.getIntegerAttr(indexType, 1))};
-    auto offsetIndex{
-        builder.create<M::SubIOp>(getLoc(), lowerBoundValue, one).getResult()};
-    // Get address from offset and base address
-    return builder.create<fir::CoordinateOp>(getLoc(), charRefType, arrayView,
-                                             offsetIndex);
+
+    llvm::SmallVector<mlir::Value, 2> bounds;
+    bounds.push_back(genval(s.lower()));
+    if (auto upperBound{s.upper()}) {
+      bounds.push_back(genval(*upperBound));
+    }
+    CharacterOpsBuilder charBuilder{builder, getLoc()};
+    return charBuilder.createSubstring(baseString, bounds);
   }
 
   M::Value gendef(const Ev::Substring &ss) { return gen(ss); }
-  M::Value genval(const Ev::Substring &) { TODO(); }
+  M::Value genval(const Ev::Substring &ss) { return gen(ss); }
   M::Value genval(const Ev::Triplet &trip) { TODO(); }
 
   M::Value genval(const Ev::Subscript &subs) {
