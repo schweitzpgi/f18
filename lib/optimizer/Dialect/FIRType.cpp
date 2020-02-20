@@ -298,7 +298,7 @@ RecordType parseDerived(mlir::DialectAsmParser &parser, mlir::Location) {
 // !fir.ptr<X> and !fir.heap<X> where X is !fir.ptr, !fir.heap, or !fir.ref
 // is undefined and disallowed.
 inline bool singleIndirectionLevel(mlir::Type ty) {
-  return !fir::isa_memref(ty);
+  return !fir::isaMemref(ty);
 }
 
 } // namespace
@@ -817,32 +817,35 @@ private:
 };
 
 } // namespace detail
-} // namespace fir
 
 template <typename A, typename B>
 bool inbounds(A v, B lb, B ub) {
   return v >= lb && v < ub;
 }
 
-bool fir::isa_fir_type(mlir::Type t) {
+bool isa_fir_type(mlir::Type t) {
   return inbounds(t.getKind(), mlir::Type::FIRST_FIR_TYPE,
                   mlir::Type::LAST_FIR_TYPE);
 }
 
-bool fir::isa_std_type(mlir::Type t) {
+bool isa_std_type(mlir::Type t) {
   return inbounds(t.getKind(), mlir::Type::FIRST_STANDARD_TYPE,
                   mlir::Type::LAST_STANDARD_TYPE);
 }
 
-bool fir::isa_fir_or_std_type(mlir::Type t) {
+bool isa_fir_or_std_type(mlir::Type t) {
   return isa_fir_type(t) || isa_std_type(t);
 }
 
-bool fir::isa_memref(mlir::Type t) {
+bool isaMemref(mlir::Type t) {
   return t.isa<ReferenceType>() || t.isa<PointerType>() || t.isa<HeapType>();
 }
 
-mlir::Type fir::dyn_cast_ptrEleTy(mlir::Type t) {
+bool isanAggregate(mlir::Type t) {
+  return t.isa<SequenceType>() || t.isa<RecordType>();
+}
+
+mlir::Type dyn_cast_ptrEleTy(mlir::Type t) {
   if (auto p = t.dyn_cast<fir::ReferenceType>())
     return p.getEleTy();
   if (auto p = t.dyn_cast<fir::PointerType>())
@@ -851,6 +854,8 @@ mlir::Type fir::dyn_cast_ptrEleTy(mlir::Type t) {
     return p.getEleTy();
   return {};
 }
+
+} // namespace fir
 
 // CHARACTER
 
@@ -1062,8 +1067,12 @@ mlir::LogicalResult fir::SequenceType::verifyConstructionInvariants(
       eleTy.isa<BoxProcType>() || eleTy.isa<DimsType>() ||
       eleTy.isa<FieldType>() || eleTy.isa<LenType>() || eleTy.isa<HeapType>() ||
       eleTy.isa<PointerType>() || eleTy.isa<ReferenceType>() ||
-      eleTy.isa<TypeDescType>() || eleTy.isa<SequenceType>())
+      eleTy.isa<TypeDescType>() || eleTy.isa<SequenceType>()) {
+    mlir::emitError(mlir::UnknownLoc::get(context),
+                    "cannot build an array of this element type: ")
+        << eleTy << '\n';
     return mlir::failure();
+  }
   return mlir::success();
 }
 
@@ -1072,7 +1081,7 @@ bool fir::operator==(const SequenceType::Shape &sh_1,
                      const SequenceType::Shape &sh_2) {
   if (sh_1.size() != sh_2.size())
     return false;
-  for (std::size_t i = 0, e = sh_1.size(); i != e; ++i)
+  for (std::size_t i = 0, e{sh_1.size()}; i != e; ++i)
     if (sh_1[i] != sh_2[i])
       return false;
   return true;
