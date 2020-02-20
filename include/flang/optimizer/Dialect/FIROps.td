@@ -1519,20 +1519,21 @@ def fir_LoopOp : fir_Op<"loop", [ImplicitFirTerminator]> {
     Index:$lowerBound,
     Index:$upperBound,
     Variadic<Index>:$optStep,
-    OptionalAttr<I32Attr>:$constantStep,
+    OptionalAttr<I64Attr>:$constantStep,
     OptionalAttr<UnitAttr>:$unordered
   );
 
   let results = (outs Variadic<Index>:$lastVal);
 
   let regions = (region SizedRegion<1>:$region);
+
   let skipDefaultBuilders = 1;
   let builders = [
-    OpBuilder<"mlir::Builder *builder, mlir::OperationState &result,"
+    OpBuilder<"mlir::Builder *builder, OperationState &result,"
               "int64_t lowerBound, int64_t upperBound, int64_t step = 1">,
-    OpBuilder<"mlir::Builder *builder, mlir::OperationState &result,"
+    OpBuilder<"mlir::Builder *builder, OperationState &result,"
               "mlir::Value lowerBound, mlir::Value upperBound,"
-              "llvm::ArrayRef<mlir::Value> step">
+              "ArrayRef<mlir::Value> step = {}">
   ];
 
   let parser = "return parseLoopOp(parser, result);";
@@ -1548,7 +1549,7 @@ def fir_LoopOp : fir_Op<"loop", [ImplicitFirTerminator]> {
     if (unordered())
       p << " unordered";
     p.printRegion(region(), /*printEntryBlockArgs=*/false,
-        /*printBlockTerminators=*/false);
+                            /*printBlockTerminators=*/false);
     p.printOptionalAttrDict(getAttrs(), {unorderedKeyword(), stepKeyword()});
   }];
 
@@ -1578,8 +1579,10 @@ def fir_LoopOp : fir_Op<"loop", [ImplicitFirTerminator]> {
     static constexpr const char *unorderedKeyword() { return "unordered"; }
     static constexpr const char *stepKeyword() { return "step"; }
 
+    /// Is this an unordered loop?
     bool isUnordered() { return getAttr(unorderedKeyword()).isa<UnitAttr>(); }
 
+    /// Does loop set (and return) the final value of the control variable?
     bool hasLastValue() { return lastVal().size(); }
 
     /// Get the body of the loop
@@ -1588,6 +1591,7 @@ def fir_LoopOp : fir_Op<"loop", [ImplicitFirTerminator]> {
     /// Get the block argument corresponding to the loop control value (PHI)
     mlir::Value getInductionVar() { return getBody()->getArgument(0); }
 
+    /// Get a builder to insert operations into the LoopOp
     mlir::OpBuilder getBodyBuilder() {
       return mlir::OpBuilder(getBody(), std::prev(getBody()->end()));
     }
@@ -2153,8 +2157,8 @@ def fir_NoReassocOp : fir_OneResultOp<"no_reassoc",
   let assemblyFormat = "$val attr-dict `:` type($val)";
 }
 
-def fir_GlobalOp :
-    fir_Op<"global", [IsolatedFromAbove, Symbol, ImplicitFirTerminator]> {
+def fir_GlobalOp : fir_Op<"global", [IsolatedFromAbove, Symbol,
+                                     ImplicitFirTerminator]> {
   let summary = "Global data";
 
   let description = [{
@@ -2172,25 +2176,23 @@ def fir_GlobalOp :
     auto name = nameAttr.getRootReference();
     result.attributes.back().second = builder.getStringAttr(name);
 
-    if (!parser.parseOptionalKeyword(getConstantName())) {
+    if (!parser.parseOptionalKeyword(constantAttrName())) {
       // if "constant" keyword then mark this as a constant, not a variable
-      result.addAttribute(getConstantName(), builder.getUnitAttr());
+      result.addAttribute(constantAttrName(), builder.getUnitAttr());
     }
 
     mlir::Type globalType;
     if (parser.parseColonType(globalType))
       return mlir::failure();
 
-    result.addAttribute(getTypeAttrName(), mlir::TypeAttr::get(globalType));
+    result.addAttribute(typeAttrName(), mlir::TypeAttr::get(globalType));
 
     // Parse the optional initializer body.
-    mlir::Region *body = result.addRegion();
-    if (parser.parseOptionalRegion(
-          *body, llvm::ArrayRef<mlir::OpAsmParser::OperandType>{},
-          llvm::ArrayRef<mlir::Type>{}))
+    mlir::Region &body = *result.addRegion();
+    if (parser.parseOptionalRegion(body, llvm::None, llvm::None))
       return mlir::failure();
 
-    ensureTerminator(*body, builder, result.location);
+    ensureTerminator(body, builder, result.location);
     return mlir::success();
   }];
 
@@ -2198,14 +2200,14 @@ def fir_GlobalOp :
     auto varName = getAttrOfType<StringAttr>(
       mlir::SymbolTable::getSymbolAttrName()).getValue();
     p << getOperationName() << " @" << varName;
-    if (getAttr(getConstantName()))
-      p << ' ' << getConstantName();
+    if (getAttr(constantAttrName()))
+      p << ' ' << constantAttrName();
     p << " : ";
     p.printType(getType());
     Region &body = getOperation()->getRegion(0);
     if (!body.empty())
       p.printRegion(body, /*printEntryBlockArgs=*/false,
-                    /*printBlockTerminators=*/false);
+                          /*printBlockTerminators=*/false);
   }];
 
   let verifier = [{
@@ -2217,11 +2219,10 @@ def fir_GlobalOp :
 
   let skipDefaultBuilders = 1;
   let builders = [
-    OpBuilder<"mlir::Builder *builder, mlir::OperationState &result,"
-              "llvm::StringRef name, mlir::Type type,"
-              "llvm::ArrayRef<NamedAttribute> attrs = {}",
+    OpBuilder<"mlir::Builder *builder, OperationState &result,"
+              "StringRef name, Type type, ArrayRef<NamedAttribute> attrs = {}",
     [{
-      result.addAttribute(getTypeAttrName(), mlir::TypeAttr::get(type));
+      result.addAttribute(typeAttrName(), mlir::TypeAttr::get(type));
       result.addAttribute(mlir::SymbolTable::getSymbolAttrName(),
                           builder->getStringAttr(name));
       for (const auto &pair : attrs)
@@ -2230,20 +2231,25 @@ def fir_GlobalOp :
   ];
 
   let extraClassDeclaration = [{
-    static constexpr llvm::StringRef getConstantName() { return "constant"; }
-    static constexpr llvm::StringRef getTypeAttrName() { return "type"; }
-
-    GlobalOp create(mlir::Location location, llvm::StringRef name,
-                    mlir::Type type, llvm::ArrayRef<NamedAttribute> attrs);
+    static constexpr llvm::StringRef constantAttrName() { return "constant"; }
+    static constexpr llvm::StringRef typeAttrName() { return "type"; }
 
     mlir::Type getType() {
-      return getAttrOfType<TypeAttr>(getTypeAttrName()).getValue();
+      return getAttrOfType<TypeAttr>(typeAttrName()).getValue();
     }
 
+    /// Append the next initializer value to the `GlobalOp` to construct
+    /// the variable's initial value.
     void appendInitialValue(mlir::Operation *op);
 
-    mlir::Region &front() {
+    /// A GlobalOp has one region.
+    mlir::Region &getRegion() {
       return getOperation()->getRegion(0);
+    }
+
+    /// A GlobalOp has one block.
+    mlir::Block &getBlock() {
+      return getRegion().front();
     }
   }];
 }
@@ -2291,8 +2297,86 @@ def fir_GlobalEntryOp : fir_Op<"global_entry", []> {
   }];
 }
 
-def fir_DTEntryOp : fir_Op<"dt_entry", []>,
-    Arguments<(ins StrAttr:$method, SymbolRefAttr:$proc)> {
+def fir_DispatchTableOp : fir_Op<"dispatch_table", [IsolatedFromAbove, Symbol,
+                                 ImplicitFirTerminator]> {
+  let summary = "Dispatch table definition";
+
+  let description = [{
+    Define a dispatch table for a derived type with type-bound procedures.
+
+    A dispatch table is an untyped symbol that contains a list of associations
+    between method identifiers and corresponding `FuncOp` symbols.
+
+    The ordering of associations in the map is determined by the front-end.
+  }];
+
+  let parser = [{
+    // Parse the name as a symbol reference attribute.
+    SymbolRefAttr nameAttr;
+    if (parser.parseAttribute(nameAttr, mlir::SymbolTable::getSymbolAttrName(),
+                              result.attributes))
+      return failure();
+
+    // Convert the parsed name attr into a string attr.
+    result.attributes.back().second =
+        parser.getBuilder().getStringAttr(nameAttr.getRootReference());
+
+    // Parse the optional table body.
+    mlir::Region *body = result.addRegion();
+    if (parser.parseOptionalRegion(*body, llvm::None, llvm::None))
+      return mlir::failure();
+
+    ensureTerminator(*body, parser.getBuilder(), result.location);
+    return mlir::success();
+  }];
+
+  let printer = [{
+    auto tableName = getAttrOfType<StringAttr>(
+      mlir::SymbolTable::getSymbolAttrName()).getValue();
+    p << getOperationName() << " @" << tableName;
+
+    Region &body = getOperation()->getRegion(0);
+    if (!body.empty())
+      p.printRegion(body, /*printEntryBlockArgs=*/false,
+                          /*printBlockTerminators=*/false);
+  }];
+
+  let verifier = [{
+    for (auto &op : getBlock())
+      if (!(isa<fir::DTEntryOp>(op) || isa<fir::FirEndOp>(op)))
+        return emitOpError("dispatch table must contain dt_entry");
+    return mlir::success();
+  }];
+
+  let regions = (region SizedRegion<1>:$region);
+
+  let skipDefaultBuilders = 1;
+  let builders = [
+    OpBuilder<"mlir::Builder *builder, OperationState *result,"
+              "StringRef name, Type type, ArrayRef<NamedAttribute> attrs = {}",
+    [{
+      result->addAttribute(mlir::SymbolTable::getSymbolAttrName(),
+                           builder->getStringAttr(name));
+      for (const auto &pair : attrs)
+        result->addAttribute(pair.first, pair.second);
+    }]>
+  ];
+
+  let extraClassDeclaration = [{
+    /// Append a dispatch table entry to the table.
+    void appendTableEntry(mlir::Operation *op);
+
+    mlir::Region &getRegion() {
+      return this->getOperation()->getRegion(0);
+    }
+
+    mlir::Block &getBlock() {
+      return getRegion().front();
+    }
+  }];
+}
+
+def fir_DTEntryOp : fir_Op<"dt_entry", []> {
   let summary = "map entry in a dispatch table";
 
   let description = [{
@@ -2301,27 +2385,39 @@ def fir_DTEntryOp : fir_Op<"dt_entry", []>,
     type of a distinguished argument to determine an exact dispatch table
     and uses the method identifier to select the type-bound procedure to
     be called.
+
+      fir.entry method_name, @uniquedProcedure
   }];
 
+  let arguments = (ins StrAttr:$method, SymbolRefAttr:$proc);
+
   let parser = [{
-    mlir::SymbolRefAttr calleeAttr;
     llvm::StringRef methodName;
+    // allow `methodName` or `"methodName"`
     if (parser.parseOptionalKeyword(&methodName)) {
       mlir::StringAttr methodAttr;
-      if (parser.parseAttribute(methodAttr, "method", result.attributes))
+      if (parser.parseAttribute(methodAttr, methodAttrName(),
+                                result.attributes))
         return mlir::failure();
     } else {
-      result.addAttribute("method",
+      result.addAttribute(methodAttrName(),
           parser.getBuilder().getStringAttr(methodName));
     }
+    mlir::SymbolRefAttr calleeAttr;
     if (parser.parseComma() ||
-        parser.parseAttribute(calleeAttr, "proc", result.attributes))
+        parser.parseAttribute(calleeAttr, procAttrName(), result.attributes))
       return mlir::failure();
     return mlir::success();
   }];
+
   let printer = [{
-    p << getOperationName() << ' ' << getAttr("method") << ", "
-      << getAttr("proc");
+    p << getOperationName() << ' ' << getAttr(methodAttrName()) << ", "
+      << getAttr(procAttrName());
+  }];
+
+  let extraClassDeclaration = [{
+    static constexpr llvm::StringRef methodAttrName() { return "method"; }
+    static constexpr llvm::StringRef procAttrName() { return "proc"; }
   }];
 }
 
