@@ -307,67 +307,13 @@ mlir::FunctionType DispatchOp::getFunctionType() {
 
 // DispatchTableOp
 
-void DispatchTableOp::build(mlir::Builder *builder,
-                            mlir::OperationState *result, llvm::StringRef name,
-                            mlir::Type type,
-                            llvm::ArrayRef<mlir::NamedAttribute> attrs) {
-  result->addAttribute("method", builder->getStringAttr(name));
-  for (const auto &pair : attrs)
-    result->addAttribute(pair.first, pair.second);
-}
-
-mlir::ParseResult DispatchTableOp::parse(mlir::OpAsmParser &parser,
-                                         mlir::OperationState &result) {
-  // Parse the name as a symbol reference attribute.
-  SymbolRefAttr nameAttr;
-  if (parser.parseAttribute(nameAttr, "method", result.attributes))
-    return failure();
-
-  // Convert the parsed name attr into a string attr.
-  result.attributes.back().second =
-      parser.getBuilder().getStringAttr(nameAttr.getRootReference());
-
-  // Parse the optional table body.
-  mlir::Region *body = result.addRegion();
-  if (parser.parseOptionalRegion(
-          *body, llvm::ArrayRef<mlir::OpAsmParser::OperandType>{},
-          llvm::ArrayRef<mlir::Type>{}))
-    return mlir::failure();
-
-  ensureTerminator(*body, parser.getBuilder(), result.location);
-  return mlir::success();
-}
-
-void DispatchTableOp::print(mlir::OpAsmPrinter &p) {
-  auto tableName = getAttrOfType<StringAttr>("method").getValue();
-  p << getOperationName() << " @" << tableName;
-
-  Region &body = getOperation()->getRegion(0);
-  if (!body.empty())
-    p.printRegion(body, /*printEntryBlockArgs=*/false,
-                  /*printBlockTerminators=*/false);
-}
-
-mlir::LogicalResult DispatchTableOp::verify() { return mlir::success(); }
-
-mlir::Region &DispatchTableOp::front() {
-  return this->getOperation()->getRegion(0);
-}
-
 void DispatchTableOp::appendTableEntry(mlir::Operation *op) {
   assert(mlir::isa<fir::DTEntryOp>(*op) && "operation must be a DTEntryOp");
-  front().front().push_back(op);
+  auto &block = getBlock();
+  block.getOperations().insert(block.end(), op);
 }
 
 // GenTypeDescOp
-
-#if 0
-void GenTypeDescOp::build(Builder *, OperationState &result, mlir::Type resty,
-                          mlir::TypeAttr inty) {
-  result.addAttribute("in_type", inty);
-  result.addTypes(resty);
-}
-#endif
 
 void GenTypeDescOp::build(Builder *, OperationState &result,
                           mlir::TypeAttr inty) {
@@ -377,17 +323,9 @@ void GenTypeDescOp::build(Builder *, OperationState &result,
 
 // GlobalOp
 
-GlobalOp GlobalOp::create(mlir::Location location, llvm::StringRef name,
-                          mlir::Type type,
-                          llvm::ArrayRef<mlir::NamedAttribute> attrs) {
-  mlir::OperationState state(location, "global");
-  mlir::Builder builder(location->getContext());
-  GlobalOp::build(&builder, state, name, type, attrs);
-  return cast<GlobalOp>(Operation::create(state));
-}
-
 void GlobalOp::appendInitialValue(mlir::Operation *op) {
-  front().front().push_back(op);
+  auto &block = getBlock();
+  block.getOperations().insert(block.end(), op);
 }
 
 // LoadOp

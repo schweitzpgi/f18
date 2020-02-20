@@ -50,35 +50,8 @@ enum class CmpFPredicate {
   NumPredicates
 };
 
-/// `fir.dispatch_table` is an untyped symbol that is a list of associations
-/// between method identifiers and a FuncOp symbol.
-class DispatchTableOp
-    : public mlir::Op<DispatchTableOp, OpTrait::ZeroOperands,
-                      OpTrait::ZeroResult, OpTrait::IsIsolatedFromAbove,
-                      OpTrait::SingleBlockImplicitTerminator<FirEndOp>::Impl> {
-public:
-  using Op::Op;
-
-  static llvm::StringRef getOperationName() { return "fir.dispatch_table"; }
-
-  static void build(mlir::Builder *builder, OperationState *result,
-                    llvm::StringRef name, mlir::Type type,
-                    llvm::ArrayRef<NamedAttribute> attrs);
-
-  /// Operation hooks.
-  static ParseResult parse(OpAsmParser &parser, OperationState &result);
-  void print(OpAsmPrinter &p);
-  LogicalResult verify();
-
-  void appendTableEntry(mlir::Operation *op);
-
-private:
-  mlir::Region &front();
-};
-
-ParseResult isValidCaseAttr(mlir::Attribute attr);
-unsigned getCaseArgumentOffset(llvm::ArrayRef<mlir::Attribute> cases,
-                               unsigned dest);
+ParseResult isValidCaseAttr(Attribute attr);
+unsigned getCaseArgumentOffset(ArrayRef<Attribute> cases, unsigned dest);
 ParseResult parseSelector(OpAsmParser *parser, OperationState *result,
                           OpAsmParser::OperandType &selector, mlir::Type &type);
 
@@ -92,7 +65,7 @@ ParseResult parseCmpcOp(OpAsmParser &parser, OperationState &result);
 #define GET_OP_CLASSES
 #include "flang/optimizer/Dialect/FIROps.h.inc"
 
-LoopOp getForInductionVarOwner(mlir::Value val);
+LoopOp getForInductionVarOwner(Value val);
 
 bool isReferenceLike(mlir::Type type);
 
