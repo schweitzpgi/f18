@@ -35,6 +35,7 @@
 #include "mlir/Conversion/LoopToStandard/ConvertLoopToStandard.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/Module.h"
+#include "mlir/InitAllDialects.h"
 #include "mlir/Parser.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
@@ -185,11 +186,14 @@ void convertFortranSourceToMLIR(
 } // namespace
 
 int main(int argc, char **argv) {
+  mlir::registerAllDialects();
+  fir::registerFIR();
+  fir::registerFIRPasses();
   [[maybe_unused]] InitLLVM y(argc, argv);
 
   mlir::registerPassManagerCLOptions();
   mlir::PassPipelineCLParser passPipe("", "Compiler passes to run");
-  cl::ParseCommandLineOptions(argc, argv, "bbc\n");
+  cl::ParseCommandLineOptions(argc, argv, "Burnside Bridge Compiler\n");
 
   DriverOptions driver;
   driver.prefix = argv[0] + ": "s;

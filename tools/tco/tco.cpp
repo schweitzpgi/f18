@@ -131,6 +131,6 @@ int main(int argc, char **argv) {
   [[maybe_unused]] InitLLVM y(argc, argv);
   mlir::registerPassManagerCLOptions();
   mlir::PassPipelineCLParser passPipe("", "Compiler passes to run");
-  cl::ParseCommandLineOptions(argc, argv, "Tilikum Crossing Opt\n");
+  cl::ParseCommandLineOptions(argc, argv, "Tilikum Crossing Optimizer\n");
   return compileFIR();
 }
