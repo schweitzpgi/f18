@@ -16,7 +16,7 @@
 #include "flang/optimizer/Dialect/FIROps.h"
 #include "flang/parser/parse-tree.h"
 #include "flang/semantics/tools.h"
-#include "mlir/Dialect/StandardOps/Ops.h"
+#include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/Builders.h"
 
 

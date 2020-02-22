@@ -11,7 +11,7 @@
 #include "flang/optimizer/Transforms/Passes.h"
 #include "mlir/Dialect/AffineOps/AffineOps.h"
 #include "mlir/Dialect/LoopOps/LoopOps.h"
-#include "mlir/Dialect/StandardOps/Ops.h"
+#include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "llvm/Support/CommandLine.h"
@@ -153,7 +153,7 @@ public:
 
   mlir::PatternMatchResult
   matchAndRewrite(FirEndOp op, mlir::PatternRewriter &rewriter) const override {
-    rewriter.replaceOpWithNewOp<mlir::loop::TerminatorOp>(op);
+    rewriter.replaceOpWithNewOp<mlir::loop::YieldOp>(op);
     return matchSuccess();
   }
 };

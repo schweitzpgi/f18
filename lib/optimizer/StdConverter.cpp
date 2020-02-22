@@ -13,7 +13,7 @@
 #include "flang/optimizer/Dialect/FIRType.h"
 #include "flang/optimizer/Support/KindMapping.h"
 #include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
-#include "mlir/Dialect/StandardOps/Ops.h"
+#include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/StandardTypes.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/DialectConversion.h"
@@ -40,16 +40,23 @@ class FIRToStdTypeConverter : public mlir::TypeConverter {
 public:
   using TypeConverter::TypeConverter;
 
-  explicit FIRToStdTypeConverter(KindMapping &kindMap) : kindMap{kindMap} {}
+  explicit FIRToStdTypeConverter(KindMapping &map) : kindMap{map} {
+    addConversion([&](CplxType type) {
+      return mlir::ComplexType::get(toFloatType(type.getFKind()));
+    });
+    addConversion([&](RealType type) { return toFloatType(type.getFKind()); });
+    addConversion([&](IntType type) { return toIntegerType(type.getFKind()); });
+  }
 
-  // convert front-end REAL kind value to a std dialect type, if possible
-  static mlir::Type kindToRealType(KindMapping &kindMap, KindTy kind) {
+private:
+  mlir::Type toFloatType(KindTy kind) {
     auto *ctx = kindMap.getContext();
     switch (kindMap.getRealTypeID(kind)) {
     case llvm::Type::TypeID::HalfTyID:
       return mlir::FloatType::getF16(ctx);
 #if 0
-    // FIXME: there is no BF16 type in LLVM yet
+    // TODO: there is no BF16 type in LLVM yet, so add this when one becomes
+    // available
     case llvm::Type::TypeID:: FIXME TyID:
       return mlir::FloatType::getBF16(ctx);
 #endif
@@ -58,26 +65,19 @@ public:
     case llvm::Type::TypeID::DoubleTyID:
       return mlir::FloatType::getF64(ctx);
     case llvm::Type::TypeID::X86_FP80TyID: // MLIR does not support yet
-    case llvm::Type::TypeID::FP128TyID:    // MLIR does not support yet
+      [[fallthrough]];
+    case llvm::Type::TypeID::FP128TyID: // MLIR does not support yet
+      [[fallthrough]];
     default:
       return RealType::get(ctx, kind);
     }
   }
 
-  /// Convert some FIR types to MLIR standard dialect types
-  mlir::Type convertType(mlir::Type t) override {
-    // To lower types, we have to convert everything that uses these types...
-    if (auto cplx = t.dyn_cast<CplxType>())
-      return mlir::ComplexType::get(kindToRealType(kindMap, cplx.getFKind()));
-    if (auto integer = t.dyn_cast<IntType>())
-      return mlir::IntegerType::get(integer.getFKind() * 8,
-                                    integer.getContext());
-    if (auto real = t.dyn_cast<RealType>())
-      return kindToRealType(kindMap, real.getFKind());
-    return t;
+  mlir::Type toIntegerType(KindTy kind) {
+    return mlir::IntegerType::get(kindMap.getIntegerBitsize(kind),
+                                  kindMap.getContext());
   }
 
-private:
   KindMapping &kindMap;
 };
 

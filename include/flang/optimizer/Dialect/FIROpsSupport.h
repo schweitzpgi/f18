@@ -10,7 +10,7 @@
 #define OPTIMIZER_DIALECT_FIROPSSUPPORT_H
 
 #include "flang/optimizer/Dialect/FIROps.h"
-#include "mlir/Dialect/StandardOps/Ops.h"
+#include "mlir/Dialect/StandardOps/IR/Ops.h"
 
 namespace fir {
 

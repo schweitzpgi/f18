@@ -17,7 +17,7 @@
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVMPass.h"
 #include "mlir/Dialect/AffineOps/AffineOps.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
-#include "mlir/Dialect/StandardOps/Ops.h"
+#include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/StandardTypes.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Target/LLVMIR.h"
@@ -44,6 +44,9 @@
   assert(false && "not yet implemented")
 
 using namespace llvm;
+using namespace fir;
+
+using OperandTy = ArrayRef<mlir::Value>;
 
 static cl::opt<bool>
     ClDisableFirToLLVMIR("disable-fir2llvmir",
@@ -54,12 +57,23 @@ static cl::opt<bool> ClDisableLLVM("disable-llvm",
                                    cl::desc("disable LLVM pass"),
                                    cl::init(false), cl::Hidden);
 
-using namespace fir;
+namespace fir {
+/// return true if all `Value`s in `operands` are `ConstantOp`s
+bool allConstants(OperandTy operands) {
+  for (auto opnd : operands) {
+    if (auto defop = opnd.getDefiningOp())
+      if (dyn_cast<mlir::LLVM::ConstantOp>(defop) ||
+          dyn_cast<mlir::ConstantOp>(defop))
+        continue;
+    return false;
+  }
+  return true;
+}
+} // namespace fir
 
 namespace {
 
 using SmallVecResult = SmallVector<mlir::Value, 4>;
-using OperandTy = ArrayRef<mlir::Value>;
 using AttributeTy = ArrayRef<mlir::NamedAttribute>;
 
 const unsigned defaultAlign{8};
@@ -72,7 +86,49 @@ class FIRToLLVMTypeConverter : public mlir::LLVMTypeConverter {
 
 public:
   FIRToLLVMTypeConverter(mlir::MLIRContext *context, NameUniquer &uniquer)
-      : LLVMTypeConverter(context), kindMapping(context), uniquer(uniquer) {}
+      : LLVMTypeConverter(context), kindMapping(context), uniquer(uniquer) {
+    addConversion([&](BoxType box) { return convertBoxType(box); });
+    addConversion(
+        [&](BoxCharType boxchar) { return convertBoxCharType(boxchar); });
+    addConversion(
+        [&](BoxProcType boxproc) { return convertBoxProcType(boxproc); });
+    addConversion(
+        [&](CharacterType charTy) { return convertCharType(charTy); });
+    addConversion(
+        [&](CplxType cplx) { return convertComplexType(cplx.getFKind()); });
+    addConversion(
+        [&](RecordType derived) { return convertRecordType(derived); });
+    addConversion([&](DimsType dims) {
+      return mlir::LLVM::LLVMType::getArrayTy(dimsType(), dims.getRank());
+    });
+    addConversion([&](FieldType field) {
+      return mlir::LLVM::LLVMType::getInt32Ty(llvmDialect);
+    });
+    addConversion([&](HeapType heap) { return convertPointerLike(heap); });
+    addConversion([&](IntType intr) { return convertIntegerType(intr); });
+    addConversion([&](LenType field) {
+      return mlir::LLVM::LLVMType::getInt32Ty(llvmDialect);
+    });
+    addConversion(
+        [&](LogicalType logical) { return convertLogicalType(logical); });
+    addConversion(
+        [&](fir::PointerType pointer) { return convertPointerLike(pointer); });
+    addConversion(
+        [&](RealType real) { return convertRealType(real.getFKind()); });
+    addConversion([&](ReferenceType ref) { return convertPointerLike(ref); });
+    addConversion(
+        [&](SequenceType sequence) { return convertSequenceType(sequence); });
+    addConversion([&](TypeDescType tdesc) {
+      return convertTypeDescType(tdesc.getContext());
+    });
+    addConversion(
+        [&](mlir::TupleType tuple) { return convertTupleType(tuple); });
+    addConversion(
+        [&](mlir::ComplexType cmplx) { return convertComplexType(cmplx); });
+    addConversion([&](mlir::NoneType none) {
+      return mlir::LLVM::LLVMType::getStructTy(llvmDialect, {});
+    });
+  }
 
   // This returns the type of a single column. Rows are added by the caller.
   // fir.dims<r>  -->  llvm<"[r x [3 x i64]]">
@@ -242,51 +298,6 @@ public:
   // the f18 object v. class distinction
   mlir::LLVM::LLVMType convertTypeDescType(mlir::MLIRContext *ctx) {
     return mlir::LLVM::LLVMType::getInt8PtrTy(llvmDialect);
-  }
-
-  /// Convert FIR types to LLVM IR dialect types
-  mlir::Type convertType(mlir::Type t) override {
-    if (auto box = t.dyn_cast<BoxType>())
-      return convertBoxType(box);
-    if (auto boxchar = t.dyn_cast<BoxCharType>())
-      return convertBoxCharType(boxchar);
-    if (auto boxproc = t.dyn_cast<BoxProcType>())
-      return convertBoxProcType(boxproc);
-    if (auto charTy = t.dyn_cast<CharacterType>())
-      return convertCharType(charTy);
-    if (auto cplx = t.dyn_cast<CplxType>())
-      return convertComplexType(cplx.getFKind());
-    if (auto derived = t.dyn_cast<RecordType>())
-      return convertRecordType(derived);
-    if (auto dims = t.dyn_cast<DimsType>())
-      return mlir::LLVM::LLVMType::getArrayTy(dimsType(), dims.getRank());
-    if (auto field = t.dyn_cast<FieldType>())
-      return mlir::LLVM::LLVMType::getInt32Ty(llvmDialect);
-    if (auto heap = t.dyn_cast<HeapType>())
-      return convertPointerLike(heap);
-    if (auto integer = t.dyn_cast<IntType>())
-      return convertIntegerType(integer);
-    if (auto field = t.dyn_cast<LenType>())
-      return mlir::LLVM::LLVMType::getInt32Ty(llvmDialect);
-    if (auto logical = t.dyn_cast<LogicalType>())
-      return convertLogicalType(logical);
-    if (auto pointer = t.dyn_cast<fir::PointerType>())
-      return convertPointerLike(pointer);
-    if (auto real = t.dyn_cast<RealType>())
-      return convertRealType(real.getFKind());
-    if (auto ref = t.dyn_cast<ReferenceType>())
-      return convertPointerLike(ref);
-    if (auto sequence = t.dyn_cast<SequenceType>())
-      return convertSequenceType(sequence);
-    if (auto tdesc = t.dyn_cast<TypeDescType>())
-      return convertTypeDescType(tdesc.getContext());
-    if (auto tuple = t.dyn_cast<mlir::TupleType>())
-      return convertTupleType(tuple);
-    if (auto cmplx = t.dyn_cast<mlir::ComplexType>())
-      return convertComplexType(cmplx);
-    if (auto none = t.dyn_cast<mlir::NoneType>())
-      return mlir::LLVM::LLVMType::getStructTy(llvmDialect, {});
-    return LLVMTypeConverter::convertType(t);
   }
 
   /// Convert llvm::Type::TypeID to mlir::LLVM::LLVMType
@@ -1115,18 +1126,6 @@ struct EmboxProcOpConversion : public FIROpConversion<EmboxProcOp> {
     return matchSuccess();
   }
 };
-
-/// return true if all `Value`s in `operands` are `ConstantOp`s
-bool allConstants(OperandTy operands) {
-  for (auto opnd : operands) {
-    if (auto defop = opnd.getDefiningOp())
-      if (dyn_cast<mlir::LLVM::ConstantOp>(defop) ||
-          dyn_cast<mlir::ConstantOp>(defop))
-        continue;
-    return false;
-  }
-  return true;
-}
 
 mlir::Attribute getValue(mlir::Value value) {
   assert(value.getDefiningOp());
