@@ -135,6 +135,7 @@ struct Evaluation {
   /// Hide non-nullable pointers to the parse-tree node.
   template <typename A>
   using MakeRefType = const A *const;
+
   using EvalVariant =
       common::CombineVariants<common::MapTemplate<MakeRefType, EvalTuple>,
                               std::variant<CGJump>>;
@@ -146,22 +147,22 @@ struct Evaluation {
                       },
                       u);
   }
+  
   template <typename A>
   constexpr const A *getIf() const {
     if constexpr (!std::is_same_v<A, CGJump>) {
-      if (auto *ptr{std::get_if<MakeRefType<A>>(&u)}) {
+      if (auto *ptr{std::get_if<MakeRefType<A>>(&u)})
         return *ptr;
-      }
     } else {
       return std::get_if<CGJump>(&u);
     }
     return nullptr;
   }
+  
   template <typename A>
   constexpr bool isA() const {
-    if constexpr (!std::is_same_v<A, CGJump>) {
+    if constexpr (!std::is_same_v<A, CGJump>)
       return std::holds_alternative<MakeRefType<A>>(u);
-    }
     return std::holds_alternative<CGJump>(u);
   }
 
@@ -231,12 +232,10 @@ struct Evaluation {
 
   EvaluationCollection *getConstructEvals() {
     auto *evals{subs.get()};
-    if (isStmt() && !evals) {
+    if (isStmt() && !evals)
       return nullptr;
-    }
-    if (isConstruct() && evals) {
+    if (isConstruct() && evals)
       return evals;
-    }
     llvm_unreachable("evaluation subs is inconsistent");
     return nullptr;
   }
