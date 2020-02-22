@@ -1467,6 +1467,18 @@ struct GlobalLenOpConversion : public FIROpConversion<GlobalLenOp> {
   }
 };
 
+struct HasValueOpConversion : public FIROpConversion<fir::HasValueOp> {
+  using FIROpConversion::FIROpConversion;
+
+  mlir::PatternMatchResult
+  matchAndRewrite(mlir::Operation *op, OperandTy operands,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<LLVM::ReturnOp>(op, operands, llvm::None,
+                                                op->getAttrs());
+    return matchSuccess();
+  }
+};
+
 struct GlobalOpConversion : public FIROpConversion<fir::GlobalOp> {
   using FIROpConversion::FIROpConversion;
 
@@ -1475,59 +1487,17 @@ struct GlobalOpConversion : public FIROpConversion<fir::GlobalOp> {
                   mlir::ConversionPatternRewriter &rewriter) const override {
     auto global = mlir::cast<fir::GlobalOp>(op);
     auto tyAttr = unwrap(convertType(global.getType()));
-    bool isConst = global.constant() ? true : false;
-    auto name = global.sym_name();
-    auto value = initializersToAttr(global, rewriter);
-    rewriter.replaceOpWithNewOp<mlir::LLVM::GlobalOp>(
-        global, tyAttr, isConst, mlir::LLVM::Linkage::External, name, value);
+    auto loc = global.getLoc();
+    mlir::Attribute initAttr{};
+    if (global.initval())
+      initAttr = global.initval().getValue();
+    auto g = rewriter.create<mlir::LLVM::GlobalOp>(
+        loc, tyAttr, global.constant(), mlir::LLVM::Linkage::External,
+        global.sym_name(), initAttr);
+    auto &gr = g.getInitializerRegion();
+    rewriter.inlineRegionBefore(global.region(), gr, gr.end());
+    rewriter.eraseOp(global);
     return matchSuccess();
-  }
-
-  // convert the operations in the body into an initializer attr
-  // TODO: only accidentally correct for very simple cases at the moment
-  mlir::Attribute
-  initializersToAttr(fir::GlobalOp global,
-                     mlir::ConversionPatternRewriter &rewriter) const {
-    // if empty body, then check for simplified form
-    if (global.getOperation()->getNumRegions() == 0) {
-      // FIXME...
-
-      // no initializer; let it default to zeroinit
-      return {};
-    }
-
-    // if global is an aggregate type, LLVMIR may require a code stub
-    if (fir::isanAggregate(global.getType())) {
-      llvm::SmallVector<mlir::Attribute, 8> val;
-      for (auto &ini : global.getBlock()) {
-        auto v = getConstantAttr(ini);
-        val.insert(val.end(), v.begin(), v.end());
-      }
-      outs() << "aggregate!\n";
-      return {};
-    }
-
-    // FIXME: pointers? complex?
-    auto rv = getConstantAttr(global.getBlock().front());
-    if (rv.size() == 1)
-      return rv[0];
-    return {};
-  }
-
-  static llvm::SmallVector<mlir::Attribute, 8>
-  getConstantAttr(mlir::Operation &ini) {
-    if (auto cop = dyn_cast<mlir::ConstantOp>(ini))
-      return {cop.value()};
-    if (auto cop = dyn_cast<fir::ConstfOp>(ini))
-      return {cop.getValue()};
-    if (auto cop = dyn_cast<fir::ConstcOp>(ini))
-      return {cop.getReal(), cop.getImaginary()};
-    if (auto sop = dyn_cast<fir::StringLitOp>(ini))
-      return {sop.getValue()};
-    if (auto sop = dyn_cast<fir::FirEndOp>(ini))
-      return {};
-    assert(false);
-    return {};
   }
 };
 
@@ -2137,14 +2107,15 @@ struct FIRToLLVMLoweringPass : public mlir::ModulePass<FIRToLLVMLoweringPass> {
         EmboxCharOpConversion, EmboxOpConversion, EmboxProcOpConversion,
         FieldIndexOpConversion, FirEndOpConversion, ExtractValueOpConversion,
         FreeMemOpConversion, GenDimsOpConversion, GenTypeDescOpConversion,
-        GlobalLenOpConversion, GlobalOpConversion, InsertValueOpConversion,
-        LenParamIndexOpConversion, LoadOpConversion, ModfOpConversion,
-        MulcOpConversion, MulfOpConversion, NegcOpConversion, NegfOpConversion,
-        NoReassocOpConversion, SelectCaseOpConversion, SelectOpConversion,
-        SelectRankOpConversion, SelectTypeOpConversion, StoreOpConversion,
-        StringLitOpConversion, SubcOpConversion, SubfOpConversion,
-        UnboxCharOpConversion, UnboxOpConversion, UnboxProcOpConversion,
-        UndefOpConversion, UnreachableOpConversion>(context, typeConverter);
+        GlobalLenOpConversion, GlobalOpConversion, HasValueOpConversion,
+        InsertValueOpConversion, LenParamIndexOpConversion, LoadOpConversion,
+        ModfOpConversion, MulcOpConversion, MulfOpConversion, NegcOpConversion,
+        NegfOpConversion, NoReassocOpConversion, SelectCaseOpConversion,
+        SelectOpConversion, SelectRankOpConversion, SelectTypeOpConversion,
+        StoreOpConversion, StringLitOpConversion, SubcOpConversion,
+        SubfOpConversion, UnboxCharOpConversion, UnboxOpConversion,
+        UnboxProcOpConversion, UndefOpConversion, UnreachableOpConversion>(
+        context, typeConverter);
     mlir::populateStdToLLVMConversionPatterns(typeConverter, patterns);
     mlir::ConversionTarget target{*context};
     target.addLegalDialect<mlir::LLVM::LLVMDialect>();
