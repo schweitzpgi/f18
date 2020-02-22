@@ -10,7 +10,7 @@
 #include "flang/optimizer/Dialect/FIRAttr.h"
 #include "flang/optimizer/Dialect/FIROpsSupport.h"
 #include "flang/optimizer/Dialect/FIRType.h"
-#include "mlir/Dialect/StandardOps/Ops.h"
+#include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/Function.h"
 #include "mlir/IR/Module.h"
