@@ -320,18 +320,21 @@ func @bar_select_case(%arg : i32, %arg2 : i32) -> i32 {
 // CHECK-LABEL: @global_var
 fir.global @global_var : i32 {
   %0 = constant 1 : i32
+  fir.has_value %0 : i32
 }
 
 // CHECK-LABEL: @global_constant
 fir.global @global_constant constant : i32 {
   %0 = constant 934 : i32
+  fir.has_value %0 : i32
 }
 
 // CHECK-LABEL: @global_derived
-fir.global @global_derived : !fir.type<mine{f:i32}> {
-  %0 = constant 1 : i32
-  // CHECK: fir.global_entry "f", %{{.*}} : i32
-  fir.global_entry "f", %0 : i32
+fir.global @global_derived : !fir.type<minez(f:i32)> {
+  // CHECK: fir.global_len "f", 1 : i32
+  fir.global_len f, 1 : i32
+  %0 = fir.undefined !fir.type<minez>
+  fir.has_value %0 : !fir.type<minez>
 }
 
 // CHECK-LABEL: @dispatch_tbl

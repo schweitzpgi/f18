@@ -204,7 +204,7 @@ fir::NameUniquer::deconstruct(llvm::StringRef uniq) {
     std::string name;
     llvm::SmallVector<std::int64_t, 8> kinds;
     NameKind nk = NameKind::NOT_UNIQUED;
-    for (std::size_t i = 2, end = uniq.size(); i != end;) {
+    for (std::size_t i = 2, end{uniq.size()}; i != end;) {
       switch (uniq[i]) {
       case 'B':
         nk = NameKind::COMMON;

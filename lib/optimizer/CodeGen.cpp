@@ -62,7 +62,7 @@ using SmallVecResult = SmallVector<mlir::Value, 4>;
 using OperandTy = ArrayRef<mlir::Value>;
 using AttributeTy = ArrayRef<mlir::NamedAttribute>;
 
-const unsigned defaultAlign = 8;
+const unsigned defaultAlign{8};
 
 /// FIR type converter
 /// This converts FIR types to LLVM types (for now)
@@ -126,7 +126,7 @@ public:
   mlir::LLVM::LLVMType convertBoxCharType(BoxCharType boxchar) {
     auto ptrTy = convertCharType(boxchar.getEleTy()).getPointerTo();
     auto i64Ty = mlir::LLVM::LLVMType::getInt64Ty(llvmDialect);
-    SmallVector<mlir::LLVM::LLVMType, 2> tuple = {ptrTy, i64Ty};
+    SmallVector<mlir::LLVM::LLVMType, 2> tuple{ptrTy, i64Ty};
     return mlir::LLVM::LLVMType::getStructTy(llvmDialect, tuple);
   }
 
@@ -917,8 +917,8 @@ struct ConvertOpConversion : public FIROpConversion<ConvertOp> {
     mlir::Value v;
     if (fromLLVMTy->isFloatingPointTy()) {
       if (toLLVMTy->isFloatingPointTy()) {
-        unsigned fromBits = fromLLVMTy->getPrimitiveSizeInBits();
-        unsigned toBits = toLLVMTy->getPrimitiveSizeInBits();
+        std::size_t fromBits{fromLLVMTy->getPrimitiveSizeInBits()};
+        std::size_t toBits{toLLVMTy->getPrimitiveSizeInBits()};
         // FIXME: what if different reps (F16, BF16) are the same size?
         assert(fromBits != toBits);
         if (fromBits > toBits)
@@ -930,8 +930,8 @@ struct ConvertOpConversion : public FIROpConversion<ConvertOp> {
       }
     } else if (fromLLVMTy->isIntegerTy()) {
       if (toLLVMTy->isIntegerTy()) {
-        unsigned fromBits = fromLLVMTy->getIntegerBitWidth();
-        unsigned toBits = toLLVMTy->getIntegerBitWidth();
+        std::size_t fromBits{fromLLVMTy->getIntegerBitWidth()};
+        std::size_t toBits{toLLVMTy->getIntegerBitWidth()};
         assert(fromBits != toBits);
         if (fromBits > toBits)
           v = rewriter.create<mlir::LLVM::TruncOp>(loc, toTy, op0);
@@ -1155,7 +1155,7 @@ struct ExtractValueOpConversion : public FIROpConversion<fir::ExtractValueOp> {
     assert(allConstants(operands.drop_front(1)));
     // since all indices are constants use LLVM's extractvalue instruction
     SmallVector<mlir::Attribute, 8> attrs;
-    for (int i = 1, end = operands.size(); i < end; ++i)
+    for (std::size_t i = 1, end{operands.size()}; i < end; ++i)
       attrs.push_back(getValue(operands[i]));
     auto position = mlir::ArrayAttr::get(attrs, extractVal.getContext());
     rewriter.replaceOpWithNewOp<mlir::LLVM::ExtractValueOp>(
@@ -1177,7 +1177,7 @@ struct InsertValueOpConversion : public FIROpConversion<InsertValueOp> {
     assert(allConstants(operands.drop_front(2)));
     // since all indices must be constants use LLVM's insertvalue instruction
     SmallVector<mlir::Attribute, 8> attrs;
-    for (int i = 2, end = operands.size(); i < end; ++i)
+    for (std::size_t i = 2, end{operands.size()}; i < end; ++i)
       attrs.push_back(getValue(operands[i]));
     auto position = mlir::ArrayAttr::get(attrs, insertVal.getContext());
     rewriter.replaceOpWithNewOp<mlir::LLVM::InsertValueOp>(
@@ -1250,7 +1250,7 @@ struct CoordinateOpConversion : public FIROpConversion<CoordinateOp> {
     mlir::Value retval = base;
     assert(offs.size() == args.size() && "must have same arity");
     unsigned pos = 0;
-    for (unsigned i = 0, sz = offs.size(); i != sz; ++i) {
+    for (std::size_t i = 0, sz{offs.size()}; i != sz; ++i) {
       assert(pos <= i);
       if (auto defop = args[i].getDefiningOp())
         if (auto field = dyn_cast<FieldIndexOp>(defop)) {
@@ -1357,7 +1357,7 @@ struct LenParamIndexOpConversion
       offset += 3 * arr.getDimension();
     }
     // advance over some addendum fields
-    const unsigned addendumOffset = sizeof(void *) + sizeof(uint64_t);
+    const unsigned addendumOffset{sizeof(void *) + sizeof(uint64_t)};
     offset += addendumOffset;
     // add the offset into the LENs
     offset += 0; // FIXME
@@ -1455,13 +1455,13 @@ struct GenTypeDescOpConversion : public FIROpConversion<GenTypeDescOp> {
   }
 };
 
-struct GlobalEntryOpConversion : public FIROpConversion<GlobalEntryOp> {
+struct GlobalLenOpConversion : public FIROpConversion<GlobalLenOp> {
   using FIROpConversion::FIROpConversion;
 
   mlir::PatternMatchResult
   matchAndRewrite(mlir::Operation *op, OperandTy operands,
                   mlir::ConversionPatternRewriter &rewriter) const override {
-    auto globalentry = mlir::cast<GlobalEntryOp>(op);
+    auto globalentry = mlir::cast<GlobalLenOp>(op);
     TODO(globalentry);
     return matchSuccess();
   }
@@ -1475,12 +1475,9 @@ struct GlobalOpConversion : public FIROpConversion<fir::GlobalOp> {
                   mlir::ConversionPatternRewriter &rewriter) const override {
     auto global = mlir::cast<fir::GlobalOp>(op);
     auto tyAttr = unwrap(convertType(global.getType()));
-    bool isConst = global.getAttr("constant") ? true : false;
-    auto name = global
-                    .getAttrOfType<mlir::StringAttr>(
-                        mlir::SymbolTable::getSymbolAttrName())
-                    .getValue();
-    auto value = initializersToAttr(global.getOperation(), rewriter);
+    bool isConst = global.constant() ? true : false;
+    auto name = global.sym_name();
+    auto value = initializersToAttr(global, rewriter);
     rewriter.replaceOpWithNewOp<mlir::LLVM::GlobalOp>(
         global, tyAttr, isConst, mlir::LLVM::Linkage::External, name, value);
     return matchSuccess();
@@ -1489,18 +1486,48 @@ struct GlobalOpConversion : public FIROpConversion<fir::GlobalOp> {
   // convert the operations in the body into an initializer attr
   // TODO: only accidentally correct for very simple cases at the moment
   mlir::Attribute
-  initializersToAttr(mlir::Operation *global,
+  initializersToAttr(fir::GlobalOp global,
                      mlir::ConversionPatternRewriter &rewriter) const {
-    mlir::Attribute val;
-    if (global->getNumRegions() > 0) {
-      mlir::Block &block = global->getRegion(0).front();
-      for (auto &ini : block) {
-        if (auto cop = dyn_cast<mlir::ConstantOp>(ini)) {
-          val = cop.value();
-        }
-      }
+    // if empty body, then check for simplified form
+    if (global.getOperation()->getNumRegions() == 0) {
+      // FIXME...
+
+      // no initializer; let it default to zeroinit
+      return {};
     }
-    return val;
+
+    // if global is an aggregate type, LLVMIR may require a code stub
+    if (fir::isanAggregate(global.getType())) {
+      llvm::SmallVector<mlir::Attribute, 8> val;
+      for (auto &ini : global.getBlock()) {
+        auto v = getConstantAttr(ini);
+        val.insert(val.end(), v.begin(), v.end());
+      }
+      outs() << "aggregate!\n";
+      return {};
+    }
+
+    // FIXME: pointers? complex?
+    auto rv = getConstantAttr(global.getBlock().front());
+    if (rv.size() == 1)
+      return rv[0];
+    return {};
+  }
+
+  static llvm::SmallVector<mlir::Attribute, 8>
+  getConstantAttr(mlir::Operation &ini) {
+    if (auto cop = dyn_cast<mlir::ConstantOp>(ini))
+      return {cop.value()};
+    if (auto cop = dyn_cast<fir::ConstfOp>(ini))
+      return {cop.getValue()};
+    if (auto cop = dyn_cast<fir::ConstcOp>(ini))
+      return {cop.getReal(), cop.getImaginary()};
+    if (auto sop = dyn_cast<fir::StringLitOp>(ini))
+      return {sop.getValue()};
+    if (auto sop = dyn_cast<fir::FirEndOp>(ini))
+      return {};
+    assert(false);
+    return {};
   }
 };
 
@@ -1639,7 +1666,7 @@ void selectMatchAndRewrite(FIRToLLVMTypeConverter &lowering,
   auto &selector = operands[0];
   auto loc = select.getLoc();
   assert(conds > 0 && "select must have cases");
-  for (unsigned t = 0; t != conds; ++t) {
+  for (unsigned t = 0, end{conds}; t != end; ++t) {
     auto &attr = cases[t];
     if (auto intAttr = attr.template dyn_cast_or_null<mlir::IntegerAttr>()) {
       auto ci = rewriter.create<mlir::LLVM::ConstantOp>(
@@ -1783,7 +1810,7 @@ struct UnboxOpConversion : public FIROpConversion<UnboxOp> {
     mlir::Value attr = genLoadWithIndex(loc, tuple, ty, rewriter, oty, c0, 5);
     mlir::Value xtra = genLoadWithIndex(loc, tuple, ty, rewriter, oty, c0, 6);
     // FIXME: add dims, etc.
-    std::vector<mlir::Value> repls = {ptr, len, ver, rank, type, attr, xtra};
+    std::vector<mlir::Value> repls{ptr, len, ver, rank, type, attr, xtra};
     unbox.replaceAllUsesWith(repls);
     rewriter.eraseOp(unbox);
     return matchSuccess();
@@ -1806,7 +1833,7 @@ struct UnboxProcOpConversion : public FIROpConversion<UnboxProcOp> {
         genExtractValueWithIndex(loc, tuple, ty, rewriter, ctx, 0);
     mlir::Value host =
         genExtractValueWithIndex(loc, tuple, ty, rewriter, ctx, 1);
-    std::vector<mlir::Value> repls = {ptr, host};
+    std::vector<mlir::Value> repls{ptr, host};
     unboxproc.replaceAllUsesWith(repls);
     rewriter.eraseOp(unboxproc);
     return matchSuccess();
@@ -2110,7 +2137,7 @@ struct FIRToLLVMLoweringPass : public mlir::ModulePass<FIRToLLVMLoweringPass> {
         EmboxCharOpConversion, EmboxOpConversion, EmboxProcOpConversion,
         FieldIndexOpConversion, FirEndOpConversion, ExtractValueOpConversion,
         FreeMemOpConversion, GenDimsOpConversion, GenTypeDescOpConversion,
-        GlobalEntryOpConversion, GlobalOpConversion, InsertValueOpConversion,
+        GlobalLenOpConversion, GlobalOpConversion, InsertValueOpConversion,
         LenParamIndexOpConversion, LoadOpConversion, ModfOpConversion,
         MulcOpConversion, MulfOpConversion, NegcOpConversion, NegfOpConversion,
         NoReassocOpConversion, SelectCaseOpConversion, SelectOpConversion,

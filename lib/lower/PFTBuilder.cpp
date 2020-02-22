@@ -18,17 +18,17 @@
 namespace Fortran::lower {
 namespace {
 
-/// Helpers to unveil parser node inside parser::Statement<>,
-/// parser::UnlabeledStatement, and common::Indirection<>
+/// Helpers to unveil parser node inside Pa::Statement<>,
+/// Pa::UnlabeledStatement, and Co::Indirection<>
 template <typename A>
 struct RemoveIndirectionHelper {
   using Type = A;
   static constexpr const Type &unwrap(const A &a) { return a; }
 };
 template <typename A>
-struct RemoveIndirectionHelper<common::Indirection<A>> {
+struct RemoveIndirectionHelper<Co::Indirection<A>> {
   using Type = A;
-  static constexpr const Type &unwrap(const common::Indirection<A> &a) {
+  static constexpr const Type &unwrap(const Co::Indirection<A> &a) {
     return a.value();
   }
 };
@@ -43,25 +43,25 @@ struct UnwrapStmt {
   static constexpr bool isStmt{false};
 };
 template <typename A>
-struct UnwrapStmt<parser::Statement<A>> {
+struct UnwrapStmt<Pa::Statement<A>> {
   static constexpr bool isStmt{true};
   using Type = typename RemoveIndirectionHelper<A>::Type;
-  constexpr UnwrapStmt(const parser::Statement<A> &a)
+  constexpr UnwrapStmt(const Pa::Statement<A> &a)
       : unwrapped{removeIndirection(a.statement)}, pos{a.source}, lab{a.label} {
   }
   const Type &unwrapped;
-  parser::CharBlock pos;
-  std::optional<parser::Label> lab;
+  Pa::CharBlock pos;
+  std::optional<Pa::Label> lab;
 };
 template <typename A>
-struct UnwrapStmt<parser::UnlabeledStatement<A>> {
+struct UnwrapStmt<Pa::UnlabeledStatement<A>> {
   static constexpr bool isStmt{true};
   using Type = typename RemoveIndirectionHelper<A>::Type;
-  constexpr UnwrapStmt(const parser::UnlabeledStatement<A> &a)
+  constexpr UnwrapStmt(const Pa::UnlabeledStatement<A> &a)
       : unwrapped{removeIndirection(a.statement)}, pos{a.source} {}
   const Type &unwrapped;
-  parser::CharBlock pos;
-  std::optional<parser::Label> lab;
+  Pa::CharBlock pos;
+  std::optional<Pa::Label> lab;
 };
 
 /// The instantiation of a parse tree visitor (Pre and Post) is extremely
@@ -91,7 +91,7 @@ public:
         addEval(PFT::Evaluation{stmt.unwrapped, parents.back(), stmt.pos,
                                 stmt.lab});
         visit = false;
-      } else if constexpr (std::is_same_v<T, parser::ActionStmt>) {
+      } else if constexpr (std::is_same_v<T, Pa::ActionStmt>) {
         addEval(makeEvalAction(stmt.unwrapped, stmt.pos, stmt.lab));
         visit = false;
       }
@@ -109,20 +109,20 @@ public:
   }
 
   // Module like
-  bool Pre(const parser::Module &node) { return enterModule(node); }
-  bool Pre(const parser::Submodule &node) { return enterModule(node); }
+  bool Pre(const Pa::Module &node) { return enterModule(node); }
+  bool Pre(const Pa::Submodule &node) { return enterModule(node); }
 
-  void Post(const parser::Module &) { exitModule(); }
-  void Post(const parser::Submodule &) { exitModule(); }
+  void Post(const Pa::Module &) { exitModule(); }
+  void Post(const Pa::Submodule &) { exitModule(); }
 
   // Block data
-  bool Pre(const parser::BlockData &node) {
+  bool Pre(const Pa::BlockData &node) {
     addUnit(PFT::BlockDataUnit{node, parents.back()});
     return false;
   }
 
   // Get rid of production wrapper
-  bool Pre(const parser::UnlabeledStatement<parser::ForallAssignmentStmt>
+  bool Pre(const Pa::UnlabeledStatement<Pa::ForallAssignmentStmt>
                &statement) {
     addEval(std::visit(
         [&](const auto &x) {
@@ -131,7 +131,7 @@ public:
         statement.statement.u));
     return false;
   }
-  bool Pre(const parser::Statement<parser::ForallAssignmentStmt> &statement) {
+  bool Pre(const Pa::Statement<Pa::ForallAssignmentStmt> &statement) {
     addEval(std::visit(
         [&](const auto &x) {
           return PFT::Evaluation{x, parents.back(), statement.source,
@@ -140,12 +140,12 @@ public:
         statement.statement.u));
     return false;
   }
-  bool Pre(const parser::WhereBodyConstruct &whereBody) {
+  bool Pre(const Pa::WhereBodyConstruct &whereBody) {
     return std::visit(
-        common::visitors{
-            [&](const parser::Statement<parser::AssignmentStmt> &stmt) {
+        Co::visitors{
+            [&](const Pa::Statement<Pa::AssignmentStmt> &stmt) {
               // Not caught as other AssignmentStmt because it is not
-              // wrapped in a parser::ActionStmt.
+              // wrapped in a Pa::ActionStmt.
               addEval(PFT::Evaluation{stmt.statement, parents.back(),
                                       stmt.source, stmt.label});
               return false;
@@ -159,11 +159,11 @@ private:
   // ActionStmt has a couple of non-conforming cases, which get handled
   // explicitly here.  The other cases use an Indirection, which we discard in
   // the PFT.
-  PFT::Evaluation makeEvalAction(const parser::ActionStmt &statement,
-                                 parser::CharBlock pos,
-                                 std::optional<parser::Label> lab) {
+  PFT::Evaluation makeEvalAction(const Pa::ActionStmt &statement,
+                                 Pa::CharBlock pos,
+                                 std::optional<Pa::Label> lab) {
     return std::visit(
-        common::visitors{
+        Co::visitors{
             [&](const auto &x) {
               return PFT::Evaluation{removeIndirection(x), parents.back(), pos,
                                      lab};
@@ -185,7 +185,7 @@ private:
   /// Make funclist to point to current parent function list if it exists.
   void setFunctListToParentFuncs() {
     if (!parents.empty()) {
-      std::visit(common::visitors{
+      std::visit(Co::visitors{
                      [&](PFT::FunctionLikeUnit *p) { funclist = &p->funcs; },
                      [&](PFT::ModuleLikeUnit *p) { funclist = &p->funcs; },
                      [&](auto *) { funclist = nullptr; },
@@ -283,33 +283,33 @@ template <typename Label, typename A>
 constexpr bool hasLabel(const A &stmt) {
   auto isLabel{
       [](const auto &v) { return std::holds_alternative<Label>(v.u); }};
-  if constexpr (std::is_same_v<A, parser::ReadStmt> ||
-                std::is_same_v<A, parser::WriteStmt>) {
+  if constexpr (std::is_same_v<A, Pa::ReadStmt> ||
+                std::is_same_v<A, Pa::WriteStmt>) {
     return std::any_of(std::begin(stmt.controls), std::end(stmt.controls),
                        isLabel);
   }
-  if constexpr (std::is_same_v<A, parser::WaitStmt>) {
+  if constexpr (std::is_same_v<A, Pa::WaitStmt>) {
     return std::any_of(std::begin(stmt.v), std::end(stmt.v), isLabel);
   }
-  if constexpr (std::is_same_v<Label, parser::ErrLabel>) {
-    if constexpr (common::HasMember<
-                      A, std::tuple<parser::OpenStmt, parser::CloseStmt,
-                                    parser::BackspaceStmt, parser::EndfileStmt,
-                                    parser::RewindStmt, parser::FlushStmt>>)
+  if constexpr (std::is_same_v<Label, Pa::ErrLabel>) {
+    if constexpr (Co::HasMember<
+                      A, std::tuple<Pa::OpenStmt, Pa::CloseStmt,
+                                    Pa::BackspaceStmt, Pa::EndfileStmt,
+                                    Pa::RewindStmt, Pa::FlushStmt>>)
       return std::any_of(std::begin(stmt.v), std::end(stmt.v), isLabel);
-    if constexpr (std::is_same_v<A, parser::InquireStmt>) {
-      const auto &specifiers{std::get<std::list<parser::InquireSpec>>(stmt.u)};
+    if constexpr (std::is_same_v<A, Pa::InquireStmt>) {
+      const auto &specifiers{std::get<std::list<Pa::InquireSpec>>(stmt.u)};
       return std::any_of(std::begin(specifiers), std::end(specifiers), isLabel);
     }
   }
   return false;
 }
 
-bool hasAltReturns(const parser::CallStmt &callStmt) {
-  const auto &args{std::get<std::list<parser::ActualArgSpec>>(callStmt.v.t)};
+bool hasAltReturns(const Pa::CallStmt &callStmt) {
+  const auto &args{std::get<std::list<Pa::ActualArgSpec>>(callStmt.v.t)};
   for (const auto &arg : args) {
-    const auto &actual{std::get<parser::ActualArg>(arg.t)};
-    if (std::holds_alternative<parser::AltReturnSpec>(actual.u))
+    const auto &actual{std::get<Pa::ActualArg>(arg.t)};
+    if (std::holds_alternative<Pa::AltReturnSpec>(actual.u))
       return true;
   }
   return false;
@@ -320,7 +320,7 @@ bool hasAltReturns(const parser::CallStmt &callStmt) {
 ///
 /// \param cstr points to the current construct. It may be null at the top-level
 /// of a FunctionLikeUnit.
-void altRet(PFT::Evaluation &evaluation, const parser::CallStmt &callStmt,
+void altRet(PFT::Evaluation &evaluation, const Pa::CallStmt &callStmt,
             PFT::Evaluation *cstr) {
   if (hasAltReturns(callStmt))
     evaluation.setCFG(PFT::CFGAnnotation::Switch, cstr);
@@ -342,121 +342,121 @@ void annotateEvalListCFG(PFT::EvaluationCollection &evaluationCollection,
 
     if (eval.isActionOrGenerated() && eval.lab.has_value())
       eval.isTarget = true;
-    eval.visit(common::visitors{
-        [&](const parser::CallStmt &statement) {
+    eval.visit(Co::visitors{
+        [&](const Pa::CallStmt &statement) {
           altRet(eval, statement, cstr);
         },
-        [&](const parser::CycleStmt &) {
+        [&](const Pa::CycleStmt &) {
           eval.setCFG(PFT::CFGAnnotation::Goto, cstr);
         },
-        [&](const parser::ExitStmt &) {
+        [&](const Pa::ExitStmt &) {
           eval.setCFG(PFT::CFGAnnotation::Goto, cstr);
         },
-        [&](const parser::FailImageStmt &) {
+        [&](const Pa::FailImageStmt &) {
           eval.setCFG(PFT::CFGAnnotation::Terminate, cstr);
         },
-        [&](const parser::GotoStmt &) {
+        [&](const Pa::GotoStmt &) {
           eval.setCFG(PFT::CFGAnnotation::Goto, cstr);
         },
-        [&](const parser::IfStmt &) {
+        [&](const Pa::IfStmt &) {
           eval.setCFG(PFT::CFGAnnotation::CondGoto, cstr);
         },
-        [&](const parser::ReturnStmt &) {
+        [&](const Pa::ReturnStmt &) {
           eval.setCFG(PFT::CFGAnnotation::Return, cstr);
         },
-        [&](const parser::StopStmt &) {
+        [&](const Pa::StopStmt &) {
           eval.setCFG(PFT::CFGAnnotation::Terminate, cstr);
         },
-        [&](const parser::ArithmeticIfStmt &) {
+        [&](const Pa::ArithmeticIfStmt &) {
           eval.setCFG(PFT::CFGAnnotation::Switch, cstr);
         },
-        [&](const parser::AssignedGotoStmt &) {
+        [&](const Pa::AssignedGotoStmt &) {
           eval.setCFG(PFT::CFGAnnotation::IndGoto, cstr);
         },
-        [&](const parser::ComputedGotoStmt &) {
+        [&](const Pa::ComputedGotoStmt &) {
           eval.setCFG(PFT::CFGAnnotation::Switch, cstr);
         },
-        [&](const parser::WhereStmt &) {
+        [&](const Pa::WhereStmt &) {
           // fir.loop + fir.where around the next stmt
           eval.isTarget = true;
           eval.setCFG(PFT::CFGAnnotation::Iterative, cstr);
         },
-        [&](const parser::ForallStmt &) {
+        [&](const Pa::ForallStmt &) {
           // fir.loop around the next stmt
           eval.isTarget = true;
           eval.setCFG(PFT::CFGAnnotation::Iterative, cstr);
         },
         [&](PFT::CGJump &) { eval.setCFG(PFT::CFGAnnotation::Goto, cstr); },
-        [&](const parser::SelectCaseStmt &) {
+        [&](const Pa::SelectCaseStmt &) {
           eval.setCFG(PFT::CFGAnnotation::Switch, cstr);
         },
-        [&](const parser::NonLabelDoStmt &) {
+        [&](const Pa::NonLabelDoStmt &) {
           eval.isTarget = true;
           eval.setCFG(PFT::CFGAnnotation::Iterative, cstr);
         },
-        [&](const parser::EndDoStmt &) {
+        [&](const Pa::EndDoStmt &) {
           eval.isTarget = true;
           eval.setCFG(PFT::CFGAnnotation::Goto, cstr);
         },
-        [&](const parser::IfThenStmt &) {
+        [&](const Pa::IfThenStmt &) {
           eval.setCFG(PFT::CFGAnnotation::CondGoto, cstr);
         },
-        [&](const parser::ElseIfStmt &) {
+        [&](const Pa::ElseIfStmt &) {
           eval.setCFG(PFT::CFGAnnotation::CondGoto, cstr);
         },
-        [&](const parser::SelectRankStmt &) {
+        [&](const Pa::SelectRankStmt &) {
           eval.setCFG(PFT::CFGAnnotation::Switch, cstr);
         },
-        [&](const parser::SelectTypeStmt &) {
+        [&](const Pa::SelectTypeStmt &) {
           eval.setCFG(PFT::CFGAnnotation::Switch, cstr);
         },
-        [&](const parser::WhereConstruct &) {
+        [&](const Pa::WhereConstruct &) {
           // mark the WHERE as if it were a DO loop
           eval.isTarget = true;
           eval.setCFG(PFT::CFGAnnotation::Iterative, cstr);
         },
-        [&](const parser::WhereConstructStmt &) {
+        [&](const Pa::WhereConstructStmt &) {
           eval.setCFG(PFT::CFGAnnotation::CondGoto, cstr);
         },
-        [&](const parser::MaskedElsewhereStmt &) {
+        [&](const Pa::MaskedElsewhereStmt &) {
           eval.isTarget = true;
           eval.setCFG(PFT::CFGAnnotation::CondGoto, cstr);
         },
-        [&](const parser::ForallConstructStmt &) {
+        [&](const Pa::ForallConstructStmt &) {
           eval.isTarget = true;
           eval.setCFG(PFT::CFGAnnotation::Iterative, cstr);
         },
 
         [&](const auto &stmt) {
           // Handle statements with similar impact on control flow
-          using IoStmts = std::tuple<parser::BackspaceStmt, parser::CloseStmt,
-                                     parser::EndfileStmt, parser::FlushStmt,
-                                     parser::InquireStmt, parser::OpenStmt,
-                                     parser::ReadStmt, parser::RewindStmt,
-                                     parser::WaitStmt, parser::WriteStmt>;
+          using IoStmts = std::tuple<Pa::BackspaceStmt, Pa::CloseStmt,
+                                     Pa::EndfileStmt, Pa::FlushStmt,
+                                     Pa::InquireStmt, Pa::OpenStmt,
+                                     Pa::ReadStmt, Pa::RewindStmt,
+                                     Pa::WaitStmt, Pa::WriteStmt>;
 
           using TargetStmts =
-              std::tuple<parser::EndAssociateStmt, parser::EndBlockStmt,
-                         parser::CaseStmt, parser::EndSelectStmt,
-                         parser::EndChangeTeamStmt, parser::EndCriticalStmt,
-                         parser::ElseStmt, parser::EndIfStmt,
-                         parser::SelectRankCaseStmt, parser::TypeGuardStmt,
-                         parser::ElsewhereStmt, parser::EndWhereStmt,
-                         parser::EndForallStmt>;
+              std::tuple<Pa::EndAssociateStmt, Pa::EndBlockStmt,
+                         Pa::CaseStmt, Pa::EndSelectStmt,
+                         Pa::EndChangeTeamStmt, Pa::EndCriticalStmt,
+                         Pa::ElseStmt, Pa::EndIfStmt,
+                         Pa::SelectRankCaseStmt, Pa::TypeGuardStmt,
+                         Pa::ElsewhereStmt, Pa::EndWhereStmt,
+                         Pa::EndForallStmt>;
 
           using DoNothingConstructStmts =
-              std::tuple<parser::BlockStmt, parser::AssociateStmt,
-                         parser::CriticalStmt, parser::ChangeTeamStmt>;
+              std::tuple<Pa::BlockStmt, Pa::AssociateStmt,
+                         Pa::CriticalStmt, Pa::ChangeTeamStmt>;
 
           using A = std::decay_t<decltype(stmt)>;
-          if constexpr (common::HasMember<A, IoStmts>) {
-            if (hasLabel<parser::ErrLabel>(stmt) ||
-                hasLabel<parser::EorLabel>(stmt) ||
-                hasLabel<parser::EndLabel>(stmt))
+          if constexpr (Co::HasMember<A, IoStmts>) {
+            if (hasLabel<Pa::ErrLabel>(stmt) ||
+                hasLabel<Pa::EorLabel>(stmt) ||
+                hasLabel<Pa::EndLabel>(stmt))
               eval.setCFG(PFT::CFGAnnotation::IoSwitch, cstr);
-          } else if constexpr (common::HasMember<A, TargetStmts>) {
+          } else if constexpr (Co::HasMember<A, TargetStmts>) {
             eval.isTarget = true;
-          } else if constexpr (common::HasMember<A, DoNothingConstructStmts>) {
+          } else if constexpr (Co::HasMember<A, DoNothingConstructStmts>) {
             // Explicitly do nothing for these construct statements
           } else {
             static_assert(!PFT::isConstructStmt<A>,
@@ -479,9 +479,9 @@ inline void annotateFuncCFG(PFT::FunctionLikeUnit &functionLikeUnit) {
 
 class PFTDumper {
 public:
-  void dumpPFT(llvm::raw_ostream &outputStream, PFT::Program &pft) {
+  void dumpPFT(L::raw_ostream &outputStream, PFT::Program &pft) {
     for (auto &unit : pft.getUnits()) {
-      std::visit(common::visitors{
+      std::visit(Co::visitors{
                      [&](PFT::BlockDataUnit &unit) {
                        outputStream << getNodeIndex(unit) << " ";
                        outputStream << "BlockData: ";
@@ -499,23 +499,23 @@ public:
     resetIndexes();
   }
 
-  llvm::StringRef evalName(PFT::Evaluation &eval) {
-    return eval.visit(common::visitors{
+  L::StringRef evalName(PFT::Evaluation &eval) {
+    return eval.visit(Co::visitors{
         [](const PFT::CGJump) { return "CGJump"; },
         [](const auto &parseTreeNode) {
-          return parser::ParseTreeDumper::GetNodeName(parseTreeNode);
+          return Pa::ParseTreeDumper::GetNodeName(parseTreeNode);
         },
     });
   }
 
-  void dumpEvalList(llvm::raw_ostream &outputStream,
+  void dumpEvalList(L::raw_ostream &outputStream,
                     PFT::EvaluationCollection &evaluationCollection,
                     int indent = 1) {
     static const std::string white{"                                      ++"};
     std::string indentString{white.substr(0, indent * 2)};
     for (PFT::Evaluation &eval : evaluationCollection) {
       outputStream << indentString << getNodeIndex(eval) << " ";
-      llvm::StringRef name{evalName(eval)};
+      L::StringRef name{evalName(eval)};
       if (auto *subs{eval.getConstructEvals()}) {
         outputStream << "<<" << name << ">>";
         outputStream << "\n";
@@ -528,32 +528,32 @@ public:
     }
   }
 
-  void dumpFunctionLikeUnit(llvm::raw_ostream &outputStream,
+  void dumpFunctionLikeUnit(L::raw_ostream &outputStream,
                             PFT::FunctionLikeUnit &functionLikeUnit) {
     outputStream << getNodeIndex(functionLikeUnit) << " ";
-    llvm::StringRef unitKind{};
+    L::StringRef unitKind{};
     std::string name{};
     std::string header{};
     if (functionLikeUnit.beginStmt) {
       std::visit(
-          common::visitors{
-              [&](const parser::Statement<parser::ProgramStmt> *statement) {
+          Co::visitors{
+              [&](const Pa::Statement<Pa::ProgramStmt> *statement) {
                 unitKind = "Program";
                 name = statement->statement.v.ToString();
               },
-              [&](const parser::Statement<parser::FunctionStmt> *statement) {
+              [&](const Pa::Statement<Pa::FunctionStmt> *statement) {
                 unitKind = "Function";
                 name =
-                    std::get<parser::Name>(statement->statement.t).ToString();
+                    std::get<Pa::Name>(statement->statement.t).ToString();
                 header = statement->source.ToString();
               },
-              [&](const parser::Statement<parser::SubroutineStmt> *statement) {
+              [&](const Pa::Statement<Pa::SubroutineStmt> *statement) {
                 unitKind = "Subroutine";
                 name =
-                    std::get<parser::Name>(statement->statement.t).ToString();
+                    std::get<Pa::Name>(statement->statement.t).ToString();
                 header = statement->source.ToString();
               },
-              [&](const parser::Statement<parser::MpSubprogramStmt>
+              [&](const Pa::Statement<Pa::MpSubprogramStmt>
                       *statement) {
                 unitKind = "MpSubprogram";
                 name = statement->statement.v.ToString();
@@ -580,7 +580,7 @@ public:
     outputStream << "End" << unitKind << ' ' << name << "\n\n";
   }
 
-  void dumpModuleLikeUnit(llvm::raw_ostream &outputStream,
+  void dumpModuleLikeUnit(L::raw_ostream &outputStream,
                           PFT::ModuleLikeUnit &moduleLikeUnit) {
     outputStream << getNodeIndex(moduleLikeUnit) << " ";
     outputStream << "ModuleLike: ";
@@ -608,69 +608,69 @@ public:
   }
 
 private:
-  llvm::DenseMap<const void *, std::size_t> nodeIndexes;
+  L::DenseMap<const void *, std::size_t> nodeIndexes;
   std::size_t nextIndex{1}; // 0 is the root
 };
 
 template <typename A, typename T>
 PFT::FunctionLikeUnit::FunctionStatement getFunctionStmt(const T &func) {
   return PFT::FunctionLikeUnit::FunctionStatement{
-      &std::get<parser::Statement<A>>(func.t)};
+      &std::get<Pa::Statement<A>>(func.t)};
 }
 template <typename A, typename T>
 PFT::ModuleLikeUnit::ModuleStatement getModuleStmt(const T &mod) {
   return PFT::ModuleLikeUnit::ModuleStatement{
-      &std::get<parser::Statement<A>>(mod.t)};
+      &std::get<Pa::Statement<A>>(mod.t)};
 }
 
 } // namespace
 
-PFT::FunctionLikeUnit::FunctionLikeUnit(const parser::MainProgram &func,
+PFT::FunctionLikeUnit::FunctionLikeUnit(const Pa::MainProgram &func,
                                         const PFT::ParentType &parent)
     : ProgramUnit{func, parent} {
   auto &ps{
-      std::get<std::optional<parser::Statement<parser::ProgramStmt>>>(func.t)};
+      std::get<std::optional<Pa::Statement<Pa::ProgramStmt>>>(func.t)};
   if (ps.has_value()) {
-    const parser::Statement<parser::ProgramStmt> &statement{ps.value()};
+    const Pa::Statement<Pa::ProgramStmt> &statement{ps.value()};
     beginStmt = &statement;
   }
-  endStmt = getFunctionStmt<parser::EndProgramStmt>(func);
+  endStmt = getFunctionStmt<Pa::EndProgramStmt>(func);
 }
 
-PFT::FunctionLikeUnit::FunctionLikeUnit(const parser::FunctionSubprogram &func,
+PFT::FunctionLikeUnit::FunctionLikeUnit(const Pa::FunctionSubprogram &func,
                                         const PFT::ParentType &parent)
     : ProgramUnit{func, parent},
-      beginStmt{getFunctionStmt<parser::FunctionStmt>(func)},
-      endStmt{getFunctionStmt<parser::EndFunctionStmt>(func)} {}
+      beginStmt{getFunctionStmt<Pa::FunctionStmt>(func)},
+      endStmt{getFunctionStmt<Pa::EndFunctionStmt>(func)} {}
 
 PFT::FunctionLikeUnit::FunctionLikeUnit(
-    const parser::SubroutineSubprogram &func, const PFT::ParentType &parent)
+    const Pa::SubroutineSubprogram &func, const PFT::ParentType &parent)
     : ProgramUnit{func, parent},
-      beginStmt{getFunctionStmt<parser::SubroutineStmt>(func)},
-      endStmt{getFunctionStmt<parser::EndSubroutineStmt>(func)} {}
+      beginStmt{getFunctionStmt<Pa::SubroutineStmt>(func)},
+      endStmt{getFunctionStmt<Pa::EndSubroutineStmt>(func)} {}
 
 PFT::FunctionLikeUnit::FunctionLikeUnit(
-    const parser::SeparateModuleSubprogram &func, const PFT::ParentType &parent)
+    const Pa::SeparateModuleSubprogram &func, const PFT::ParentType &parent)
     : ProgramUnit{func, parent},
-      beginStmt{getFunctionStmt<parser::MpSubprogramStmt>(func)},
-      endStmt{getFunctionStmt<parser::EndMpSubprogramStmt>(func)} {}
+      beginStmt{getFunctionStmt<Pa::MpSubprogramStmt>(func)},
+      endStmt{getFunctionStmt<Pa::EndMpSubprogramStmt>(func)} {}
 
-PFT::ModuleLikeUnit::ModuleLikeUnit(const parser::Module &m,
+PFT::ModuleLikeUnit::ModuleLikeUnit(const Pa::Module &m,
                                     const PFT::ParentType &parent)
-    : ProgramUnit{m, parent}, beginStmt{getModuleStmt<parser::ModuleStmt>(m)},
-      endStmt{getModuleStmt<parser::EndModuleStmt>(m)} {}
+    : ProgramUnit{m, parent}, beginStmt{getModuleStmt<Pa::ModuleStmt>(m)},
+      endStmt{getModuleStmt<Pa::EndModuleStmt>(m)} {}
 
-PFT::ModuleLikeUnit::ModuleLikeUnit(const parser::Submodule &m,
+PFT::ModuleLikeUnit::ModuleLikeUnit(const Pa::Submodule &m,
                                     const PFT::ParentType &parent)
-    : ProgramUnit{m, parent}, beginStmt{getModuleStmt<parser::SubmoduleStmt>(
+    : ProgramUnit{m, parent}, beginStmt{getModuleStmt<Pa::SubmoduleStmt>(
                                   m)},
-      endStmt{getModuleStmt<parser::EndSubmoduleStmt>(m)} {}
+      endStmt{getModuleStmt<Pa::EndSubmoduleStmt>(m)} {}
 
-PFT::BlockDataUnit::BlockDataUnit(const parser::BlockData &bd,
+PFT::BlockDataUnit::BlockDataUnit(const Pa::BlockData &bd,
                                   const PFT::ParentType &parent)
     : ProgramUnit{bd, parent} {}
 
-std::unique_ptr<PFT::Program> createPFT(const parser::Program &root) {
+std::unique_ptr<PFT::Program> createPFT(const Pa::Program &root) {
   PFTBuilder walker;
   Walk(root, walker);
   return walker.result();
@@ -678,7 +678,7 @@ std::unique_ptr<PFT::Program> createPFT(const parser::Program &root) {
 
 void annotateControl(PFT::Program &pft) {
   for (auto &unit : pft.getUnits()) {
-    std::visit(common::visitors{
+    std::visit(Co::visitors{
                    [](PFT::BlockDataUnit &) {},
                    [](PFT::FunctionLikeUnit &func) { annotateFuncCFG(func); },
                    [](PFT::ModuleLikeUnit &unit) {
@@ -690,7 +690,7 @@ void annotateControl(PFT::Program &pft) {
   }
 }
 
-void dumpPFT(llvm::raw_ostream &outputStream, PFT::Program &pft) {
+void dumpPFT(L::raw_ostream &outputStream, PFT::Program &pft) {
   PFTDumper{}.dumpPFT(outputStream, pft);
 }
 

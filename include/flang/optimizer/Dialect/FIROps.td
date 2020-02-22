@@ -22,9 +22,12 @@ def fir_Dialect : Dialect {
   let name = "fir";
 }
 
+// Types and predicates
+
 def fir_Type : Type<CPred<"fir::isa_fir_or_std_type($_self)">,
     "FIR dialect type">;
 
+// Fortran intrinsic types
 def fir_CharacterType : Type<CPred<"$_self.isa<fir::CharacterType>()">,
     "FIR character type">;
 def fir_ComplexType : Type<CPred<"$_self.isa<fir::CplxType>()">,
@@ -36,6 +39,7 @@ def fir_LogicalType : Type<CPred<"$_self.isa<fir::LogicalType>()">,
 def fir_RealType : Type<CPred<"$_self.isa<fir::RealType>()">,
     "FIR real type">;
 
+// Generalized FIR and standard dialect types representing intrinsic types
 def AnyIntegerLike : TypeConstraint<Or<[IntegerLike.predicate,
     fir_IntegerType.predicate]>, "any integer">;
 def AnyLogicalLike : TypeConstraint<Or<[BoolLike.predicate,
@@ -44,28 +48,43 @@ def AnyRealLike : TypeConstraint<Or<[FloatLike.predicate,
     fir_RealType.predicate]>, "any real">;
 def AnyIntegerType : Type<AnyIntegerLike.predicate, "any integer">;
 
+// Fortran derived (user defined) type
 def fir_RecordType : Type<CPred<"$_self.isa<fir::RecordType>()">,
     "FIR derived type">;
+
+// Fortran array attribute
 def fir_SequenceType : Type<CPred<"$_self.isa<fir::SequenceType>()">,
     "array type">;
 
+// Composable types
 def AnyCompositeLike : TypeConstraint<Or<[fir_RecordType.predicate,
     fir_SequenceType.predicate, fir_ComplexType.predicate,
     IsTupleTypePred]>, "any composite">;
 
+// Reference to an entity type
 def fir_ReferenceType : Type<CPred<"$_self.isa<fir::ReferenceType>()">,
     "reference type">;
+
+// Reference to an ALLOCATABLE attribute type
 def fir_HeapType : Type<CPred<"$_self.isa<fir::HeapType>()">,
     "allocatable type">;
+
+// Reference to a POINTER attribute type
 def fir_PointerType : Type<CPred<"$_self.isa<fir::PointerType>()">,
     "pointer type">;
 
+// Reference types
 def AnyReferenceLike : TypeConstraint<Or<[fir_ReferenceType.predicate,
     fir_HeapType.predicate, fir_PointerType.predicate]>, "any reference">;
 
+// A descriptor tuple (captures a reference to an entity and other information)
 def fir_BoxType : Type<CPred<"$_self.isa<fir::BoxType>()">, "box type">;
+
+// CHARACTER type descriptor. A pair of a data reference and a LEN value.
 def fir_BoxCharType : Type<CPred<"$_self.isa<fir::BoxCharType>()">,
     "box character type">;
+
+// PROCEDURE POINTER descriptor. A pair that can capture a host closure.
 def fir_BoxProcType : Type<CPred<"$_self.isa<fir::BoxProcType>()">,
     "box procedure type">;
 
@@ -76,15 +95,21 @@ def AnyRefOrBox : TypeConstraint<Or<[fir_ReferenceType.predicate,
     fir_HeapType.predicate, fir_PointerType.predicate, fir_BoxType.predicate]>,
     "any reference or box">;
 
+// A vector of Fortran triple notation describing a multidimensional array
 def fir_DimsType : Type<CPred<"$_self.isa<fir::DimsType>()">, "dim type">;
 def AnyEmboxLike : TypeConstraint<Or<[AnyInteger.predicate,
     Index.predicate, fir_IntegerType.predicate, fir_DimsType.predicate]>,
     "any legal embox argument type">;
 def AnyEmboxArg : Type<AnyEmboxLike.predicate, "embox argument type">;
 
+// A type descriptor's type
 def fir_TypeDescType : Type<CPred<"$_self.isa<fir::TypeDescType>()">,
     "type desc type">;
+
+// A field (in a RecordType) argument's type
 def fir_FieldType : Type<CPred<"$_self.isa<fir::FieldType>()">, "field type">;
+
+// A LEN parameter (in a RecordType) argument's type
 def fir_LenType : Type<CPred<"$_self.isa<fir::LenType>()">,
     "LEN parameter type">;
 
@@ -188,7 +213,7 @@ class fir_AllocatableOp<string mnemonic, list<OpTrait> traits =[]> :
     llvm::SmallVector<mlir::Type, 8> typeVec;
     bool hasOperands = false;
     if (!parser.parseOptionalLParen()) {
-      // parse the LEN params of the derived type. (<params> : <types)
+      // parse the LEN params of the derived type. (<params> : <types>)
       if (parser.parseOperandList(operands,
                                   mlir::OpAsmParser::Delimiter::None) ||
           parser.parseColonTypeList(typeVec) ||
@@ -282,7 +307,6 @@ class fir_AllocatableOp<string mnemonic, list<OpTrait> traits =[]> :
 
 def fir_AllocaOp : fir_AllocatableOp<"alloca"> {
   let summary = "allocate storage for a temporary on the stack given a type";
-
   let description = [{
     This primitive operation is used to allocate an object on the stack.  A
     reference to the object of type `!fir.ref<T>` is returned.  The returned
@@ -311,7 +335,6 @@ def fir_AllocaOp : fir_AllocatableOp<"alloca"> {
 def fir_LoadOp : fir_OneResultOp<"load", []>,
     Arguments<(ins AnyReferenceLike:$memref)> {
   let summary = "load a value from a memory reference";
-
   let description = [{
     Load a value from a memory reference into a virtual register.  Produces
     an immutable ssa-value of the referent type.
@@ -367,6 +390,12 @@ def fir_StoreOp : fir_Op<"store", []>,
     reference.
   }];
 
+  let verifier = [{
+    if (value().getType() != fir::dyn_cast_ptrEleTy(memref().getType()))
+      return emitOpError("store value type must match memory reference type");
+    return mlir::success();
+  }];
+
   let parser = [{
     mlir::Type type;
     mlir::OpAsmParser::OperandType oper;
@@ -392,12 +421,6 @@ def fir_StoreOp : fir_Op<"store", []>,
     p << " : " << memref().getType();
   }];
 
-  let verifier = [{
-    if (value().getType() != fir::dyn_cast_ptrEleTy(memref().getType()))
-      return emitOpError("store value type must match memory reference type");
-    return mlir::success();
-  }];
-
   let extraClassDeclaration = [{
     static mlir::Type elementType(mlir::Type refType);
   }];
@@ -405,11 +428,16 @@ def fir_StoreOp : fir_Op<"store", []>,
 
 def fir_UndefOp : fir_OneResultOp<"undefined", [NoSideEffect]> {
   let summary = "explicit undefined value of some type";
-
   let description = [{
     Constructs an ssa-value of the specified type with an undefined value.
     This operation is typically created internally by the mem2reg conversion
     pass.
+  }];
+
+  let verifier = [{
+    if (auto ref = getType().dyn_cast<fir::ReferenceType>())
+      return emitOpError("undefined values of type !fir.ref not allowed");
+    return mlir::success();
   }];
 
   let parser = [{
@@ -421,12 +449,6 @@ def fir_UndefOp : fir_OneResultOp<"undefined", [NoSideEffect]> {
   }];
 
   let printer = [{ p << getOperationName() << ' ' << getType(); }];
-
-  let verifier = [{
-    if (auto ref = getType().dyn_cast<fir::ReferenceType>())
-      return emitOpError("undefined values of type !fir.ref not allowed");
-    return mlir::success();
-  }];
 }
 
 def fir_AllocMemOp : fir_AllocatableOp<"allocmem"> {
@@ -840,6 +862,17 @@ def fir_FirEndOp : fir_Op<"end", [Terminator]> {
     for these operations.  It is implicit and need not appear in the textual
     representation.
   }];
+}
+
+def fir_HasValueOp : fir_Op<"has_value", [Terminator, HasParent<"GlobalOp">]> {
+  let summary = "terminator for GlobalOp";
+  let description = [{
+    The terminator for a GlobalOp with a body.
+  }];
+
+  let arguments = (ins AnyType:$result);
+
+  let assemblyFormat = "$result attr-dict `:` type($result)";
 }
 
 // Operations on !fir.box<T> type objects
@@ -1776,10 +1809,12 @@ def fir_StringLitOp : fir_Op<"string_lit", [NoSideEffect]>,
     mlir::Type type;
     if (parser.parseLParen() ||
         parser.parseAttribute(sz, size(), result.attributes) ||
-        parser.parseRParen() || parser.parseColonType(type))
+        parser.parseRParen() ||
+        parser.parseColonType(type))
       return mlir::failure();
     type = fir::SequenceType::get({sz.getInt()}, type);
-    if (parser.addTypesToList(type, result.types))
+    if (!type ||
+        parser.addTypesToList(type, result.types))
       return mlir::failure();
     return mlir::success();
   }];
@@ -1794,7 +1829,7 @@ def fir_StringLitOp : fir_Op<"string_lit", [NoSideEffect]>,
     if (getSize().cast<mlir::IntegerAttr>().getValue().isNegative())
       return emitOpError("size must be non-negative");
     auto eleTy = getType().cast<fir::SequenceType>().getEleTy();
-    if (!eleTy.dyn_cast<fir::CharacterType>())
+    if (!eleTy.isa<fir::CharacterType>())
       return emitOpError("must have !fir.char type");
     if (auto xl = getAttr(xlist())) {
       auto xList = xl.cast<mlir::ArrayAttr>();
@@ -2040,7 +2075,6 @@ def fir_CmpcOp : fir_Op<"cmpc",
 
 def fir_AddrOfOp : fir_OneResultOp<"address_of", [NoSideEffect]> {
   let summary = "convert a symbol to an SSA value";
-
   let description = [{
     Convert a symbol (a function or global reference) to an SSA-value to be
     used in other Operations.
@@ -2069,12 +2103,12 @@ def fir_AddrOfOp : fir_OneResultOp<"address_of", [NoSideEffect]> {
 }
 
 def fir_ConvertOp : fir_OneResultOp<"convert", [NoSideEffect]> {
-  let arguments = (ins AnyType:$value);
   let summary = "encapsulates all Fortran scalar type conversions";
-
   let description = [{
     Generalized type conversion. Not all pairs of types have conversions.
   }];
+
+  let arguments = (ins AnyType:$value);
 
   let assemblyFormat = [{
     $value attr-dict `:` functional-type($value, results)
@@ -2094,35 +2128,15 @@ def FortranTypeAttr : Attr<And<[CPred<"$_self.isa<TypeAttr>()">,
   let convertFromStorage = "$_self.getValue().cast<Type>()";
 }
 
-def fir_GenTypeDescOp : fir_OneResultOp<"gentypedesc", [NoSideEffect]>,
-  Arguments<(ins FortranTypeAttr:$in_type)> {
+def fir_GenTypeDescOp : fir_OneResultOp<"gentypedesc", [NoSideEffect]> {
   let summary = "generate a type descriptor for a given type";
-
   let description = [{
     Generates a constant object that is an abstract type descriptor of the
     specified type.  The meta-type of a type descriptor for the type `T`
     is `!fir.tdesc<T>`.
   }];
 
-  let parser = [{
-    mlir::Type intype;
-    if (parser.parseType(intype))
-      return mlir::failure();
-    result.addAttribute("in_type", mlir::TypeAttr::get(intype));
-    mlir::Type restype = TypeDescType::get(intype);
-    if (parser.addTypeToList(restype, result.types))
-      return mlir::failure();
-    return mlir::success();
-  }];
-
-  let builders = [
-    OpBuilder<"Builder *, OperationState &result, mlir::TypeAttr inty">
-  ];
-
-  let printer = [{
-    p << getOperationName() << ' ' << getAttr("in_type");
-    p.printOptionalAttrDict(getAttrs(), {"in_type"});
-  }];
+  let arguments = (ins FortranTypeAttr:$in_type);
 
   let verifier = [{
     mlir::Type resultTy = getType();
@@ -2135,6 +2149,26 @@ def fir_GenTypeDescOp : fir_OneResultOp<"gentypedesc", [NoSideEffect]>,
     return mlir::success();
   }];
 
+  let builders = [
+    OpBuilder<"Builder *, OperationState &result, mlir::TypeAttr inty">
+  ];
+
+  let parser = [{
+    mlir::Type intype;
+    if (parser.parseType(intype))
+      return mlir::failure();
+    result.addAttribute("in_type", mlir::TypeAttr::get(intype));
+    mlir::Type restype = TypeDescType::get(intype);
+    if (parser.addTypeToList(restype, result.types))
+      return mlir::failure();
+    return mlir::success();
+  }];
+
+  let printer = [{
+    p << getOperationName() << ' ' << getAttr("in_type");
+    p.printOptionalAttrDict(getAttrs(), {"in_type"});
+  }];
+
   let extraClassDeclaration = [{
     mlir::Type getInType() {
       // get the type that the type descriptor describes
@@ -2145,25 +2179,61 @@ def fir_GenTypeDescOp : fir_OneResultOp<"gentypedesc", [NoSideEffect]>,
 
 def fir_NoReassocOp : fir_OneResultOp<"no_reassoc",
     [SameOperandsAndResultType]> {
-  let arguments = (ins AnyType:$val);
   let summary = "synthetic op to prevent reassociation";
-
   let description = [{
-    The operation is to make sure that the Fortran optimizer does not
-    reassociate operations when they are syntactically surrounded by
-    parenthesis.
+    Primitive operation meant to intrusively prevent operator reassociation.
+    The operation is otherwise a nop and the value returned is the same as the
+    argument.
+
+    The presence of this operation prevents any local optimizations. In the
+    example below, this would prevent possibly replacing the multiply and add
+    operations with a single FMA operation.
+
+      %98 = mulf %96, %97 : f32
+      %99 = fir.no_reassoc %98 : f32
+      %a0 = addf %99, %95 : f32
   }];
+
+  let arguments = (ins AnyType:$val);
 
   let assemblyFormat = "$val attr-dict `:` type($val)";
 }
 
-def fir_GlobalOp : fir_Op<"global", [IsolatedFromAbove, Symbol,
-                                     ImplicitFirTerminator]> {
-  let summary = "Global data";
+class AtMostRegion<int numBlocks> : Region<
+  CPred<"$_self.getBlocks().size() <= " # numBlocks>,
+  "region with " # numBlocks # " blocks">;
 
+def fir_GlobalOp : fir_Op<"global", [IsolatedFromAbove, Symbol]> {
+  let summary = "Global data";
   let description = [{
-    Global data object. FIXME
+    A global variable or constant with initial values.
+
+    The example creates a global variable (writable) named
+    `@_QV_Mquark_Vvarble` with some initial values. The initializer should
+    conform to the variable's type.
+
+      fir.global @_QV_Mquark_Vvarble : tuple<i32, f32> {
+        %1 = constant 1 : i32
+        %2 = constant 2.0 : f32
+        %3 = fir.undefined tuple<i32, f32>
+        %z = constant 0 : index
+        %o = constant 1 : index
+        %4 = fir.insert_value %3, %1, %z : (tuple<i32, f32>, i32, index) -> tuple<i32, f32>
+        %5 = fir.insert_value %4, %1, %o : (tuple<i32, f32>, f32, index) -> tuple<i32, f32>
+        return %5
+      }
   }];
+
+  let arguments = (ins
+    StrAttr:$sym_name,
+    OptionalAttr<AnyAttr>:$initval,
+    UnitAttr:$constant,
+    TypeAttr:$type
+  );
+
+  let results = (outs fir_ReferenceType:$resultType);
+
+  let regions = (region AtMostRegion<1>:$region);
 
   let parser = [{
     // Parse the name as a symbol reference attribute.
@@ -2176,6 +2246,15 @@ def fir_GlobalOp : fir_Op<"global", [IsolatedFromAbove, Symbol,
     auto name = nameAttr.getRootReference();
     result.attributes.back().second = builder.getStringAttr(name);
 
+    bool simpleInitializer = false;
+    if (!parser.parseOptionalLParen()) {
+      Attribute attr;
+      if (parser.parseAttribute(attr, initValAttrName(), result.attributes) ||
+          parser.parseRParen())
+        return failure();
+      simpleInitializer = true;
+    }
+
     if (!parser.parseOptionalKeyword(constantAttrName())) {
       // if "constant" keyword then mark this as a constant, not a variable
       result.addAttribute(constantAttrName(), builder.getUnitAttr());
@@ -2183,23 +2262,31 @@ def fir_GlobalOp : fir_Op<"global", [IsolatedFromAbove, Symbol,
 
     mlir::Type globalType;
     if (parser.parseColonType(globalType))
-      return mlir::failure();
+      return failure();
 
     result.addAttribute(typeAttrName(), mlir::TypeAttr::get(globalType));
 
-    // Parse the optional initializer body.
-    mlir::Region &body = *result.addRegion();
-    if (parser.parseOptionalRegion(body, llvm::None, llvm::None))
-      return mlir::failure();
+    if (!simpleInitializer) {
+      // Parse the optional initializer body.
+      if (parser.parseRegion(*result.addRegion(), llvm::None, llvm::None))
+        return failure();
+    }
 
-    ensureTerminator(body, builder, result.location);
-    return mlir::success();
+    auto refTy = AllocaOp::wrapResultType(globalType);
+    if (parser.addTypeToList(refTy, result.types))
+      return failure();
+    return success();
   }];
 
   let printer = [{
     auto varName = getAttrOfType<StringAttr>(
       mlir::SymbolTable::getSymbolAttrName()).getValue();
     p << getOperationName() << " @" << varName;
+    if (auto iv = initval().getValueOr(Attribute())) {
+      p << '(';
+      p.printAttribute(iv);
+      p << ')';
+    }
     if (getAttr(constantAttrName()))
       p << ' ' << constantAttrName();
     p << " : ";
@@ -2207,15 +2294,8 @@ def fir_GlobalOp : fir_Op<"global", [IsolatedFromAbove, Symbol,
     Region &body = getOperation()->getRegion(0);
     if (!body.empty())
       p.printRegion(body, /*printEntryBlockArgs=*/false,
-                          /*printBlockTerminators=*/false);
+                          /*printBlockTerminators=*/true);
   }];
-
-  let verifier = [{
-    // FIXME
-    return mlir::success();
-  }];
-
-  let regions = (region SizedRegion<1>:$region);
 
   let skipDefaultBuilders = 1;
   let builders = [
@@ -2232,6 +2312,7 @@ def fir_GlobalOp : fir_Op<"global", [IsolatedFromAbove, Symbol,
 
   let extraClassDeclaration = [{
     static constexpr llvm::StringRef constantAttrName() { return "constant"; }
+    static constexpr llvm::StringRef initValAttrName() { return "initval"; }
     static constexpr llvm::StringRef typeAttrName() { return "type"; }
 
     mlir::Type getType() {
@@ -2243,57 +2324,55 @@ def fir_GlobalOp : fir_Op<"global", [IsolatedFromAbove, Symbol,
     void appendInitialValue(mlir::Operation *op);
 
     /// A GlobalOp has one region.
-    mlir::Region &getRegion() {
-      return getOperation()->getRegion(0);
-    }
+    mlir::Region &getRegion() { return getOperation()->getRegion(0); }
 
     /// A GlobalOp has one block.
-    mlir::Block &getBlock() {
-      return getRegion().front();
-    }
+    mlir::Block &getBlock() { return getRegion().front(); }
   }];
 }
 
-def fir_GlobalEntryOp : fir_Op<"global_entry", []> {
-
-  let summary = "map a field entry in a global";
-
+def fir_GlobalLenOp : fir_Op<"global_len", []> {
+  let summary = "map a LEN parameter to a global";
   let description = [{
-    An entry in a global.  Allows a constant to be bound to a specific
-    field in a record even though the layout of the record has not yet
-    been reified.  This may be necessary if the object layout decisions
-    are deferred to, for example, runtime by the implementation.
+    A global entity (that is not an automatic data object) can have extra LEN
+    parameter (compile-time) constants associated with the instance's type.
+    These values can be bound to the global instance used `fir.global_len`.
+
+      global @g : !fir.type<t(len1:i32)> {
+        fir.global_len len1, 10 : i32
+        %1 = fir.undefined : !fir.type<t(len1:i32)>
+        return %1 : !fir.type<t(len1:i32)>
+      }
   }];
 
-  let arguments = (ins StrAttr:$field, AnyType:$constant);
+  let arguments = (ins StrAttr:$lenparam, APIntAttr:$intval);
 
   let parser = [{
-    mlir::Type type;
-    mlir::OpAsmParser::OperandType constant;
     llvm::StringRef fieldName;
     if (parser.parseOptionalKeyword(&fieldName)) {
       mlir::StringAttr fieldAttr;
-      if (parser.parseAttribute(fieldAttr, "field", result.attributes))
+      if (parser.parseAttribute(fieldAttr, lenParamAttrName(),
+                                result.attributes))
         return mlir::failure();
     } else {
-      result.addAttribute("field",
+      result.addAttribute(lenParamAttrName(),
           parser.getBuilder().getStringAttr(fieldName));
     }
+    mlir::IntegerAttr constant;
     if (parser.parseComma() ||
-        parser.parseOperand(constant) ||
-        parser.parseOptionalAttrDict(result.attributes) ||
-        parser.parseColonType(type) ||
-        parser.resolveOperand(constant, type, result.operands))
+        parser.parseAttribute(constant, intAttrName(), result.attributes))
       return mlir::failure();
-    result.addAttribute("in_type", mlir::TypeAttr::get(type));
     return mlir::success();
   }];
 
   let printer = [{
-    p << getOperationName() << ' ' << getAttr("field") << ", ";
-    p.printOperand(constant());
-    p.printOptionalAttrDict(getAttrs(), {"in_type", "field"});
-    p << " : " << getAttr("in_type");
+    p << getOperationName() << ' ' << getAttr(lenParamAttrName()) << ", "
+      << getAttr(intAttrName());
+  }];
+
+  let extraClassDeclaration = [{
+    static constexpr llvm::StringRef lenParamAttrName() { return "lenparam"; }
+    static constexpr llvm::StringRef intAttrName() { return "intval"; }
   }];
 }
 

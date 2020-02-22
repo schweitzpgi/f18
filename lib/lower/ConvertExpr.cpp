@@ -470,7 +470,7 @@ class ExprLowering {
     auto type =
         fir::SequenceType::get({size}, fir::CharacterType::get(context, KIND));
     return builder.create<fir::StringLitOp>(
-        getLoc(), L::ArrayRef<M::Type>{type}, llvm::None, attrs);
+        getLoc(), L::ArrayRef<M::Type>{type}, L::None, attrs);
   }
 
   template <Co::TypeCategory TC, int KIND>
@@ -875,7 +875,7 @@ M::Value Br::createSomeAddress(M::Location loc,
 /// `symbol` will be nullptr for an anonymous temporary
 M::Value Br::createTemporary(M::Location loc, M::OpBuilder &builder,
                              SymMap &symMap, M::Type type,
-                             const Se::Symbol *symbol, llvm::StringRef name) {
+                             const Se::Symbol *symbol, L::StringRef name) {
   if (symbol)
     if (auto val = symMap.lookupSymbol(*symbol)) {
       if (auto op = val.getDefiningOp())
