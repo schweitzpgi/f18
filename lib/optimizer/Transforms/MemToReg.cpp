@@ -11,7 +11,7 @@
 #include "flang/optimizer/Dialect/FIROps.h"
 #include "flang/optimizer/Transforms/Passes.h"
 #include "mlir/Analysis/Dominance.h"
-#include "mlir/Dialect/StandardOps/Ops.h"
+#include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/Pass/Pass.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SmallVector.h"
