@@ -40,7 +40,7 @@ def fir_RealType : Type<CPred<"$_self.isa<fir::RealType>()">,
     "FIR real type">;
 
 // Generalized FIR and standard dialect types representing intrinsic types
-def AnyIntegerLike : TypeConstraint<Or<[IntegerLike.predicate,
+def AnyIntegerLike : TypeConstraint<Or<[SignlessIntegerLike.predicate,
     fir_IntegerType.predicate]>, "any integer">;
 def AnyLogicalLike : TypeConstraint<Or<[BoolLike.predicate,
     fir_LogicalType.predicate]>, "any logical">;
@@ -97,7 +97,7 @@ def AnyRefOrBox : TypeConstraint<Or<[fir_ReferenceType.predicate,
 
 // A vector of Fortran triple notation describing a multidimensional array
 def fir_DimsType : Type<CPred<"$_self.isa<fir::DimsType>()">, "dim type">;
-def AnyEmboxLike : TypeConstraint<Or<[AnyInteger.predicate,
+def AnyEmboxLike : TypeConstraint<Or<[AnySignlessInteger.predicate,
     Index.predicate, fir_IntegerType.predicate, fir_DimsType.predicate]>,
     "any legal embox argument type">;
 def AnyEmboxArg : Type<AnyEmboxLike.predicate, "embox argument type">;
@@ -113,12 +113,12 @@ def fir_FieldType : Type<CPred<"$_self.isa<fir::FieldType>()">, "field type">;
 def fir_LenType : Type<CPred<"$_self.isa<fir::LenType>()">,
     "LEN parameter type">;
 
-def AnyComponentLike : TypeConstraint<Or<[AnyInteger.predicate,
+def AnyComponentLike : TypeConstraint<Or<[AnySignlessInteger.predicate,
     Index.predicate, fir_IntegerType.predicate, fir_FieldType.predicate]>,
     "any coordinate index">;
 def AnyComponentType : Type<AnyComponentLike.predicate, "coordinate type">;
 
-def AnyCoordinateLike : TypeConstraint<Or<[AnyInteger.predicate,
+def AnyCoordinateLike : TypeConstraint<Or<[AnySignlessInteger.predicate,
     Index.predicate, fir_IntegerType.predicate, fir_FieldType.predicate,
     fir_LenType.predicate]>, "any coordinate index">;
 def AnyCoordinateType : Type<AnyCoordinateLike.predicate, "coordinate type">;
@@ -608,6 +608,8 @@ class fir_IntegralSwitchTerminatorOp<string mnemonic,
     return mlir::success();
   }];
 
+  let successors = (successor VariadicSuccessor<AnySuccessor>:$targets);
+
   let extraClassDeclaration = extraSwitchClassDeclaration;
 }
 
@@ -749,6 +751,8 @@ def fir_SelectCaseOp : fir_SwitchTerminatorOp<"select_case"> {
     return mlir::success();
   }];
 
+  let successors = (successor VariadicSuccessor<AnySuccessor>:$targets);
+
   let extraClassDeclaration = extraSwitchClassDeclaration#[{
     mlir::Value getCaseArg(unsigned dest, unsigned ele) {
       assert(ele < 2);
@@ -835,6 +839,9 @@ def fir_SelectTypeOp : fir_SwitchTerminatorOp<"select_type"> {
     }
     return mlir::success();
   }];
+
+  let successors = (successor VariadicSuccessor<AnySuccessor>:$targets);
+
   let extraClassDeclaration = extraSwitchClassDeclaration;
 }
 
