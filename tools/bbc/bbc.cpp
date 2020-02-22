@@ -153,6 +153,7 @@ void convertFortranSourceToMLIR(
   if (emitFIR) {
     // dump FIR and exit
     mlirModule.print(out);
+    out << '\n';
     return;
   }
 
@@ -177,6 +178,7 @@ void convertFortranSourceToMLIR(
 
   if (mlir::succeeded(pm.run(mlirModule))) {
     mlirModule.print(out);
+    out << '\n';
   } else {
     errs() << "oops, pass manager reported failure\n";
     mlirModule.dump();
