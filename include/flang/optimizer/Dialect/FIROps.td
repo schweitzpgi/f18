@@ -870,9 +870,9 @@ def fir_HasValueOp : fir_Op<"has_value", [Terminator, HasParent<"GlobalOp">]> {
     The terminator for a GlobalOp with a body.
   }];
 
-  let arguments = (ins AnyType:$result);
+  let arguments = (ins AnyType:$resval);
 
-  let assemblyFormat = "$result attr-dict `:` type($result)";
+  let assemblyFormat = "$resval attr-dict `:` type($resval)";
 }
 
 // Operations on !fir.box<T> type objects
