@@ -105,22 +105,22 @@ using ConstructStmts = std::tuple<
     parser::ForallConstructStmt, parser::EndForallStmt>;
 
 template <typename A>
-constexpr static bool isActionStmt{common::HasMember<A, ActionStmts>};
+static constexpr bool isActionStmt{common::HasMember<A, ActionStmts>};
 
 template <typename A>
-constexpr static bool isConstruct{common::HasMember<A, Constructs>};
+static constexpr bool isConstruct{common::HasMember<A, Constructs>};
 
 template <typename A>
-constexpr static bool isConstructStmt{common::HasMember<A, ConstructStmts>};
+static constexpr bool isConstructStmt{common::HasMember<A, ConstructStmts>};
 
 template <typename A>
-constexpr static bool isOtherStmt{common::HasMember<A, OtherStmts>};
+static constexpr bool isOtherStmt{common::HasMember<A, OtherStmts>};
 
 template <typename A>
-constexpr static bool isGenerated{std::is_same_v<A, CGJump>};
+static constexpr bool isGenerated{std::is_same_v<A, CGJump>};
 
 template <typename A>
-constexpr static bool isFunctionLike{common::HasMember<
+static constexpr bool isFunctionLike{common::HasMember<
     A, std::tuple<parser::MainProgram, parser::FunctionSubprogram,
                   parser::SubroutineSubprogram,
                   parser::SeparateModuleSubprogram>>};
@@ -139,6 +139,27 @@ struct Evaluation {
   using EvalVariant =
       common::CombineVariants<common::MapTemplate<MakeRefType, EvalTuple>,
                               std::variant<CGJump>>;
+
+  /// General ctor
+  template <typename A>
+  Evaluation(const A &a, const ParentType &p, const parser::CharBlock &pos,
+             const std::optional<parser::Label> &lab)
+      : u{&a}, parent{p}, pos{pos}, lab{lab} {}
+
+  /// Compiler-generated jump
+  Evaluation(const CGJump &jump, const ParentType &p)
+      : u{jump}, parent{p}, cfg{CFGAnnotation::Goto} {}
+
+  /// Construct ctor
+  template <typename A>
+  Evaluation(const A &a, const ParentType &parent) : u{&a}, parent{parent} {
+    static_assert(pft::isConstruct<A>, "must be a construct");
+  }
+
+  Evaluation() = delete;
+  Evaluation(const Evaluation &) = delete;
+  Evaluation(Evaluation &&) = default;
+
   template <typename A>
   constexpr auto visit(A visitor) const {
     return std::visit(common::visitors{
@@ -164,26 +185,6 @@ struct Evaluation {
     if constexpr (!std::is_same_v<A, CGJump>)
       return std::holds_alternative<MakeRefType<A>>(u);
     return std::holds_alternative<CGJump>(u);
-  }
-
-  Evaluation() = delete;
-  Evaluation(const Evaluation &) = delete;
-  Evaluation(Evaluation &&) = default;
-
-  /// General ctor
-  template <typename A>
-  Evaluation(const A &a, const ParentType &p, const parser::CharBlock &pos,
-             const std::optional<parser::Label> &lab)
-      : u{&a}, parent{p}, pos{pos}, lab{lab} {}
-
-  /// Compiler-generated jump
-  Evaluation(const CGJump &jump, const ParentType &p)
-      : u{jump}, parent{p}, cfg{CFGAnnotation::Goto} {}
-
-  /// Construct ctor
-  template <typename A>
-  Evaluation(const A &a, const ParentType &parent) : u{&a}, parent{parent} {
-    static_assert(pft::isConstruct<A>, "must be a construct");
   }
 
   constexpr bool isActionOrGenerated() const {
@@ -212,6 +213,7 @@ struct Evaluation {
         },
     });
   }
+  
   constexpr bool isConstruct() const { return !isStmt(); }
 
   /// Set the type of originating control flow type for this evaluation.
@@ -303,12 +305,15 @@ struct FunctionLikeUnit : public ProgramUnit {
     return std::holds_alternative<
         const parser::Statement<parser::EndProgramStmt> *>(endStmt);
   }
+  
   const parser::FunctionStmt *getFunction() {
     return getA<parser::FunctionStmt>();
   }
+  
   const parser::SubroutineStmt *getSubroutine() {
     return getA<parser::SubroutineStmt>();
   }
+  
   const parser::MpSubprogramStmt *getMPSubp() {
     return getA<parser::MpSubprogramStmt>();
   }
