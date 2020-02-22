@@ -932,8 +932,7 @@ mlir::AffineMapAttr fir::BoxType::getLayoutMap() const {
 }
 
 mlir::LogicalResult fir::BoxType::verifyConstructionInvariants(
-    llvm::Optional<mlir::Location>, mlir::MLIRContext *ctx, mlir::Type eleTy,
-    mlir::AffineMapAttr map) {
+    const mlir::AttributeStorage *, mlir::Type eleTy, mlir::AffineMapAttr map) {
   // TODO
   return mlir::success();
 }
@@ -958,9 +957,9 @@ mlir::Type fir::BoxProcType::getEleTy() const {
   return getImpl()->getElementType();
 }
 
-mlir::LogicalResult fir::BoxProcType::verifyConstructionInvariants(
-    llvm::Optional<mlir::Location> loc, mlir::MLIRContext *context,
-    mlir::Type eleTy) {
+mlir::LogicalResult
+fir::BoxProcType::verifyConstructionInvariants(const mlir::AttributeStorage *,
+                                               mlir::Type eleTy) {
   if (eleTy.isa<mlir::FunctionType>() || eleTy.isa<ReferenceType>())
     return mlir::success();
   return mlir::failure();
@@ -977,8 +976,7 @@ mlir::Type fir::ReferenceType::getEleTy() const {
 }
 
 mlir::LogicalResult fir::ReferenceType::verifyConstructionInvariants(
-    llvm::Optional<mlir::Location> loc, mlir::MLIRContext *context,
-    mlir::Type eleTy) {
+    const mlir::AttributeStorage *context, mlir::Type eleTy) {
   if (eleTy.isa<DimsType>() || eleTy.isa<FieldType>() || eleTy.isa<LenType>() ||
       eleTy.isa<ReferenceType>() || eleTy.isa<TypeDescType>())
     return mlir::failure();
@@ -1000,8 +998,7 @@ mlir::Type fir::PointerType::getEleTy() const {
 }
 
 mlir::LogicalResult fir::PointerType::verifyConstructionInvariants(
-    llvm::Optional<mlir::Location> loc, mlir::MLIRContext *context,
-    mlir::Type eleTy) {
+    const mlir::AttributeStorage *context, mlir::Type eleTy) {
   if (eleTy.isa<BoxType>() || eleTy.isa<BoxCharType>() ||
       eleTy.isa<BoxProcType>() || eleTy.isa<DimsType>() ||
       eleTy.isa<FieldType>() || eleTy.isa<LenType>() || eleTy.isa<HeapType>() ||
@@ -1026,8 +1023,7 @@ mlir::Type fir::HeapType::getEleTy() const {
 }
 
 mlir::LogicalResult
-fir::HeapType::verifyConstructionInvariants(llvm::Optional<mlir::Location> loc,
-                                            mlir::MLIRContext *context,
+fir::HeapType::verifyConstructionInvariants(const mlir::AttributeStorage *,
                                             mlir::Type eleTy) {
   if (eleTy.isa<BoxType>() || eleTy.isa<BoxCharType>() ||
       eleTy.isa<BoxProcType>() || eleTy.isa<DimsType>() ||
@@ -1059,7 +1055,7 @@ SequenceType::Shape fir::SequenceType::getShape() const {
 }
 
 mlir::LogicalResult fir::SequenceType::verifyConstructionInvariants(
-    llvm::Optional<mlir::Location> loc, mlir::MLIRContext *context,
+    const mlir::AttributeStorage *attributeStorage,
     const SequenceType::Shape &shape, mlir::Type eleTy,
     mlir::AffineMapAttr map) {
   // DIMENSION attribute can only be applied to an intrinsic or record type
@@ -1068,6 +1064,7 @@ mlir::LogicalResult fir::SequenceType::verifyConstructionInvariants(
       eleTy.isa<FieldType>() || eleTy.isa<LenType>() || eleTy.isa<HeapType>() ||
       eleTy.isa<PointerType>() || eleTy.isa<ReferenceType>() ||
       eleTy.isa<TypeDescType>() || eleTy.isa<SequenceType>()) {
+    auto context = attributeStorage->getDialect().getContext();
     mlir::emitError(mlir::UnknownLoc::get(context),
                     "cannot build an array of this element type: ")
         << eleTy << '\n';
@@ -1123,8 +1120,7 @@ detail::RecordTypeStorage const *fir::RecordType::uniqueKey() const {
 }
 
 mlir::LogicalResult
-fir::RecordType::verifyConstructionInvariants(llvm::Optional<mlir::Location>,
-                                              mlir::MLIRContext *context,
+fir::RecordType::verifyConstructionInvariants(const mlir::AttributeStorage *,
                                               llvm::StringRef name) {
   if (name.size() == 0)
     return mlir::failure();
@@ -1150,9 +1146,9 @@ TypeDescType fir::TypeDescType::get(mlir::Type ofType) {
 
 mlir::Type fir::TypeDescType::getOfTy() const { return getImpl()->getOfType(); }
 
-mlir::LogicalResult fir::TypeDescType::verifyConstructionInvariants(
-    llvm::Optional<mlir::Location> loc, mlir::MLIRContext *context,
-    mlir::Type eleTy) {
+mlir::LogicalResult
+fir::TypeDescType::verifyConstructionInvariants(const mlir::AttributeStorage *,
+                                                mlir::Type eleTy) {
   if (eleTy.isa<BoxType>() || eleTy.isa<BoxCharType>() ||
       eleTy.isa<BoxProcType>() || eleTy.isa<DimsType>() ||
       eleTy.isa<FieldType>() || eleTy.isa<LenType>() ||
