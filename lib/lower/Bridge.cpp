@@ -1,4 +1,4 @@
-//===-- Bridge.cc ---------------------------------------------------------===//
+//===-- Bridge.cc -- bridge to lower to MLIR ------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -23,7 +23,7 @@
 #include "flang/parser/parse-tree.h"
 #include "flang/semantics/tools.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
-#include "mlir/Dialect/StandardOps/Ops.h"
+#include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/Parser.h"
 #include "mlir/Target/LLVMIR.h"
@@ -1046,7 +1046,7 @@ class FirConverter : public AbstractConverter {
   M::Value genCompare(M::Value lhs, M::Value rhs) {
     auto lty{lhs.getType()};
     assert(lty == rhs.getType());
-    if (lty.isIntOrIndex())
+    if (lty.isSignlessIntOrIndex())
       return builder->create<M::CmpIOp>(lhs.getLoc(), ICMPOPC, lhs, rhs);
     if (fir::LogicalType::kindof(lty.getKind()))
       return builder->create<M::CmpIOp>(lhs.getLoc(), ICMPOPC, lhs, rhs);
