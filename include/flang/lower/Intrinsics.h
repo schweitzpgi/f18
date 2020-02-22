@@ -9,7 +9,7 @@
 #ifndef FORTRAN_LOWER_INTRINSICS_H_
 #define FORTRAN_LOWER_INTRINSICS_H_
 
-#include "mlir/Dialect/StandardOps/Ops.h"
+#include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "llvm/ADT/StringRef.h"
 #include <memory>
 #include <optional>
