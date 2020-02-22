@@ -17,7 +17,7 @@
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVMPass.h"
 #include "mlir/Dialect/AffineOps/AffineOps.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
-#include "mlir/Dialect/StandardOps/Ops.h"
+#include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/StandardTypes.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Target/LLVMIR.h"
@@ -45,21 +45,33 @@
 
 using namespace llvm;
 
+using OperandTy = ArrayRef<mlir::Value>;
+
 static cl::opt<bool>
-    ClDisableFirToLLVMIR("disable-fir2llvmir",
-                         cl::desc("disable FIR to LLVM-IR dialect pass"),
-                         cl::init(false), cl::Hidden);
+    disableFirToLLVMIR("disable-fir2llvmir",
+                       cl::desc("disable FIR to LLVM-IR dialect pass"),
+                       cl::init(false), cl::Hidden);
 
-static cl::opt<bool> ClDisableLLVM("disable-llvm",
-                                   cl::desc("disable LLVM pass"),
-                                   cl::init(false), cl::Hidden);
+static cl::opt<bool> disableLLVM("disable-llvm", cl::desc("disable LLVM pass"),
+                                 cl::init(false), cl::Hidden);
 
-using namespace fir;
+namespace fir {
+/// return true if all `Value`s in `operands` are `ConstantOp`s
+bool allConstants(OperandTy operands) {
+  for (auto opnd : operands) {
+    if (auto defop = opnd.getDefiningOp())
+      if (dyn_cast<mlir::LLVM::ConstantOp>(defop) ||
+          dyn_cast<mlir::ConstantOp>(defop))
+        continue;
+    return false;
+  }
+  return true;
+}
+} // namespace fir
 
 namespace {
 
 using SmallVecResult = SmallVector<mlir::Value, 4>;
-using OperandTy = ArrayRef<mlir::Value>;
 using AttributeTy = ArrayRef<mlir::NamedAttribute>;
 
 const unsigned defaultAlign{8};
@@ -67,12 +79,57 @@ const unsigned defaultAlign{8};
 /// FIR type converter
 /// This converts FIR types to LLVM types (for now)
 class FIRToLLVMTypeConverter : public mlir::LLVMTypeConverter {
-  KindMapping kindMapping;
+  fir::KindMapping kindMapping;
   static StringMap<mlir::LLVM::LLVMType> identStructCache;
 
 public:
-  FIRToLLVMTypeConverter(mlir::MLIRContext *context, NameUniquer &uniquer)
-      : LLVMTypeConverter(context), kindMapping(context), uniquer(uniquer) {}
+  FIRToLLVMTypeConverter(mlir::MLIRContext *context, fir::NameUniquer &uniquer)
+      : LLVMTypeConverter(context), kindMapping(context), uniquer(uniquer) {
+    addConversion([&](fir::BoxType box) { return convertBoxType(box); });
+    addConversion(
+        [&](fir::BoxCharType boxchar) { return convertBoxCharType(boxchar); });
+    addConversion(
+        [&](fir::BoxProcType boxproc) { return convertBoxProcType(boxproc); });
+    addConversion(
+        [&](fir::CharacterType charTy) { return convertCharType(charTy); });
+    addConversion([&](fir::CplxType cplx) {
+      return convertComplexType(cplx.getFKind());
+    });
+    addConversion(
+        [&](fir::RecordType derived) { return convertRecordType(derived); });
+    addConversion([&](fir::DimsType dims) {
+      return mlir::LLVM::LLVMType::getArrayTy(dimsType(), dims.getRank());
+    });
+    addConversion([&](fir::FieldType field) {
+      return mlir::LLVM::LLVMType::getInt32Ty(llvmDialect);
+    });
+    addConversion([&](fir::HeapType heap) { return convertPointerLike(heap); });
+    addConversion([&](fir::IntType intr) { return convertIntegerType(intr); });
+    addConversion([&](fir::LenType field) {
+      return mlir::LLVM::LLVMType::getInt32Ty(llvmDialect);
+    });
+    addConversion(
+        [&](fir::LogicalType logical) { return convertLogicalType(logical); });
+    addConversion(
+        [&](fir::PointerType pointer) { return convertPointerLike(pointer); });
+    addConversion(
+        [&](fir::RealType real) { return convertRealType(real.getFKind()); });
+    addConversion(
+        [&](fir::ReferenceType ref) { return convertPointerLike(ref); });
+    addConversion([&](fir::SequenceType sequence) {
+      return convertSequenceType(sequence);
+    });
+    addConversion([&](fir::TypeDescType tdesc) {
+      return convertTypeDescType(tdesc.getContext());
+    });
+    addConversion(
+        [&](mlir::TupleType tuple) { return convertTupleType(tuple); });
+    addConversion(
+        [&](mlir::ComplexType cmplx) { return convertComplexType(cmplx); });
+    addConversion([&](mlir::NoneType none) {
+      return mlir::LLVM::LLVMType::getStructTy(llvmDialect, {});
+    });
+  }
 
   // This returns the type of a single column. Rows are added by the caller.
   // fir.dims<r>  -->  llvm<"[r x [3 x i64]]">
@@ -95,7 +152,7 @@ public:
   // This corresponds to the descriptor as defined ISO_Fortran_binding.h and the
   // addendum defined in descriptor.h.
   // FIXME: This code should be generated and follow SPOT
-  mlir::LLVM::LLVMType convertBoxType(BoxType box) {
+  mlir::LLVM::LLVMType convertBoxType(fir::BoxType box) {
     // (buffer*, ele-size, rank, type-descriptor, attribute, [dims])
     SmallVector<mlir::LLVM::LLVMType, 6> parts;
     mlir::Type ele = box.getEleTy();
@@ -123,7 +180,7 @@ public:
   }
 
   // fir.boxchar<n>  -->  llvm<"{ ix*, i64 }">   where ix is kind mapping
-  mlir::LLVM::LLVMType convertBoxCharType(BoxCharType boxchar) {
+  mlir::LLVM::LLVMType convertBoxCharType(fir::BoxCharType boxchar) {
     auto ptrTy = convertCharType(boxchar.getEleTy()).getPointerTo();
     auto i64Ty = mlir::LLVM::LLVMType::getInt64Ty(llvmDialect);
     SmallVector<mlir::LLVM::LLVMType, 2> tuple{ptrTy, i64Ty};
@@ -131,7 +188,7 @@ public:
   }
 
   // fir.boxproc<any>  -->  llvm<"{ any*, i8* }">
-  mlir::LLVM::LLVMType convertBoxProcType(BoxProcType boxproc) {
+  mlir::LLVM::LLVMType convertBoxProcType(fir::BoxProcType boxproc) {
     auto funcTy = convertType(boxproc.getEleTy());
     auto ptrTy = unwrap(funcTy).getPointerTo();
     auto i8Ty = mlir::LLVM::LLVMType::getInt8Ty(llvmDialect);
@@ -139,23 +196,23 @@ public:
     return mlir::LLVM::LLVMType::getStructTy(llvmDialect, tuple);
   }
 
-  unsigned characterBitsize(CharacterType charTy) {
+  unsigned characterBitsize(fir::CharacterType charTy) {
     return kindMapping.getCharacterBitsize(charTy.getFKind());
   }
 
   // fir.char<n>  -->  llvm<"ix*">   where ix is scaled by kind mapping
-  mlir::LLVM::LLVMType convertCharType(CharacterType charTy) {
+  mlir::LLVM::LLVMType convertCharType(fir::CharacterType charTy) {
     return mlir::LLVM::LLVMType::getIntNTy(llvmDialect,
                                            characterBitsize(charTy));
   }
 
-  mlir::LLVM::LLVMType convertComplexPartType(KindTy kind) {
+  mlir::LLVM::LLVMType convertComplexPartType(fir::KindTy kind) {
     auto realID = kindMapping.getComplexTypeID(kind);
     return fromRealTypeID(realID, kind);
   }
 
   // fir.complex<n>  -->  llvm<"{ anyfloat, anyfloat }">
-  mlir::LLVM::LLVMType convertComplexType(KindTy kind) {
+  mlir::LLVM::LLVMType convertComplexType(fir::KindTy kind) {
     auto realTy = convertComplexPartType(kind);
     SmallVector<mlir::LLVM::LLVMType, 2> tuple{realTy, realTy};
     return mlir::LLVM::LLVMType::getStructTy(llvmDialect, tuple);
@@ -167,13 +224,13 @@ public:
   }
 
   // fir.int<n>  -->  llvm.ix   where ix is a kind mapping
-  mlir::LLVM::LLVMType convertIntegerType(IntType intTy) {
+  mlir::LLVM::LLVMType convertIntegerType(fir::IntType intTy) {
     return mlir::LLVM::LLVMType::getIntNTy(
         llvmDialect, kindMapping.getIntegerBitsize(intTy.getFKind()));
   }
 
   // fir.logical<n>  -->  llvm.ix  where ix is a kind mapping
-  mlir::LLVM::LLVMType convertLogicalType(LogicalType boolTy) {
+  mlir::LLVM::LLVMType convertLogicalType(fir::LogicalType boolTy) {
     return mlir::LLVM::LLVMType::getIntNTy(
         llvmDialect, kindMapping.getLogicalBitsize(boolTy.getFKind()));
   }
@@ -185,12 +242,12 @@ public:
 
   // convert a front-end kind value to either a std or LLVM IR dialect type
   // fir.real<n>  -->  llvm.anyfloat  where anyfloat is a kind mapping
-  mlir::LLVM::LLVMType convertRealType(KindTy kind) {
+  mlir::LLVM::LLVMType convertRealType(fir::KindTy kind) {
     return fromRealTypeID(kindMapping.getRealTypeID(kind), kind);
   }
 
   // fir.type<name(p : TY'...){f : TY...}>  -->  llvm<"%name = { ty... }">
-  mlir::LLVM::LLVMType convertRecordType(RecordType derived) {
+  mlir::LLVM::LLVMType convertRecordType(fir::RecordType derived) {
     auto name{derived.getName()};
     // The cache is needed to keep a unique mapping from name -> StructType
     auto iter{identStructCache.find(name)};
@@ -206,7 +263,7 @@ public:
   }
 
   // fir.array<c ... :any>  -->  llvm<"[...[c x any]]">
-  mlir::LLVM::LLVMType convertSequenceType(SequenceType seq) {
+  mlir::LLVM::LLVMType convertSequenceType(fir::SequenceType seq) {
     auto baseTy = unwrap(convertType(seq.getEleTy()));
     auto shape = seq.getShape();
     if (shape.size()) {
@@ -244,53 +301,9 @@ public:
     return mlir::LLVM::LLVMType::getInt8PtrTy(llvmDialect);
   }
 
-  /// Convert FIR types to LLVM IR dialect types
-  mlir::Type convertType(mlir::Type t) override {
-    if (auto box = t.dyn_cast<BoxType>())
-      return convertBoxType(box);
-    if (auto boxchar = t.dyn_cast<BoxCharType>())
-      return convertBoxCharType(boxchar);
-    if (auto boxproc = t.dyn_cast<BoxProcType>())
-      return convertBoxProcType(boxproc);
-    if (auto charTy = t.dyn_cast<CharacterType>())
-      return convertCharType(charTy);
-    if (auto cplx = t.dyn_cast<CplxType>())
-      return convertComplexType(cplx.getFKind());
-    if (auto derived = t.dyn_cast<RecordType>())
-      return convertRecordType(derived);
-    if (auto dims = t.dyn_cast<DimsType>())
-      return mlir::LLVM::LLVMType::getArrayTy(dimsType(), dims.getRank());
-    if (auto field = t.dyn_cast<FieldType>())
-      return mlir::LLVM::LLVMType::getInt32Ty(llvmDialect);
-    if (auto heap = t.dyn_cast<HeapType>())
-      return convertPointerLike(heap);
-    if (auto integer = t.dyn_cast<IntType>())
-      return convertIntegerType(integer);
-    if (auto field = t.dyn_cast<LenType>())
-      return mlir::LLVM::LLVMType::getInt32Ty(llvmDialect);
-    if (auto logical = t.dyn_cast<LogicalType>())
-      return convertLogicalType(logical);
-    if (auto pointer = t.dyn_cast<fir::PointerType>())
-      return convertPointerLike(pointer);
-    if (auto real = t.dyn_cast<RealType>())
-      return convertRealType(real.getFKind());
-    if (auto ref = t.dyn_cast<ReferenceType>())
-      return convertPointerLike(ref);
-    if (auto sequence = t.dyn_cast<SequenceType>())
-      return convertSequenceType(sequence);
-    if (auto tdesc = t.dyn_cast<TypeDescType>())
-      return convertTypeDescType(tdesc.getContext());
-    if (auto tuple = t.dyn_cast<mlir::TupleType>())
-      return convertTupleType(tuple);
-    if (auto cmplx = t.dyn_cast<mlir::ComplexType>())
-      return convertComplexType(cmplx);
-    if (auto none = t.dyn_cast<mlir::NoneType>())
-      return mlir::LLVM::LLVMType::getStructTy(llvmDialect, {});
-    return LLVMTypeConverter::convertType(t);
-  }
-
   /// Convert llvm::Type::TypeID to mlir::LLVM::LLVMType
-  mlir::LLVM::LLVMType fromRealTypeID(llvm::Type::TypeID typeID, KindTy kind) {
+  mlir::LLVM::LLVMType fromRealTypeID(llvm::Type::TypeID typeID,
+                                      fir::KindTy kind) {
     switch (typeID) {
     case llvm::Type::TypeID::HalfTyID:
       return mlir::LLVM::LLVMType::getHalfTy(llvmDialect);
@@ -321,7 +334,7 @@ public:
     return wrappedLLVMType;
   }
 
-  NameUniquer &uniquer;
+  fir::NameUniquer &uniquer;
 };
 
 // instantiate static data member
@@ -438,7 +451,7 @@ struct AllocaOpConversion : public FIROpConversion<fir::AllocaOp> {
   }
 };
 
-mlir::LLVM::LLVMFuncOp getMalloc(AllocMemOp op,
+mlir::LLVM::LLVMFuncOp getMalloc(fir::AllocMemOp op,
                                  mlir::ConversionPatternRewriter &rewriter,
                                  mlir::LLVM::LLVMDialect *dialect) {
   auto module = op.getParentOfType<mlir::ModuleOp>();
@@ -454,13 +467,13 @@ mlir::LLVM::LLVMFuncOp getMalloc(AllocMemOp op,
 }
 
 /// convert to `call` to the runtime to `malloc` memory
-struct AllocMemOpConversion : public FIROpConversion<AllocMemOp> {
+struct AllocMemOpConversion : public FIROpConversion<fir::AllocMemOp> {
   using FIROpConversion::FIROpConversion;
 
   mlir::PatternMatchResult
   matchAndRewrite(mlir::Operation *op, OperandTy operands,
                   mlir::ConversionPatternRewriter &rewriter) const override {
-    auto heap = mlir::cast<AllocMemOp>(op);
+    auto heap = mlir::cast<fir::AllocMemOp>(op);
     auto ty = convertType(heap.getType());
     auto dialect = getDialect();
     auto mallocFunc = getMalloc(heap, rewriter, dialect);
@@ -479,7 +492,7 @@ struct AllocMemOpConversion : public FIROpConversion<AllocMemOp> {
 };
 
 /// obtain the free() function
-mlir::LLVM::LLVMFuncOp getFree(FreeMemOp op,
+mlir::LLVM::LLVMFuncOp getFree(fir::FreeMemOp op,
                                mlir::ConversionPatternRewriter &rewriter,
                                mlir::LLVM::LLVMDialect *dialect) {
   auto module = op.getParentOfType<mlir::ModuleOp>();
@@ -522,17 +535,17 @@ mlir::LLVM::GEPOp genGEP(mlir::Location loc, mlir::LLVM::LLVMType ty,
 }
 
 /// convert to returning the first element of the box (any flavor)
-struct BoxAddrOpConversion : public FIROpConversion<BoxAddrOp> {
+struct BoxAddrOpConversion : public FIROpConversion<fir::BoxAddrOp> {
   using FIROpConversion::FIROpConversion;
 
   mlir::PatternMatchResult
   matchAndRewrite(mlir::Operation *op, OperandTy operands,
                   mlir::ConversionPatternRewriter &rewriter) const override {
-    auto boxaddr = mlir::cast<BoxAddrOp>(op);
+    auto boxaddr = mlir::cast<fir::BoxAddrOp>(op);
     auto a = operands[0];
     auto loc = boxaddr.getLoc();
     auto ty = convertType(boxaddr.getType());
-    if (auto argty = boxaddr.val().getType().dyn_cast<BoxType>()) {
+    if (auto argty = boxaddr.val().getType().dyn_cast<fir::BoxType>()) {
       auto c0 = genConstantOffset(loc, rewriter, 0);
       auto pty = unwrap(ty).getPointerTo();
       auto p = genGEP(loc, unwrap(pty), rewriter, a, c0, c0);
@@ -549,13 +562,13 @@ struct BoxAddrOpConversion : public FIROpConversion<BoxAddrOp> {
 };
 
 /// convert to an extractvalue for the 2nd part of the boxchar
-struct BoxCharLenOpConversion : public FIROpConversion<BoxCharLenOp> {
+struct BoxCharLenOpConversion : public FIROpConversion<fir::BoxCharLenOp> {
   using FIROpConversion::FIROpConversion;
 
   mlir::PatternMatchResult
   matchAndRewrite(mlir::Operation *op, OperandTy operands,
                   mlir::ConversionPatternRewriter &rewriter) const override {
-    auto boxchar = mlir::cast<BoxCharLenOp>(op);
+    auto boxchar = mlir::cast<fir::BoxCharLenOp>(op);
     auto a = operands[0];
     auto ty = convertType(boxchar.getType());
     auto ctx = boxchar.getContext();
@@ -566,13 +579,13 @@ struct BoxCharLenOpConversion : public FIROpConversion<BoxCharLenOp> {
 };
 
 /// convert to a triple set of GEPs and loads
-struct BoxDimsOpConversion : public FIROpConversion<BoxDimsOp> {
+struct BoxDimsOpConversion : public FIROpConversion<fir::BoxDimsOp> {
   using FIROpConversion::FIROpConversion;
 
   mlir::PatternMatchResult
   matchAndRewrite(mlir::Operation *op, OperandTy operands,
                   mlir::ConversionPatternRewriter &rewriter) const override {
-    auto boxdims = mlir::cast<BoxDimsOp>(op);
+    auto boxdims = mlir::cast<fir::BoxDimsOp>(op);
     auto a = operands[0];
     auto dim = operands[1];
     auto loc = boxdims.getLoc();
@@ -587,7 +600,7 @@ struct BoxDimsOpConversion : public FIROpConversion<BoxDimsOp> {
   }
 
   mlir::LLVM::LoadOp
-  loadFromOffset(BoxDimsOp boxdims, mlir::Location loc, mlir::Value a,
+  loadFromOffset(fir::BoxDimsOp boxdims, mlir::Location loc, mlir::Value a,
                  mlir::LLVM::ConstantOp c0, mlir::LLVM::ConstantOp c7,
                  mlir::Value dim, int off,
                  mlir::ConversionPatternRewriter &rewriter) const {
@@ -599,13 +612,13 @@ struct BoxDimsOpConversion : public FIROpConversion<BoxDimsOp> {
   }
 };
 
-struct BoxEleSizeOpConversion : public FIROpConversion<BoxEleSizeOp> {
+struct BoxEleSizeOpConversion : public FIROpConversion<fir::BoxEleSizeOp> {
   using FIROpConversion::FIROpConversion;
 
   mlir::PatternMatchResult
   matchAndRewrite(mlir::Operation *op, OperandTy operands,
                   mlir::ConversionPatternRewriter &rewriter) const override {
-    auto boxelesz = mlir::cast<BoxEleSizeOp>(op);
+    auto boxelesz = mlir::cast<fir::BoxEleSizeOp>(op);
     auto a = operands[0];
     auto loc = boxelesz.getLoc();
     auto c0 = genConstantOffset(loc, rewriter, 0);
@@ -617,13 +630,13 @@ struct BoxEleSizeOpConversion : public FIROpConversion<BoxEleSizeOp> {
   }
 };
 
-struct BoxIsAllocOpConversion : public FIROpConversion<BoxIsAllocOp> {
+struct BoxIsAllocOpConversion : public FIROpConversion<fir::BoxIsAllocOp> {
   using FIROpConversion::FIROpConversion;
 
   mlir::PatternMatchResult
   matchAndRewrite(mlir::Operation *op, OperandTy operands,
                   mlir::ConversionPatternRewriter &rewriter) const override {
-    auto boxisalloc = mlir::cast<BoxIsAllocOp>(op);
+    auto boxisalloc = mlir::cast<fir::BoxIsAllocOp>(op);
     auto a = operands[0];
     auto loc = boxisalloc.getLoc();
     auto ity = lowering.offsetType();
@@ -640,13 +653,13 @@ struct BoxIsAllocOpConversion : public FIROpConversion<BoxIsAllocOp> {
   }
 };
 
-struct BoxIsArrayOpConversion : public FIROpConversion<BoxIsArrayOp> {
+struct BoxIsArrayOpConversion : public FIROpConversion<fir::BoxIsArrayOp> {
   using FIROpConversion::FIROpConversion;
 
   mlir::PatternMatchResult
   matchAndRewrite(mlir::Operation *op, OperandTy operands,
                   mlir::ConversionPatternRewriter &rewriter) const override {
-    auto boxisarray = mlir::cast<BoxIsArrayOp>(op);
+    auto boxisarray = mlir::cast<fir::BoxIsArrayOp>(op);
     auto a = operands[0];
     auto loc = boxisarray.getLoc();
     auto c0 = genConstantOffset(loc, rewriter, 0);
@@ -660,13 +673,13 @@ struct BoxIsArrayOpConversion : public FIROpConversion<BoxIsArrayOp> {
   }
 };
 
-struct BoxIsPtrOpConversion : public FIROpConversion<BoxIsPtrOp> {
+struct BoxIsPtrOpConversion : public FIROpConversion<fir::BoxIsPtrOp> {
   using FIROpConversion::FIROpConversion;
 
   mlir::PatternMatchResult
   matchAndRewrite(mlir::Operation *op, OperandTy operands,
                   mlir::ConversionPatternRewriter &rewriter) const override {
-    auto boxisptr = mlir::cast<BoxIsPtrOp>(op);
+    auto boxisptr = mlir::cast<fir::BoxIsPtrOp>(op);
     auto a = operands[0];
     auto loc = boxisptr.getLoc();
     auto ty = convertType(boxisptr.getType());
@@ -684,13 +697,13 @@ struct BoxIsPtrOpConversion : public FIROpConversion<BoxIsPtrOp> {
   }
 };
 
-struct BoxProcHostOpConversion : public FIROpConversion<BoxProcHostOp> {
+struct BoxProcHostOpConversion : public FIROpConversion<fir::BoxProcHostOp> {
   using FIROpConversion::FIROpConversion;
 
   mlir::PatternMatchResult
   matchAndRewrite(mlir::Operation *op, OperandTy operands,
                   mlir::ConversionPatternRewriter &rewriter) const override {
-    auto boxprochost = mlir::cast<BoxProcHostOp>(op);
+    auto boxprochost = mlir::cast<fir::BoxProcHostOp>(op);
     auto a = operands[0];
     auto ty = convertType(boxprochost.getType());
     auto ctx = boxprochost.getContext();
@@ -701,13 +714,13 @@ struct BoxProcHostOpConversion : public FIROpConversion<BoxProcHostOp> {
   }
 };
 
-struct BoxRankOpConversion : public FIROpConversion<BoxRankOp> {
+struct BoxRankOpConversion : public FIROpConversion<fir::BoxRankOp> {
   using FIROpConversion::FIROpConversion;
 
   mlir::PatternMatchResult
   matchAndRewrite(mlir::Operation *op, OperandTy operands,
                   mlir::ConversionPatternRewriter &rewriter) const override {
-    auto boxrank = mlir::cast<BoxRankOp>(op);
+    auto boxrank = mlir::cast<fir::BoxRankOp>(op);
     auto a = operands[0];
     auto loc = boxrank.getLoc();
     auto ty = convertType(boxrank.getType());
@@ -721,13 +734,13 @@ struct BoxRankOpConversion : public FIROpConversion<BoxRankOp> {
   }
 };
 
-struct BoxTypeDescOpConversion : public FIROpConversion<BoxTypeDescOp> {
+struct BoxTypeDescOpConversion : public FIROpConversion<fir::BoxTypeDescOp> {
   using FIROpConversion::FIROpConversion;
 
   mlir::PatternMatchResult
   matchAndRewrite(mlir::Operation *op, OperandTy operands,
                   mlir::ConversionPatternRewriter &rewriter) const override {
-    auto boxtypedesc = mlir::cast<BoxTypeDescOp>(op);
+    auto boxtypedesc = mlir::cast<fir::BoxTypeDescOp>(op);
     auto a = operands[0];
     auto loc = boxtypedesc.getLoc();
     auto ty = convertType(boxtypedesc.getType());
@@ -850,13 +863,13 @@ struct CmpfOpConversion : public FIROpConversion<fir::CmpfOp> {
   }
 };
 
-struct ConstcOpConversion : public FIROpConversion<ConstcOp> {
+struct ConstcOpConversion : public FIROpConversion<fir::ConstcOp> {
   using FIROpConversion::FIROpConversion;
 
   mlir::PatternMatchResult
   matchAndRewrite(mlir::Operation *op, OperandTy,
                   mlir::ConversionPatternRewriter &rewriter) const override {
-    auto conc = mlir::cast<ConstcOp>(op);
+    auto conc = mlir::cast<fir::ConstcOp>(op);
     auto loc = conc.getLoc();
     auto ctx = conc.getContext();
     auto ty = convertType(conc.getType());
@@ -880,13 +893,13 @@ struct ConstcOpConversion : public FIROpConversion<ConstcOp> {
   }
 };
 
-struct ConstfOpConversion : public FIROpConversion<ConstfOp> {
+struct ConstfOpConversion : public FIROpConversion<fir::ConstfOp> {
   using FIROpConversion::FIROpConversion;
 
   mlir::PatternMatchResult
   matchAndRewrite(mlir::Operation *op, OperandTy,
                   mlir::ConversionPatternRewriter &rewriter) const override {
-    auto conf = mlir::cast<ConstfOp>(op);
+    auto conf = mlir::cast<fir::ConstfOp>(op);
     auto ty = convertType(conf.getType());
     auto val = conf.getValue();
     rewriter.replaceOpWithNewOp<mlir::LLVM::ConstantOp>(conf, ty, val);
@@ -895,13 +908,13 @@ struct ConstfOpConversion : public FIROpConversion<ConstfOp> {
 };
 
 /// convert value of from-type to value of to-type
-struct ConvertOpConversion : public FIROpConversion<ConvertOp> {
+struct ConvertOpConversion : public FIROpConversion<fir::ConvertOp> {
   using FIROpConversion::FIROpConversion;
 
   mlir::PatternMatchResult
   matchAndRewrite(mlir::Operation *op, OperandTy operands,
                   mlir::ConversionPatternRewriter &rewriter) const override {
-    auto convert = mlir::cast<ConvertOp>(op);
+    auto convert = mlir::cast<fir::ConvertOp>(op);
     auto fromTy_ = convertType(convert.value().getType());
     auto fromTy = unwrap(fromTy_);
     auto toTy_ = convertType(convert.res().getType());
@@ -958,13 +971,13 @@ struct ConvertOpConversion : public FIROpConversion<ConvertOp> {
 };
 
 /// virtual call to a method in a dispatch table
-struct DispatchOpConversion : public FIROpConversion<DispatchOp> {
+struct DispatchOpConversion : public FIROpConversion<fir::DispatchOp> {
   using FIROpConversion::FIROpConversion;
 
   mlir::PatternMatchResult
   matchAndRewrite(mlir::Operation *op, OperandTy operands,
                   mlir::ConversionPatternRewriter &rewriter) const override {
-    auto dispatch = mlir::cast<DispatchOp>(op);
+    auto dispatch = mlir::cast<fir::DispatchOp>(op);
     auto ty = convertType(dispatch.getFunctionType());
     // get the table, lookup the method, fetch the func-ptr
     rewriter.replaceOpWithNewOp<mlir::LLVM::CallOp>(dispatch, ty, operands,
@@ -975,39 +988,40 @@ struct DispatchOpConversion : public FIROpConversion<DispatchOp> {
 };
 
 /// dispatch table for a Fortran derived type
-struct DispatchTableOpConversion : public FIROpConversion<DispatchTableOp> {
+struct DispatchTableOpConversion
+    : public FIROpConversion<fir::DispatchTableOp> {
   using FIROpConversion::FIROpConversion;
 
   mlir::PatternMatchResult
   matchAndRewrite(mlir::Operation *op, OperandTy operands,
                   mlir::ConversionPatternRewriter &rewriter) const override {
-    auto disptable = mlir::cast<DispatchTableOp>(op);
+    auto disptable = mlir::cast<fir::DispatchTableOp>(op);
     TODO(disptable);
     return matchSuccess();
   }
 };
 
 /// entry in a dispatch table; binds a method-name to a function
-struct DTEntryOpConversion : public FIROpConversion<DTEntryOp> {
+struct DTEntryOpConversion : public FIROpConversion<fir::DTEntryOp> {
   using FIROpConversion::FIROpConversion;
 
   mlir::PatternMatchResult
   matchAndRewrite(mlir::Operation *op, OperandTy operands,
                   mlir::ConversionPatternRewriter &rewriter) const override {
-    auto dtentry = mlir::cast<DTEntryOp>(op);
+    auto dtentry = mlir::cast<fir::DTEntryOp>(op);
     TODO(dtentry);
     return matchSuccess();
   }
 };
 
 /// create a CHARACTER box
-struct EmboxCharOpConversion : public FIROpConversion<EmboxCharOp> {
+struct EmboxCharOpConversion : public FIROpConversion<fir::EmboxCharOp> {
   using FIROpConversion::FIROpConversion;
 
   mlir::PatternMatchResult
   matchAndRewrite(mlir::Operation *op, OperandTy operands,
                   mlir::ConversionPatternRewriter &rewriter) const override {
-    auto emboxchar = mlir::cast<EmboxCharOp>(op);
+    auto emboxchar = mlir::cast<fir::EmboxCharOp>(op);
     auto a = operands[0];
     auto b = operands[1];
     auto loc = emboxchar.getLoc();
@@ -1024,13 +1038,13 @@ struct EmboxCharOpConversion : public FIROpConversion<EmboxCharOp> {
 };
 
 /// create a generic box on a memory reference
-struct EmboxOpConversion : public FIROpConversion<EmboxOp> {
+struct EmboxOpConversion : public FIROpConversion<fir::EmboxOp> {
   using FIROpConversion::FIROpConversion;
 
   mlir::PatternMatchResult
   matchAndRewrite(mlir::Operation *op, OperandTy operands,
                   mlir::ConversionPatternRewriter &rewriter) const override {
-    auto embox = mlir::cast<EmboxOp>(op);
+    auto embox = mlir::cast<fir::EmboxOp>(op);
     auto loc = embox.getLoc();
     auto dialect = getDialect();
     auto ty = unwrap(convertType(embox.getType()));
@@ -1094,13 +1108,13 @@ struct EmboxOpConversion : public FIROpConversion<EmboxOp> {
 };
 
 /// create a procedure pointer box
-struct EmboxProcOpConversion : public FIROpConversion<EmboxProcOp> {
+struct EmboxProcOpConversion : public FIROpConversion<fir::EmboxProcOp> {
   using FIROpConversion::FIROpConversion;
 
   mlir::PatternMatchResult
   matchAndRewrite(mlir::Operation *op, OperandTy operands,
                   mlir::ConversionPatternRewriter &rewriter) const override {
-    auto emboxproc = mlir::cast<EmboxProcOp>(op);
+    auto emboxproc = mlir::cast<fir::EmboxProcOp>(op);
     auto a = operands[0];
     auto b = operands[1];
     auto loc = emboxproc.getLoc();
@@ -1115,18 +1129,6 @@ struct EmboxProcOpConversion : public FIROpConversion<EmboxProcOp> {
     return matchSuccess();
   }
 };
-
-/// return true if all `Value`s in `operands` are `ConstantOp`s
-bool allConstants(OperandTy operands) {
-  for (auto opnd : operands) {
-    if (auto defop = opnd.getDefiningOp())
-      if (dyn_cast<mlir::LLVM::ConstantOp>(defop) ||
-          dyn_cast<mlir::ConstantOp>(defop))
-        continue;
-    return false;
-  }
-  return true;
-}
 
 mlir::Attribute getValue(mlir::Value value) {
   assert(value.getDefiningOp());
@@ -1150,9 +1152,9 @@ struct ExtractValueOpConversion : public FIROpConversion<fir::ExtractValueOp> {
   mlir::PatternMatchResult
   matchAndRewrite(mlir::Operation *op, OperandTy operands,
                   mlir::ConversionPatternRewriter &rewriter) const override {
-    auto extractVal = mlir::cast<ExtractValueOp>(op);
+    auto extractVal = mlir::cast<fir::ExtractValueOp>(op);
     auto ty = convertType(extractVal.getType());
-    assert(allConstants(operands.drop_front(1)));
+    assert(fir::allConstants(operands.drop_front(1)));
     // since all indices are constants use LLVM's extractvalue instruction
     SmallVector<mlir::Attribute, 8> attrs;
     for (std::size_t i = 1, end{operands.size()}; i < end; ++i)
@@ -1166,15 +1168,15 @@ struct ExtractValueOpConversion : public FIROpConversion<fir::ExtractValueOp> {
 
 /// InsertValue is the generalized instruction for the composition of new
 /// aggregate type values.
-struct InsertValueOpConversion : public FIROpConversion<InsertValueOp> {
+struct InsertValueOpConversion : public FIROpConversion<fir::InsertValueOp> {
   using FIROpConversion::FIROpConversion;
 
   mlir::PatternMatchResult
   matchAndRewrite(mlir::Operation *op, OperandTy operands,
                   mlir::ConversionPatternRewriter &rewriter) const override {
-    auto insertVal = cast<InsertValueOp>(op);
+    auto insertVal = cast<fir::InsertValueOp>(op);
     auto ty = convertType(insertVal.getType());
-    assert(allConstants(operands.drop_front(2)));
+    assert(fir::allConstants(operands.drop_front(2)));
     // since all indices must be constants use LLVM's insertvalue instruction
     SmallVector<mlir::Attribute, 8> attrs;
     for (std::size_t i = 2, end{operands.size()}; i < end; ++i)
@@ -1190,31 +1192,31 @@ struct InsertValueOpConversion : public FIROpConversion<InsertValueOp> {
 bool noFieldIndexOps(mlir::Operation::operand_range operands) {
   for (auto opnd : operands) {
     if (auto defop = opnd.getDefiningOp())
-      if (dyn_cast<FieldIndexOp>(defop))
+      if (dyn_cast<fir::FieldIndexOp>(defop))
         return false;
   }
   return true;
 }
 
 /// convert to reference to a reference to a subobject
-struct CoordinateOpConversion : public FIROpConversion<CoordinateOp> {
+struct CoordinateOpConversion : public FIROpConversion<fir::CoordinateOp> {
   using FIROpConversion::FIROpConversion;
 
   mlir::PatternMatchResult
   matchAndRewrite(mlir::Operation *op, OperandTy operands,
                   mlir::ConversionPatternRewriter &rewriter) const override {
-    auto coor = mlir::cast<CoordinateOp>(op);
+    auto coor = mlir::cast<fir::CoordinateOp>(op);
     auto ty = convertType(coor.getType());
     auto loc = coor.getLoc();
     mlir::Value base = operands[0];
     auto c0 = genConstantIndex(loc, lowering.indexType(), rewriter, 0);
 
     // The base can be a boxed reference or a raw reference
-    if (auto boxTy = coor.ref().getType().dyn_cast<BoxType>()) {
+    if (auto boxTy = coor.ref().getType().dyn_cast<fir::BoxType>()) {
       if (coor.getNumOperands() == 2) {
         auto coorPtr = *coor.coor().begin();
         auto s = coorPtr.getDefiningOp();
-        if (s && isa<LenParamIndexOp>(s)) {
+        if (s && isa<fir::LenParamIndexOp>(s)) {
           mlir::Value lenParam = operands[1]; // byte offset
           auto vty = voidPtrTy();
           auto bc = rewriter.create<mlir::LLVM::BitcastOp>(loc, vty, base);
@@ -1242,8 +1244,8 @@ struct CoordinateOpConversion : public FIROpConversion<CoordinateOp> {
     }
 
     // lower the field index ops by walking the indices
-    auto bty = coor.ref().getType().cast<BoxType>();
-    mlir::Type baseTy = ReferenceType::get(bty.getEleTy());
+    auto bty = coor.ref().getType().cast<fir::BoxType>();
+    mlir::Type baseTy = fir::ReferenceType::get(bty.getEleTy());
     SmallVector<mlir::Value, 8> args{c0};
     args.append(coor.coor().begin(), coor.coor().end());
 
@@ -1253,7 +1255,7 @@ struct CoordinateOpConversion : public FIROpConversion<CoordinateOp> {
     for (std::size_t i = 0, sz{offs.size()}; i != sz; ++i) {
       assert(pos <= i);
       if (auto defop = args[i].getDefiningOp())
-        if (auto field = dyn_cast<FieldIndexOp>(defop)) {
+        if (auto field = dyn_cast<fir::FieldIndexOp>(defop)) {
           auto memTy = unwrap(convertType(baseTy)).getPointerTo();
           mlir::Value gep = retval;
           if (i - pos > 0)
@@ -1262,22 +1264,22 @@ struct CoordinateOpConversion : public FIROpConversion<CoordinateOp> {
               rewriter.create<mlir::LLVM::BitcastOp>(loc, voidPtrTy(), gep);
           auto gep_ = genGEP(loc, voidPtrTy(), rewriter, bc, offs[i]);
           pos = i + 1;
-          baseTy = baseTy.cast<RecordType>().getType(field.field_id());
+          baseTy = baseTy.cast<fir::RecordType>().getType(field.field_id());
           retval = rewriter.create<mlir::LLVM::BitcastOp>(
               loc, convertType(baseTy), gep_);
           continue;
         }
-      if (auto ptrTy = baseTy.dyn_cast<ReferenceType>()) {
+      if (auto ptrTy = baseTy.dyn_cast<fir::ReferenceType>()) {
         baseTy = ptrTy.getEleTy();
       } else if (auto ptrTy = baseTy.dyn_cast<fir::PointerType>()) {
         baseTy = ptrTy.getEleTy();
-      } else if (auto ptrTy = baseTy.dyn_cast<HeapType>()) {
+      } else if (auto ptrTy = baseTy.dyn_cast<fir::HeapType>()) {
         baseTy = ptrTy.getEleTy();
-      } else if (auto arrTy = baseTy.dyn_cast<SequenceType>()) {
+      } else if (auto arrTy = baseTy.dyn_cast<fir::SequenceType>()) {
         // FIXME: unchecked advance over array dims
         i += arrTy.getDimension() - 1;
         baseTy = arrTy.getEleTy();
-      } else if (auto strTy = baseTy.dyn_cast<RecordType>()) {
+      } else if (auto strTy = baseTy.dyn_cast<fir::RecordType>()) {
         baseTy = strTy.getType(getIntValue(offs[i]));
       } else if (auto strTy = baseTy.dyn_cast<mlir::TupleType>()) {
         baseTy = strTy.getType(getIntValue(offs[i]));
@@ -1316,7 +1318,7 @@ struct FieldIndexOpConversion : public FIROpConversion<fir::FieldIndexOp> {
   mlir::PatternMatchResult
   matchAndRewrite(mlir::Operation *op, OperandTy operands,
                   mlir::ConversionPatternRewriter &rewriter) const override {
-    auto field = mlir::cast<FieldIndexOp>(op);
+    auto field = mlir::cast<fir::FieldIndexOp>(op);
     // call the compiler generated function to determine the byte offset of
     // the field at runtime
     auto symAttr =
@@ -1329,10 +1331,11 @@ struct FieldIndexOpConversion : public FIROpConversion<fir::FieldIndexOp> {
   }
 
   // constructing the name of the method
-  inline static std::string methodName(FieldIndexOp field) {
+  inline static std::string methodName(fir::FieldIndexOp field) {
     Twine fldName = field.field_id();
     // note: using std::string to dodge a bug in g++ 7.4.0
-    std::string tyName = field.on_type().cast<RecordType>().getName().str();
+    std::string tyName =
+        field.on_type().cast<fir::RecordType>().getName().str();
     Twine methodName = "_QQOFFSETOF_" + tyName + "_" + fldName;
     return methodName.str();
   }
@@ -1346,14 +1349,14 @@ struct LenParamIndexOpConversion
   mlir::PatternMatchResult
   matchAndRewrite(mlir::Operation *op, OperandTy operands,
                   mlir::ConversionPatternRewriter &rewriter) const override {
-    auto lenp = mlir::cast<LenParamIndexOp>(op);
+    auto lenp = mlir::cast<fir::LenParamIndexOp>(op);
     auto ity = lowering.indexType();
     auto onty = lenp.getOnType();
     // size of portable descriptor
     const unsigned boxsize = 24; // FIXME
     unsigned offset = boxsize;
     // add the size of the rows of triples
-    if (auto arr = onty.dyn_cast<SequenceType>()) {
+    if (auto arr = onty.dyn_cast<fir::SequenceType>()) {
       offset += 3 * arr.getDimension();
     }
     // advance over some addendum fields
@@ -1368,7 +1371,7 @@ struct LenParamIndexOpConversion
 };
 
 /// lower the fir.end operation to a null (erasing it)
-struct FirEndOpConversion : public FIROpConversion<FirEndOp> {
+struct FirEndOpConversion : public FIROpConversion<fir::FirEndOp> {
   using FIROpConversion::FIROpConversion;
 
   mlir::PatternMatchResult
@@ -1382,14 +1385,14 @@ struct FirEndOpConversion : public FIROpConversion<FirEndOp> {
 /// lower a gendims operation into a sequence of writes to a temp
 /// TODO: should this be returning a value or a ref? A !fir.dims object has
 /// very restricted application
-struct GenDimsOpConversion : public FIROpConversion<GenDimsOp> {
+struct GenDimsOpConversion : public FIROpConversion<fir::GenDimsOp> {
   using FIROpConversion::FIROpConversion;
 
   // gendims(args:index, ...) ==> %v = ... : [size x <3 x index>]
   mlir::PatternMatchResult
   matchAndRewrite(mlir::Operation *op, OperandTy operands,
                   mlir::ConversionPatternRewriter &rewriter) const override {
-    auto gendims = mlir::cast<GenDimsOp>(op);
+    auto gendims = mlir::cast<fir::GenDimsOp>(op);
     auto loc = gendims.getLoc();
     auto ty = convertType(gendims.getType());
     auto ptrTy = unwrap(ty).getPointerTo();
@@ -1422,13 +1425,13 @@ struct GenDimsOpConversion : public FIROpConversion<GenDimsOp> {
 };
 
 /// lower a type descriptor to a global constant
-struct GenTypeDescOpConversion : public FIROpConversion<GenTypeDescOp> {
+struct GenTypeDescOpConversion : public FIROpConversion<fir::GenTypeDescOp> {
   using FIROpConversion::FIROpConversion;
 
   mlir::PatternMatchResult
   matchAndRewrite(mlir::Operation *op, OperandTy operands,
                   mlir::ConversionPatternRewriter &rewriter) const override {
-    auto gentypedesc = mlir::cast<GenTypeDescOp>(op);
+    auto gentypedesc = mlir::cast<fir::GenTypeDescOp>(op);
     auto loc = gentypedesc.getLoc();
     auto inTy = gentypedesc.getInType();
     auto name = consName(rewriter, inTy);
@@ -1443,9 +1446,9 @@ struct GenTypeDescOpConversion : public FIROpConversion<GenTypeDescOp> {
 
   std::string consName(mlir::ConversionPatternRewriter &rewriter,
                        mlir::Type type) const {
-    if (auto d = type.dyn_cast<RecordType>()) {
+    if (auto d = type.dyn_cast<fir::RecordType>()) {
       auto name = d.getName();
-      auto pair = NameUniquer::deconstruct(name);
+      auto pair = fir::NameUniquer::deconstruct(name);
       return lowering.uniquer.doTypeDescriptor(
           pair.second.modules, pair.second.host, pair.second.name,
           pair.second.kinds);
@@ -1455,13 +1458,13 @@ struct GenTypeDescOpConversion : public FIROpConversion<GenTypeDescOp> {
   }
 };
 
-struct GlobalLenOpConversion : public FIROpConversion<GlobalLenOp> {
+struct GlobalLenOpConversion : public FIROpConversion<fir::GlobalLenOp> {
   using FIROpConversion::FIROpConversion;
 
   mlir::PatternMatchResult
   matchAndRewrite(mlir::Operation *op, OperandTy operands,
                   mlir::ConversionPatternRewriter &rewriter) const override {
-    auto globalentry = mlir::cast<GlobalLenOp>(op);
+    auto globalentry = mlir::cast<fir::GlobalLenOp>(op);
     TODO(globalentry);
     return matchSuccess();
   }
@@ -1517,13 +1520,13 @@ struct LoadOpConversion : public FIROpConversion<fir::LoadOp> {
 };
 
 // FIXME: how do we want to enforce this in LLVM-IR?
-struct NoReassocOpConversion : public FIROpConversion<NoReassocOp> {
+struct NoReassocOpConversion : public FIROpConversion<fir::NoReassocOp> {
   using FIROpConversion::FIROpConversion;
 
   mlir::PatternMatchResult
   matchAndRewrite(mlir::Operation *op, OperandTy operands,
                   mlir::ConversionPatternRewriter &rewriter) const override {
-    auto noreassoc = mlir::cast<NoReassocOp>(op);
+    auto noreassoc = mlir::cast<fir::NoReassocOp>(op);
     noreassoc.replaceAllUsesWith(operands[0]);
     rewriter.replaceOp(noreassoc, {});
     return matchSuccess();
@@ -1546,7 +1549,7 @@ void genCaseLadderStep(mlir::Location loc, mlir::Value cmp, mlir::Block *dest,
 /// Conversion of `fir.select_case`
 ///
 /// TODO: lowering of CHARACTER type cases
-struct SelectCaseOpConversion : public FIROpConversion<SelectCaseOp> {
+struct SelectCaseOpConversion : public FIROpConversion<fir::SelectCaseOp> {
   using FIROpConversion::FIROpConversion;
 
   mlir::PatternMatchResult
@@ -1554,9 +1557,9 @@ struct SelectCaseOpConversion : public FIROpConversion<SelectCaseOp> {
                   ArrayRef<mlir::Block *> destinations,
                   ArrayRef<OperandTy> destOperands,
                   mlir::ConversionPatternRewriter &rewriter) const override {
-    auto selectcase = mlir::cast<SelectCaseOp>(op);
+    auto selectcase = mlir::cast<fir::SelectCaseOp>(op);
     auto conds = selectcase.getNumConditions();
-    auto attrName = SelectCaseOp::AttrName;
+    auto attrName = fir::SelectCaseOp::AttrName;
     auto caseAttr = selectcase.getAttrOfType<mlir::ArrayAttr>(attrName);
     auto cases = caseAttr.getValue();
     // Type can be CHARACTER, INTEGER, or LOGICAL (C1145)
@@ -1670,7 +1673,7 @@ struct SelectOpConversion : public FIROpConversion<fir::SelectOp> {
 };
 
 /// conversion of fir::SelectRankOp to an if-then-else ladder
-struct SelectRankOpConversion : public FIROpConversion<SelectRankOp> {
+struct SelectRankOpConversion : public FIROpConversion<fir::SelectRankOp> {
   using FIROpConversion::FIROpConversion;
 
   mlir::PatternMatchResult
@@ -1685,7 +1688,7 @@ struct SelectRankOpConversion : public FIROpConversion<SelectRankOp> {
 };
 
 // SelectTypeOp should have already been lowered
-struct SelectTypeOpConversion : public FIROpConversion<SelectTypeOp> {
+struct SelectTypeOpConversion : public FIROpConversion<fir::SelectTypeOp> {
   using FIROpConversion::FIROpConversion;
 
   mlir::PatternMatchResult
@@ -1693,7 +1696,7 @@ struct SelectTypeOpConversion : public FIROpConversion<SelectTypeOp> {
                   ArrayRef<mlir::Block *> destinations,
                   ArrayRef<OperandTy> destOperands,
                   mlir::ConversionPatternRewriter &rewriter) const override {
-    auto selecttype = mlir::cast<SelectTypeOp>(op);
+    auto selecttype = mlir::cast<fir::SelectTypeOp>(op);
     TODO(selecttype);
     return matchSuccess();
   }
@@ -1723,13 +1726,13 @@ mlir::LLVM::ExtractValueOp genExtractValueWithIndex(
 }
 
 // unbox a CHARACTER box value, yielding its components
-struct UnboxCharOpConversion : public FIROpConversion<UnboxCharOp> {
+struct UnboxCharOpConversion : public FIROpConversion<fir::UnboxCharOp> {
   using FIROpConversion::FIROpConversion;
 
   mlir::PatternMatchResult
   matchAndRewrite(mlir::Operation *op, OperandTy operands,
                   mlir::ConversionPatternRewriter &rewriter) const override {
-    auto unboxchar = mlir::cast<UnboxCharOp>(op);
+    auto unboxchar = mlir::cast<fir::UnboxCharOp>(op);
     auto *ctx = unboxchar.getContext();
     auto loc = unboxchar.getLoc();
     auto tuple = operands[0];
@@ -1759,13 +1762,13 @@ mlir::LLVM::LoadOp genLoadWithIndex(mlir::Location loc, mlir::Value tuple,
 }
 
 // unbox a generic box reference, yielding its components
-struct UnboxOpConversion : public FIROpConversion<UnboxOp> {
+struct UnboxOpConversion : public FIROpConversion<fir::UnboxOp> {
   using FIROpConversion::FIROpConversion;
 
   mlir::PatternMatchResult
   matchAndRewrite(mlir::Operation *op, OperandTy operands,
                   mlir::ConversionPatternRewriter &rewriter) const override {
-    auto unbox = mlir::cast<UnboxOp>(op);
+    auto unbox = mlir::cast<fir::UnboxOp>(op);
     auto loc = unbox.getLoc();
     auto tuple = operands[0];
     auto ty = unwrap(tuple.getType());
@@ -1788,13 +1791,13 @@ struct UnboxOpConversion : public FIROpConversion<UnboxOp> {
 };
 
 // unbox a procedure box value, yielding its components
-struct UnboxProcOpConversion : public FIROpConversion<UnboxProcOp> {
+struct UnboxProcOpConversion : public FIROpConversion<fir::UnboxProcOp> {
   using FIROpConversion::FIROpConversion;
 
   mlir::PatternMatchResult
   matchAndRewrite(mlir::Operation *op, OperandTy operands,
                   mlir::ConversionPatternRewriter &rewriter) const override {
-    auto unboxproc = mlir::cast<UnboxProcOp>(op);
+    auto unboxproc = mlir::cast<fir::UnboxProcOp>(op);
     auto *ctx = unboxproc.getContext();
     auto loc = unboxproc.getLoc();
     auto tuple = operands[0];
@@ -1811,13 +1814,13 @@ struct UnboxProcOpConversion : public FIROpConversion<UnboxProcOp> {
 };
 
 // convert to LLVM IR dialect `undef`
-struct UndefOpConversion : public FIROpConversion<UndefOp> {
+struct UndefOpConversion : public FIROpConversion<fir::UndefOp> {
   using FIROpConversion::FIROpConversion;
 
   mlir::PatternMatchResult
   matchAndRewrite(mlir::Operation *op, OperandTy,
                   mlir::ConversionPatternRewriter &rewriter) const override {
-    auto undef = mlir::cast<UndefOp>(op);
+    auto undef = mlir::cast<fir::UndefOp>(op);
     rewriter.replaceOpWithNewOp<mlir::LLVM::UndefOp>(
         undef, convertType(undef.getType()));
     return matchSuccess();
@@ -1825,13 +1828,13 @@ struct UndefOpConversion : public FIROpConversion<UndefOp> {
 };
 
 // convert to LLVM IR dialect `unreachable`
-struct UnreachableOpConversion : public FIROpConversion<UnreachableOp> {
+struct UnreachableOpConversion : public FIROpConversion<fir::UnreachableOp> {
   using FIROpConversion::FIROpConversion;
 
   mlir::PatternMatchResult
   matchAndRewrite(mlir::Operation *op, OperandTy operands,
                   mlir::ConversionPatternRewriter &rewriter) const override {
-    auto unreach = mlir::cast<UnreachableOp>(op);
+    auto unreach = mlir::cast<fir::UnreachableOp>(op);
     rewriter.replaceOpWithNewOp<mlir::LLVM::UnreachableOp>(
         unreach, operands, None, None, unreach.getAttrs());
     return matchSuccess();
@@ -2085,10 +2088,10 @@ struct NegcOpConversion : public FIROpConversion<fir::NegcOp> {
 /// This pass lowers all FIR dialect operations to LLVM IR dialect.  An
 /// MLIR pass is used to lower residual Std dialect to LLVM IR dialect.
 struct FIRToLLVMLoweringPass : public mlir::ModulePass<FIRToLLVMLoweringPass> {
-  FIRToLLVMLoweringPass(NameUniquer &uniquer) : uniquer{uniquer} {}
+  FIRToLLVMLoweringPass(fir::NameUniquer &uniquer) : uniquer{uniquer} {}
 
   void runOnModule() override {
-    if (ClDisableFirToLLVMIR)
+    if (disableFirToLLVMIR)
       return;
 
     auto *context{&getContext()};
@@ -2139,13 +2142,13 @@ struct FIRToLLVMLoweringPass : public mlir::ModulePass<FIRToLLVMLoweringPass> {
 
 private:
   void genDispatchTableMap() {
-    for (auto dt : getModule().getOps<DispatchTableOp>()) {
+    for (auto dt : getModule().getOps<fir::DispatchTableOp>()) {
       // FIXME
       (void)dt;
     }
   }
 
-  NameUniquer &uniquer;
+  fir::NameUniquer &uniquer;
 };
 
 /// Lower from LLVM IR dialect to proper LLVM-IR and dump the module
@@ -2153,21 +2156,21 @@ struct LLVMIRLoweringPass : public mlir::ModulePass<LLVMIRLoweringPass> {
   LLVMIRLoweringPass(raw_ostream &output) : output{output} {}
 
   void runOnModule() override {
-    if (ClDisableLLVM)
+    if (disableLLVM)
       return;
 
-    if (auto llvmModule{mlir::translateModuleToLLVMIR(getModule())}) {
+    if (auto llvmModule = mlir::translateModuleToLLVMIR(getModule())) {
       output << *llvmModule;
       return;
     }
 
-    auto ctxt{getModule().getContext()};
+    auto *ctxt = getModule().getContext();
     mlir::emitError(mlir::UnknownLoc::get(ctxt), "could not emit LLVM-IR\n");
     signalPassFailure();
   }
 
 private:
-  raw_ostream &output;
+  llvm::raw_ostream &output;
 };
 
 } // namespace
@@ -2178,7 +2181,7 @@ fir::createFIRToLLVMPass(fir::NameUniquer &nameUniquer) {
 }
 
 std::unique_ptr<mlir::Pass>
-fir::createLLVMDialectToLLVMPass(raw_ostream &output) {
+fir::createLLVMDialectToLLVMPass(llvm::raw_ostream &output) {
   return std::make_unique<LLVMIRLoweringPass>(output);
 }
 
@@ -2186,6 +2189,6 @@ fir::createLLVMDialectToLLVMPass(raw_ostream &output) {
 static mlir::PassRegistration<FIRToLLVMLoweringPass>
     passLowFIR("fir-to-llvmir",
                "Conversion of the FIR dialect to the LLVM-IR dialect", [] {
-                 NameUniquer dummy;
+                 fir::NameUniquer dummy;
                  return std::make_unique<FIRToLLVMLoweringPass>(dummy);
                });
