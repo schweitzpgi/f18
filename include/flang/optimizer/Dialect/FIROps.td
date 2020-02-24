@@ -310,12 +310,25 @@ def fir_AllocaOp : fir_AllocatableOp<"alloca"> {
   let description = [{
     This primitive operation is used to allocate an object on the stack.  A
     reference to the object of type `!fir.ref<T>` is returned.  The returned
-    object has an undefined state.  The allocation can be given an optional
-    name.  The allocation may have a dynamic repetition count for allocating
-    a sequence of locations for the specified type.
+    object has an undefined/uninitialized state.  The allocation can be given
+    an optional name.  The allocation may have a dynamic repetition count
+    for allocating a sequence of locations for the specified type.
 
-      %0 = fir.alloca f32
-      %1 = fir.call @foo(%0) : (!fir.ref<f32>) -> i32
+      %11 = fir.alloca i32
+      %12 = fir.alloca !fir.array<8 x i64>
+      %13 = fir.alloca f32, %5
+
+      %14 = ... : i16
+      %15 = ... : i32
+      %16 = fir.alloca !fir.type<PT(len1:i16, len2:i32)> (%14, %15 : i16, i32)
+
+    Note that in the case of `%13`, a contiguous block of memory is allocated
+    and its size is a runtime multiple of a 32-bit REAL value.
+
+    In the case of `%16`, the arguments `%14` and `%15` are LEN parameters
+    (`len1`, `len2`) to the type `PT`.
+
+    Finally, the operation is undefined if the ssa-value `%5` is negative.
   }];
 
   let results = (outs fir_ReferenceType);
@@ -336,8 +349,15 @@ def fir_LoadOp : fir_OneResultOp<"load", []>,
     Arguments<(ins AnyReferenceLike:$memref)> {
   let summary = "load a value from a memory reference";
   let description = [{
-    Load a value from a memory reference into a virtual register.  Produces
-    an immutable ssa-value of the referent type.
+    Load a value from a memory reference into an ssa-value (virtual register).
+    Produces an immutable ssa-value of the referent type. A memory reference
+    has type `!fir.ref<T>`, `!fir.heap<T>`, or `!fir.ptr<T>`.
+
+      %14 = fir.alloca i32 : !fir.ref<i32>
+      %15 = fir.load %14 : !fir.ref<i32>
+
+    The ssa-value has an undefined value if the memory reference is undefined
+    or null.
   }];
 
   let builders = [OpBuilder<
@@ -388,6 +408,14 @@ def fir_StoreOp : fir_Op<"store", []>,
     Store an ssa-value (virtual register) to a memory reference.  The stored
     value must be of the same type as the referent type of the memory
     reference.
+
+      %16 = fir.call @foo() : f64
+      %17 = fir.call @bar() : !fir.ptr<f64>
+      fir.store %16 to %17 : !fir.ptr<f64>
+
+    The above store changes the value to which the pointer is pointing and not
+    the pointer itself. The operation is undefined if the memory reference is
+    undefined or null.
   }];
 
   let verifier = [{
@@ -431,7 +459,9 @@ def fir_UndefOp : fir_OneResultOp<"undefined", [NoSideEffect]> {
   let description = [{
     Constructs an ssa-value of the specified type with an undefined value.
     This operation is typically created internally by the mem2reg conversion
-    pass.
+    pass. An undefined value can be of any type except `!fir.ref<T>`.
+
+      %18 = fir.undefined !fir.array<10 x !fir.type<T>>
   }];
 
   let verifier = [{
@@ -460,8 +490,8 @@ def fir_AllocMemOp : fir_AllocatableOp<"allocmem"> {
     The memory object is in an undefined state.  `allocmem` operations must
     be paired with `freemem` operations to avoid memory leaks.
 
-      %0 = fir.allocmem !fir.array<10xf32>
-      fir.freemem %0 : !fir.heap<!fir.array<10xf32>>
+      %0 = fir.allocmem !fir.array<10 x f32>
+      fir.freemem %0 : !fir.heap<!fir.array<10 x f32>>
   }];
 
   let results = (outs fir_HeapType);
@@ -488,8 +518,9 @@ def fir_FreeMemOp : fir_Op<"freemem", []> {
     in the undefined state as undefined behavior.  This includes aliasing
     references, such as the result of an `fir.embox`.
 
-      %0 = fir.allocmem !fir.array<10xf32>
-      fir.freemem %0 : !fir.heap<!fir.array<10xf32>>
+      %21 = fir.allocmem !fir.type<ZT(p:i32){field:i32}>
+      ...
+      fir.freemem %21 : !fir.heap<!fir.type<ZT>>
   }];
 
   let arguments = (ins fir_HeapType:$heapref);
@@ -623,6 +654,12 @@ def fir_SelectOp : fir_IntegralSwitchTerminatorOp<"select"> {
     transferred to the corresponding basic block.  A `select` must have
     at least one basic block with a corresponding `unit` match, and
     that block will be selected when all other conditions fail to match.
+
+      fir.select %arg:i32 [1, ^bb1(%0 : i32),
+                           2, ^bb2(%2,%arg,%arg2 : i32,i32,i32),
+                          -3, ^bb3(%arg2,%2 : i32,i32),
+                           4, ^bb4(%1 : i32),
+                        unit, ^bb5]
   }];
 }
 
@@ -635,6 +672,12 @@ def fir_SelectRankOp : fir_IntegralSwitchTerminatorOp<"select_rank"> {
     is matched against constants of integer type.  The structure is the
     same as `select`, but `select_rank` determines the rank of the selector
     variable at runtime to determine the best match.
+
+      fir.select_rank %arg:i32 [1, ^bb1(%0 : i32),
+                                2, ^bb2(%2,%arg,%arg2 : i32,i32,i32),
+                                3, ^bb3(%arg2,%2 : i32,i32),
+                               -1, ^bb4(%1 : i32),
+                             unit, ^bb5]
   }];
 }
 
@@ -647,6 +690,13 @@ def fir_SelectCaseOp : fir_SwitchTerminatorOp<"select_case"> {
     against variables (not just constants) and ranges.  The structure is
     the same as `select`, but `select_case` allows for the expression of
     more complex match conditions.
+
+      fir.select_case %arg : i32 [
+            #fir.point, %0, ^bb1(%0 : i32),
+            #fir.lower, %1, ^bb2(%2,%arg,%arg2,%1 : i32,i32,i32,i32),
+            #fir.interval, %2, %3, ^bb3(%2,%arg2 : i32,i32),
+            #fir.upper, %arg, ^bb4(%1 : i32),
+            unit, ^bb5]
   }];
 
   let parser = [{
@@ -774,6 +824,13 @@ def fir_SelectTypeOp : fir_SwitchTerminatorOp<"select_type"> {
     is matched against a list of type descriptors.  The structure is the
     same as `select`, but `select_type` determines the type of the selector
     variable at runtime to determine the best match.
+
+      fir.select_type %arg : !fir.box<()> [
+          #fir.instance<!fir.type<type1>>, ^bb1(%0 : i32),
+          #fir.instance<!fir.type<type2>>, ^bb2(%2 : i32),
+          #fir.subsumed<!fir.type<type3>>, ^bb3(%2 : i32),
+          #fir.instance<!fir.type<type4>>, ^bb4(%1,%3 : i32,f32),
+          unit, ^bb5]
   }];
 
   let parser = [{
@@ -852,7 +909,10 @@ def fir_UnreachableOp : fir_Op<"unreachable", [Terminator]> {
     Terminates a basic block with the assertion that the end of the block
     will never be reached at runtime.  This instruction can be used
     immediately after a call to the Fortran runtime to terminate the
-    program, for example.
+    program, for example.  This instruction corresponds to the LLVM IR
+    instruction `unreachable`.
+
+      fir.unreachable
   }];
 
   let parser = "return mlir::success();";
@@ -865,7 +925,7 @@ def fir_FirEndOp : fir_Op<"end", [Terminator]> {
 
   let description = [{
     The end terminator is a special terminator used inside various FIR
-    operations that have regions.  End is thus the custom (and only) terminator
+    operations that have regions.  End is thus the custom invisible terminator
     for these operations.  It is implicit and need not appear in the textual
     representation.
   }];
@@ -875,6 +935,17 @@ def fir_HasValueOp : fir_Op<"has_value", [Terminator, HasParent<"GlobalOp">]> {
   let summary = "terminator for GlobalOp";
   let description = [{
     The terminator for a GlobalOp with a body.
+
+      global @variable : tuple<i32, f32> {
+        %0 = constant 45 : i32
+        %1 = constant 100.0 : f32
+        %2 = fir.undefined tuple<i32, f32>
+        %3 = constant 0 : index
+        %4 = fir.insert_value %2, %0, %3 : (tuple<i32, f32>, i32, index) -> tuple<i32, f32>
+        %5 = constant 1 : index
+        %6 = fir.insert_value %4, %1, %5 : (tuple<i32, f32>, f32, index) -> tuple<i32, f32>
+        fir.has_value %6 : tuple<i32, f32>
+      }
   }];
 
   let arguments = (ins AnyType:$resval);
@@ -893,17 +964,12 @@ def fir_EmboxOp : fir_Op<"embox", [NoSideEffect]> {
     auxilliary information is packaged and abstracted as a value with box type
     by the calling routine. (In Fortran, these are called descriptors.)
 
-    Syntax:
-      `fir.embox` mem-ref [`,` layout] `:` `(` arg-types `)` `->` res-type
-
-      where layout is dims | affine-map
-
-    Example:
-
+      %c1 = constant 1 : index
+      %c10 = constant 10 : index
       %4 = fir.dims(%c1, %c10, %c1) : (index, index, index) -> !fir.dims<1>
-      %5 = ... : !fir.ref<!fir.array<10:i32>>
-      %6 = fir.embox %5, %4 : (!fir.ref<!fir.array<10:i32>>, !fir.dims<1>)
-                            -> !fir.box<!fir.array<10:i32>>
+      %5 = ... : !fir.ref<!fir.array<10 x i32>>
+      %6 = fir.embox %5, %4 : (!fir.ref<!fir.array<10 x i32>>, !fir.dims<1>)
+                            -> !fir.box<!fir.array<10 x i32>>
   }];
 
   let arguments = (ins AnyReferenceLike:$memref, Variadic<AnyEmboxArg>:$args);
