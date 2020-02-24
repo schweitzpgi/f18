@@ -160,8 +160,7 @@ public:
   mlir::AffineMapAttr getLayoutMap() const;
 
   static mlir::LogicalResult
-  verifyConstructionInvariants(llvm::Optional<mlir::Location>,
-                               mlir::MLIRContext *ctx, mlir::Type eleTy,
+  verifyConstructionInvariants(const mlir::AttributeStorage *, mlir::Type eleTy,
                                mlir::AffineMapAttr map);
 };
 
@@ -183,8 +182,8 @@ public:
   mlir::Type getEleTy() const;
 
   static mlir::LogicalResult
-  verifyConstructionInvariants(llvm::Optional<mlir::Location> loc,
-                               mlir::MLIRContext *context, mlir::Type eleTy);
+  verifyConstructionInvariants(const mlir::AttributeStorage *,
+                               mlir::Type eleTy);
 };
 
 class DimsType : public mlir::Type::TypeBase<DimsType, mlir::Type,
@@ -216,8 +215,8 @@ public:
   mlir::Type getEleTy() const;
 
   static mlir::LogicalResult
-  verifyConstructionInvariants(llvm::Optional<mlir::Location> loc,
-                               mlir::MLIRContext *context, mlir::Type eleTy);
+  verifyConstructionInvariants(const mlir::AttributeStorage *,
+                               mlir::Type eleTy);
 };
 
 class LenType
@@ -238,8 +237,8 @@ public:
   mlir::Type getEleTy() const;
 
   static mlir::LogicalResult
-  verifyConstructionInvariants(llvm::Optional<mlir::Location> loc,
-                               mlir::MLIRContext *context, mlir::Type eleTy);
+  verifyConstructionInvariants(const mlir::AttributeStorage *,
+                               mlir::Type eleTy);
 };
 
 class ReferenceType
@@ -253,8 +252,8 @@ public:
   mlir::Type getEleTy() const;
 
   static mlir::LogicalResult
-  verifyConstructionInvariants(llvm::Optional<mlir::Location> loc,
-                               mlir::MLIRContext *context, mlir::Type eleTy);
+  verifyConstructionInvariants(const mlir::AttributeStorage *,
+                               mlir::Type eleTy);
 };
 
 /// A sequence type is a multi-dimensional array of values. The sequence type
@@ -286,14 +285,14 @@ public:
   unsigned getDimension() const { return getShape().size(); }
 
   /// The value `-1` represents an unknown extent for a dimension
-  constexpr static Extent getUnknownExtent() { return -1; }
+  static constexpr Extent getUnknownExtent() { return -1; }
 
   static bool kindof(unsigned kind) { return kind == TypeKind::FIR_SEQUENCE; }
 
   static mlir::LogicalResult
-  verifyConstructionInvariants(llvm::Optional<mlir::Location> loc,
-                               mlir::MLIRContext *context, const Shape &shape,
-                               mlir::Type eleTy, mlir::AffineMapAttr map);
+  verifyConstructionInvariants(const mlir::AttributeStorage *attributeStorage,
+                               const Shape &shape, mlir::Type eleTy,
+                               mlir::AffineMapAttr map);
 };
 
 bool operator==(const SequenceType::Shape &, const SequenceType::Shape &);
@@ -305,12 +304,14 @@ class TypeDescType : public mlir::Type::TypeBase<TypeDescType, mlir::Type,
 public:
   using Base::Base;
   static TypeDescType get(mlir::Type ofType);
-  static bool kindof(unsigned kind) { return kind == TypeKind::FIR_TYPEDESC; }
+  static constexpr bool kindof(unsigned kind) {
+    return kind == TypeKind::FIR_TYPEDESC;
+  }
   mlir::Type getOfTy() const;
 
   static mlir::LogicalResult
-  verifyConstructionInvariants(llvm::Optional<mlir::Location> loc,
-                               mlir::MLIRContext *context, mlir::Type ofType);
+  verifyConstructionInvariants(const mlir::AttributeStorage *,
+                               mlir::Type ofType);
 };
 
 // Derived types
@@ -337,14 +338,13 @@ public:
   static RecordType get(mlir::MLIRContext *ctxt, llvm::StringRef name);
   void finalize(llvm::ArrayRef<TypePair> lenPList,
                 llvm::ArrayRef<TypePair> typeList);
-  constexpr static bool kindof(unsigned kind) { return kind == getId(); }
-  constexpr static unsigned getId() { return TypeKind::FIR_DERIVED; }
+  static constexpr bool kindof(unsigned kind) { return kind == getId(); }
+  static constexpr unsigned getId() { return TypeKind::FIR_DERIVED; }
 
   detail::RecordTypeStorage const *uniqueKey() const;
 
   static mlir::LogicalResult
-  verifyConstructionInvariants(llvm::Optional<mlir::Location> loc,
-                               mlir::MLIRContext *context,
+  verifyConstructionInvariants(const mlir::AttributeStorage *,
                                llvm::StringRef name);
 };
 
