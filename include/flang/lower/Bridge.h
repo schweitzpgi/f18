@@ -118,12 +118,12 @@ public:
   virtual ~AbstractConverter() = default;
 };
 
-class BurnsideBridge {
+class LoweringBridge {
 public:
-  static BurnsideBridge
+  static LoweringBridge
   create(const common::IntrinsicTypeDefaultKinds &defaultKinds,
          const parser::CookedSource *cooked) {
-    return BurnsideBridge{defaultKinds, cooked};
+    return LoweringBridge{defaultKinds, cooked};
   }
 
   mlir::MLIRContext &getMLIRContext() { return *context.get(); }
@@ -143,10 +143,10 @@ public:
   void lower(const parser::Program &program, fir::NameUniquer &uniquer);
 
 private:
-  explicit BurnsideBridge(const common::IntrinsicTypeDefaultKinds &defaultKinds,
+  explicit LoweringBridge(const common::IntrinsicTypeDefaultKinds &defaultKinds,
                           const parser::CookedSource *cooked);
-  BurnsideBridge() = delete;
-  BurnsideBridge(const BurnsideBridge &) = delete;
+  LoweringBridge() = delete;
+  LoweringBridge(const LoweringBridge &) = delete;
 
   const common::IntrinsicTypeDefaultKinds &defaultKinds;
   const parser::CookedSource *cooked;
