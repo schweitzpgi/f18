@@ -642,8 +642,7 @@ class FirConverter : public AbstractConverter {
 
   void genFIR(const Pa::AllocateStmt &) { TODO(); }
 
-  void genCharacterAssignement(
-      const Ev::Assignment::IntrinsicAssignment &assignment) {
+  void genCharacterAssignement(const Ev::Assignment &assignment) {
     // Helper to get address and length from an Expr that is a character
     // variable designator
     auto getAddrAndLength{[&](const SomeExpr &charDesignatorExpr)
@@ -677,53 +676,69 @@ class FirConverter : public AbstractConverter {
   }
 
   void genFIR(const Pa::AssignmentStmt &stmt) {
-    assert(stmt.typedAssignment && "assignment analysis failed");
-    if (const auto *assignment{std::get_if<Ev::Assignment::IntrinsicAssignment>(
-            &stmt.typedAssignment->v->u)}) {
-      const Se::Symbol *sym{Ev::UnwrapWholeSymbolDataRef(assignment->lhs)};
-      if (sym && Se::IsAllocatable(*sym)) {
-        // Assignment of allocatable are more complex, the lhs
-        // may need to be deallocated/reallocated.
-        // See Fortran 2018 10.2.1.3 p3
-        TODO();
-      } else if (sym && Se::IsPointer(*sym)) {
-        // Target of the pointer must be assigned.
-        // See Fortran 2018 10.2.1.3 p2
-        TODO();
-      } else if (assignment->lhs.Rank() > 0) {
-        // Array assignment
-        // See Fortran 2018 10.2.1.3 p5, p6, and p7
-        TODO();
-      } else {
-        // Scalar assignments
-        std::optional<Ev::DynamicType> lhsType{assignment->lhs.GetType()};
-        assert(lhsType && "lhs cannot be typeless");
-        switch (lhsType->category()) {
-        case IntegerCat:
-        case RealCat:
-        case ComplexCat:
-        case LogicalCat:
-          // Fortran 2018 10.2.1.3 p8 and p9
-          // Conversions are already inserted by semantic
-          // analysis.
-          builder->create<fir::StoreOp>(toLocation(),
-                                        genExprValue(assignment->rhs),
-                                        genExprAddr(assignment->lhs));
-          break;
-        case CharacterCat:
-          // Fortran 2018 10.2.1.3 p10 and p11
-          genCharacterAssignement(*assignment);
-          break;
-        case DerivedCat:
-          // Fortran 2018 10.2.1.3 p12 and p13
-          TODO();
-          break;
-        }
-      }
-    } else {
-      // Defined assignment: call ProcRef
-      TODO();
-    }
+    assert(stmt.typedAssignment && stmt.typedAssignment->v &&
+           "assignment analysis failed");
+    const auto &assignment{*stmt.typedAssignment->v};
+    std::visit( // better formatting
+        Co::visitors{
+            [&](const Ev::Assignment::Intrinsic &) {
+              const Se::Symbol *sym{
+                  Ev::UnwrapWholeSymbolDataRef(assignment.lhs)};
+              if (sym && Se::IsAllocatable(*sym)) {
+                // Assignment of allocatable are more complex, the lhs
+                // may need to be deallocated/reallocated.
+                // See Fortran 2018 10.2.1.3 p3
+                TODO();
+              } else if (sym && Se::IsPointer(*sym)) {
+                // Target of the pointer must be assigned.
+                // See Fortran 2018 10.2.1.3 p2
+                TODO();
+              } else if (assignment.lhs.Rank() > 0) {
+                // Array assignment
+                // See Fortran 2018 10.2.1.3 p5, p6, and p7
+                TODO();
+              } else {
+                // Scalar assignments
+                std::optional<Ev::DynamicType> lhsType{
+                    assignment.lhs.GetType()};
+                assert(lhsType && "lhs cannot be typeless");
+                switch (lhsType->category()) {
+                case IntegerCat:
+                case RealCat:
+                case ComplexCat:
+                case LogicalCat:
+                  // Fortran 2018 10.2.1.3 p8 and p9
+                  // Conversions are already inserted by semantic
+                  // analysis.
+                  builder->create<fir::StoreOp>(toLocation(),
+                                                genExprValue(assignment.rhs),
+                                                genExprAddr(assignment.lhs));
+                  break;
+                case CharacterCat:
+                  // Fortran 2018 10.2.1.3 p10 and p11
+                  genCharacterAssignement(assignment);
+                  break;
+                case DerivedCat:
+                  // Fortran 2018 10.2.1.3 p12 and p13
+                  TODO();
+                  break;
+                }
+              }
+            },
+            [&](const Ev::ProcedureRef &) {
+              // Defined assignment: call ProcRef
+              TODO();
+            },
+            [&](const Ev::Assignment::BoundsSpec &) {
+              // Pointer assignment with possibly empty bounds-spec
+              TODO();
+            },
+            [&](const Ev::Assignment::BoundsRemapping &) {
+              // Pointer assignment with bounds-remapping
+              TODO();
+            },
+        },
+        assignment.u);
   }
 
   void genFIR(const Pa::ContinueStmt &) {} // do nothing
