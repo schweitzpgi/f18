@@ -7,7 +7,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "flang/lower/OpBuilder.h"
-#include "NSAliases.h"
 #include "flang/lower/Bridge.h"
 #include "flang/lower/ConvertType.h"
 #include "flang/optimizer/Dialect/FIROpsSupport.h"
@@ -16,39 +15,43 @@
 #include "mlir/IR/Value.h"
 #include "llvm/ADT/StringRef.h"
 
-using namespace Fortran;
-using namespace Fortran::lower;
-
-M::FuncOp Br::createFunction(Br::AbstractConverter &converter,
-                             L::StringRef name, M::FunctionType funcTy) {
+mlir::FuncOp
+Fortran::lower::createFunction(Fortran::lower::AbstractConverter &converter,
+                               llvm::StringRef name,
+                               mlir::FunctionType funcTy) {
   return fir::createFuncOp(converter.getCurrentLocation(),
                            converter.getModuleOp(), name, funcTy);
 }
 
-M::FuncOp Br::createFunction(M::ModuleOp module, L::StringRef name,
-                             M::FunctionType funcTy) {
-  return fir::createFuncOp(M::UnknownLoc::get(module.getContext()), module,
+mlir::FuncOp Fortran::lower::createFunction(mlir::ModuleOp module,
+                                            llvm::StringRef name,
+                                            mlir::FunctionType funcTy) {
+  return fir::createFuncOp(mlir::UnknownLoc::get(module.getContext()), module,
                            name, funcTy);
 }
 
-M::FuncOp Br::getNamedFunction(M::ModuleOp module, L::StringRef name) {
-  return module.lookupSymbol<M::FuncOp>(name);
+mlir::FuncOp Fortran::lower::getNamedFunction(mlir::ModuleOp module,
+                                              llvm::StringRef name) {
+  return module.lookupSymbol<mlir::FuncOp>(name);
 }
 
-void Br::SymMap::addSymbol(Se::SymbolRef symbol, M::Value value) {
+void Fortran::lower::SymMap::addSymbol(Fortran::semantics::SymbolRef symbol,
+                                       mlir::Value value) {
   symbolMap.try_emplace(&*symbol, value);
 }
 
-M::Value Br::SymMap::lookupSymbol(Se::SymbolRef symbol) {
+mlir::Value
+Fortran::lower::SymMap::lookupSymbol(Fortran::semantics::SymbolRef symbol) {
   auto iter{symbolMap.find(&*symbol)};
   return (iter == symbolMap.end()) ? nullptr : iter->second;
 }
 
-void Br::SymMap::pushShadowSymbol(Se::SymbolRef symbol, M::Value value) {
+void Fortran::lower::SymMap::pushShadowSymbol(
+    Fortran::semantics::SymbolRef symbol, mlir::Value value) {
   // find any existing mapping for symbol
   auto iter{symbolMap.find(&*symbol)};
-  const Se::Symbol *sym{nullptr};
-  M::Value val;
+  const Fortran::semantics::Symbol *sym{nullptr};
+  mlir::Value val;
   // if mapping exists, save it on the shadow stack
   if (iter != symbolMap.end()) {
     sym = iter->first;
@@ -62,19 +65,21 @@ void Br::SymMap::pushShadowSymbol(Se::SymbolRef symbol, M::Value value) {
   (void)r;
 }
 
-M::Value Br::OpBuilderWrapper::createIntegerConstant(M::Type integerType,
-                                                     std::int64_t cst) {
-  return create<M::ConstantOp>(integerType,
-                               builder.getIntegerAttr(integerType, cst));
+mlir::Value
+Fortran::lower::OpBuilderWrapper::createIntegerConstant(mlir::Type integerType,
+                                                        std::int64_t cst) {
+  return create<mlir::ConstantOp>(integerType,
+                                  builder.getIntegerAttr(integerType, cst));
 }
 
 // LoopBuilder implementation
 
-void Br::LoopBuilder::createLoop(M::Value lb, M::Value ub, M::Value step,
-                                 const BodyGenerator &bodyGenerator) {
+void Fortran::lower::LoopBuilder::createLoop(
+    mlir::Value lb, mlir::Value ub, mlir::Value step,
+    const BodyGenerator &bodyGenerator) {
   auto lbi{convertToIndexType(lb)};
   auto ubi{convertToIndexType(ub)};
-  L::SmallVector<M::Value, 1> steps;
+  llvm::SmallVector<mlir::Value, 1> steps;
   if (step) {
     auto stepi{convertToIndexType(step)};
     steps.emplace_back(stepi);
@@ -87,38 +92,40 @@ void Br::LoopBuilder::createLoop(M::Value lb, M::Value ub, M::Value step,
   builder.setInsertionPointToEnd(insPt);
 }
 
-void Br::LoopBuilder::createLoop(M::Value lb, M::Value ub,
-                                 const BodyGenerator &bodyGenerator) {
+void Fortran::lower::LoopBuilder::createLoop(
+    mlir::Value lb, mlir::Value ub, const BodyGenerator &bodyGenerator) {
   auto one{createIntegerConstant(getIndexType(), 1)};
   createLoop(lb, ub, one, bodyGenerator);
 }
 
-void Br::LoopBuilder::createLoop(M::Value count,
-                                 const BodyGenerator &bodyGenerator) {
+void Fortran::lower::LoopBuilder::createLoop(
+    mlir::Value count, const BodyGenerator &bodyGenerator) {
   auto indexType{getIndexType()};
   auto zero{createIntegerConstant(indexType, 0)};
   auto one{createIntegerConstant(indexType, 1)};
   createLoop(zero, count, one, bodyGenerator);
 }
 
-M::Type Br::LoopBuilder::getIndexType() {
-  return M::IndexType::get(builder.getContext());
+mlir::Type Fortran::lower::LoopBuilder::getIndexType() {
+  return mlir::IndexType::get(builder.getContext());
 }
 
-M::Value Br::LoopBuilder::convertToIndexType(M::Value integer) {
+mlir::Value
+Fortran::lower::LoopBuilder::convertToIndexType(mlir::Value integer) {
   auto type{integer.getType()};
-  if (type.isa<M::IndexType>()) {
+  if (type.isa<mlir::IndexType>()) {
     return integer;
   }
-  assert((type.isa<M::IntegerType>() || type.isa<fir::IntType>()) &&
+  assert((type.isa<mlir::IntegerType>() || type.isa<fir::IntType>()) &&
          "expected integer");
   return create<fir::ConvertOp>(getIndexType(), integer);
 }
 
 // CharacterOpsBuilder implementation
 
-void Br::CharacterOpsBuilder::createCopy(CharValue &dest, CharValue &src,
-                                         M::Value count) {
+void Fortran::lower::CharacterOpsBuilder::createCopy(CharValue &dest,
+                                                     CharValue &src,
+                                                     mlir::Value count) {
   auto refType{dest.getReferenceType()};
   // Cast to character sequence reference type for fir::CoordinateOp.
   auto sequenceType{getSequenceRefType(refType)};
@@ -126,7 +133,7 @@ void Br::CharacterOpsBuilder::createCopy(CharValue &dest, CharValue &src,
   auto srcRef{create<fir::ConvertOp>(sequenceType, src.reference)};
 
   LoopBuilder{*this}.createLoop(count, [&](OpBuilderWrapper &handler,
-                                           M::Value index) {
+                                           mlir::Value index) {
     auto destAddr{handler.create<fir::CoordinateOp>(refType, destRef, index)};
     auto srcAddr{handler.create<fir::CoordinateOp>(refType, srcRef, index)};
     auto val{handler.create<fir::LoadOp>(srcAddr)};
@@ -134,40 +141,45 @@ void Br::CharacterOpsBuilder::createCopy(CharValue &dest, CharValue &src,
   });
 }
 
-void Br::CharacterOpsBuilder::createPadding(CharValue &str, M::Value lower,
-                                            M::Value upper) {
+void Fortran::lower::CharacterOpsBuilder::createPadding(CharValue &str,
+                                                        mlir::Value lower,
+                                                        mlir::Value upper) {
   auto refType{str.getReferenceType()};
   auto sequenceType{getSequenceRefType(refType)};
   auto strRef{create<fir::ConvertOp>(sequenceType, str.reference)};
   auto blank{createBlankConstant(str.getCharacterType())};
 
   LoopBuilder{*this}.createLoop(
-      lower, upper, [&](OpBuilderWrapper &handler, M::Value index) {
+      lower, upper, [&](OpBuilderWrapper &handler, mlir::Value index) {
         auto strAddr{handler.create<fir::CoordinateOp>(refType, strRef, index)};
         handler.create<fir::StoreOp>(blank, strAddr);
       });
 }
 
-M::Value Br::CharacterOpsBuilder::createBlankConstant(fir::CharacterType type) {
-  auto byteTy{M::IntegerType::get(8, builder.getContext())};
+mlir::Value Fortran::lower::CharacterOpsBuilder::createBlankConstant(
+    fir::CharacterType type) {
+  auto byteTy{mlir::IntegerType::get(8, builder.getContext())};
   auto asciiSpace{createIntegerConstant(byteTy, 0x20)};
   return create<fir::ConvertOp>(type, asciiSpace);
 }
 
-Br::CharacterOpsBuilder::CharValue
-Br::CharacterOpsBuilder::createTemp(fir::CharacterType type, M::Value len) {
+Fortran::lower::CharacterOpsBuilder::CharValue
+Fortran::lower::CharacterOpsBuilder::createTemp(fir::CharacterType type,
+                                                mlir::Value len) {
   // FIXME Does this need to be emitted somewhere safe ?
   // convert-expr.cc generates alloca at the beginning of the mlir block.
   return CharValue{create<fir::AllocaOp>(type, len), len};
 }
 
-fir::ReferenceType Br::CharacterOpsBuilder::CharValue::getReferenceType() {
+fir::ReferenceType
+Fortran::lower::CharacterOpsBuilder::CharValue::getReferenceType() {
   auto type{reference.getType().dyn_cast<fir::ReferenceType>()};
   assert(type && "expected reference type");
   return type;
 }
 
-fir::CharacterType Br::CharacterOpsBuilder::CharValue::getCharacterType() {
+fir::CharacterType
+Fortran::lower::CharacterOpsBuilder::CharValue::getCharacterType() {
   auto type{getReferenceType().getEleTy().dyn_cast<fir::CharacterType>()};
   assert(type && "expected character type");
   return type;
@@ -175,73 +187,83 @@ fir::CharacterType Br::CharacterOpsBuilder::CharValue::getCharacterType() {
 
 // ComplexOpsBuilder implementation
 
-M::Type Br::ComplexOpsBuilder::getComplexPartType(fir::KindTy complexKind) {
+mlir::Type
+Fortran::lower::ComplexOpsBuilder::getComplexPartType(fir::KindTy complexKind) {
   return convertReal(builder.getContext(), complexKind);
 }
-M::Type Br::ComplexOpsBuilder::getComplexPartType(M::Type complexType) {
+mlir::Type
+Fortran::lower::ComplexOpsBuilder::getComplexPartType(mlir::Type complexType) {
   return getComplexPartType(complexType.cast<fir::CplxType>().getFKind());
 }
-M::Type Br::ComplexOpsBuilder::getComplexPartType(M::Value cplx) {
+mlir::Type
+Fortran::lower::ComplexOpsBuilder::getComplexPartType(mlir::Value cplx) {
   assert(cplx != nullptr);
   return getComplexPartType(cplx.getType());
 }
 
-M::Value Br::ComplexOpsBuilder::createComplex(fir::KindTy kind, M::Value real,
-                                              M::Value imag) {
-  M::Type complexTy{fir::CplxType::get(builder.getContext(), kind)};
-  M::Value und{create<fir::UndefOp>(complexTy)};
+mlir::Value Fortran::lower::ComplexOpsBuilder::createComplex(fir::KindTy kind,
+                                                             mlir::Value real,
+                                                             mlir::Value imag) {
+  mlir::Type complexTy{fir::CplxType::get(builder.getContext(), kind)};
+  mlir::Value und{create<fir::UndefOp>(complexTy)};
   return insert<Part::Imag>(insert<Part::Real>(und, real), imag);
 }
 
-using CplxPart = Br::ComplexOpsBuilder::Part;
+using CplxPart = Fortran::lower::ComplexOpsBuilder::Part;
 template <CplxPart partId>
-M::Value Br::ComplexOpsBuilder::createPartId() {
-  auto type{M::IntegerType::get(32, builder.getContext())};
+mlir::Value Fortran::lower::ComplexOpsBuilder::createPartId() {
+  auto type{mlir::IntegerType::get(32, builder.getContext())};
   return createIntegerConstant(type, static_cast<int>(partId));
 }
 
 template <CplxPart partId>
-M::Value Br::ComplexOpsBuilder::extract(M::Value cplx) {
+mlir::Value Fortran::lower::ComplexOpsBuilder::extract(mlir::Value cplx) {
   return create<fir::ExtractValueOp>(getComplexPartType(cplx), cplx,
                                      createPartId<partId>());
 }
-template M::Value Br::ComplexOpsBuilder::extract<CplxPart::Real>(M::Value);
-template M::Value Br::ComplexOpsBuilder::extract<CplxPart::Imag>(M::Value);
+template mlir::Value
+    Fortran::lower::ComplexOpsBuilder::extract<CplxPart::Real>(mlir::Value);
+template mlir::Value
+    Fortran::lower::ComplexOpsBuilder::extract<CplxPart::Imag>(mlir::Value);
 
 template <CplxPart partId>
-M::Value Br::ComplexOpsBuilder::insert(M::Value cplx, M::Value part) {
+mlir::Value Fortran::lower::ComplexOpsBuilder::insert(mlir::Value cplx,
+                                                      mlir::Value part) {
   assert(cplx != nullptr);
   return create<fir::InsertValueOp>(cplx.getType(), cplx, part,
                                     createPartId<partId>());
 }
-template M::Value Br::ComplexOpsBuilder::insert<CplxPart::Real>(M::Value,
-                                                                M::Value);
-template M::Value Br::ComplexOpsBuilder::insert<CplxPart::Imag>(M::Value,
-                                                                M::Value);
+template mlir::Value
+    Fortran::lower::ComplexOpsBuilder::insert<CplxPart::Real>(mlir::Value,
+                                                              mlir::Value);
+template mlir::Value
+    Fortran::lower::ComplexOpsBuilder::insert<CplxPart::Imag>(mlir::Value,
+                                                              mlir::Value);
 
-M::Value Br::ComplexOpsBuilder::extractComplexPart(M::Value cplx,
-                                                   bool isImagPart) {
+mlir::Value
+Fortran::lower::ComplexOpsBuilder::extractComplexPart(mlir::Value cplx,
+                                                      bool isImagPart) {
   return isImagPart ? extract<Part::Imag>(cplx) : extract<Part::Real>(cplx);
 }
 
-M::Value Br::ComplexOpsBuilder::insertComplexPart(M::Value cplx, M::Value part,
-                                                  bool isImagPart) {
+mlir::Value Fortran::lower::ComplexOpsBuilder::insertComplexPart(
+    mlir::Value cplx, mlir::Value part, bool isImagPart) {
   return isImagPart ? insert<Part::Imag>(cplx, part)
                     : insert<Part::Real>(cplx, part);
 }
 
-M::Value Br::ComplexOpsBuilder::createComplexCompare(M::Value cplx1,
-                                                     M::Value cplx2, bool eq) {
-  M::Value real1{extract<Part::Real>(cplx1)};
-  M::Value real2{extract<Part::Real>(cplx2)};
-  M::Value imag1{extract<Part::Imag>(cplx1)};
-  M::Value imag2{extract<Part::Imag>(cplx2)};
+mlir::Value Fortran::lower::ComplexOpsBuilder::createComplexCompare(
+    mlir::Value cplx1, mlir::Value cplx2, bool eq) {
+  mlir::Value real1{extract<Part::Real>(cplx1)};
+  mlir::Value real2{extract<Part::Real>(cplx2)};
+  mlir::Value imag1{extract<Part::Imag>(cplx1)};
+  mlir::Value imag2{extract<Part::Imag>(cplx2)};
 
-  M::CmpFPredicate predicate{eq ? M::CmpFPredicate::UEQ
-                                : M::CmpFPredicate::UNE};
-  M::Value realCmp{create<M::CmpFOp>(predicate, real1, real2)};
-  M::Value imagCmp{create<M::CmpFOp>(predicate, imag1, imag2)};
+  mlir::CmpFPredicate predicate{eq ? mlir::CmpFPredicate::UEQ
+                                   : mlir::CmpFPredicate::UNE};
+  mlir::Value realCmp{create<mlir::CmpFOp>(predicate, real1, real2)};
+  mlir::Value imagCmp{create<mlir::CmpFOp>(predicate, imag1, imag2)};
 
-  return eq ? create<M::AndOp>(realCmp, imagCmp).getResult()
-            : create<M::OrOp>(realCmp, imagCmp).getResult();
+  return eq ? create<mlir::AndOp>(realCmp, imagCmp).getResult()
+            : create<mlir::OrOp>(realCmp, imagCmp).getResult();
 }

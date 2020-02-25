@@ -7,7 +7,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "flang/lower/Intrinsics.h"
-#include "NSAliases.h"
 #include "flang/lower/ConvertType.h"
 #include "flang/lower/OpBuilder.h"
 #include "flang/lower/Runtime.h"
@@ -28,40 +27,41 @@ namespace Fortran::lower {
 /// signatures. There is no guarantee that that runtime functions are available
 /// for all intrinsic functions and possible types.
 /// To be easy and fast to use, this class holds a map and uses
-/// M::FunctionType to represent the runtime function type. This imply that
+/// mlir::FunctionType to represent the runtime function type. This imply that
 /// MathRuntimeLibrary cannot be constexpr built and requires an
-/// M::MLIRContext to be built. Its constructor uses a constexpr table
+/// mlir::MLIRContext to be built. Its constructor uses a constexpr table
 /// description of the runtime. The runtime functions are not declared into the
-/// M::module until there is a query that needs them. This is to avoid
+/// mlir::module until there is a query that needs them. This is to avoid
 /// polluting the FIR/LLVM IR dumps with unused functions.
 class MathRuntimeLibrary {
 public:
   /// The map key are Fortran generic intrinsic names.
-  using Key = L::StringRef;
+  using Key = llvm::StringRef;
   struct Hash { // Need custom hash for this kind of key
-    size_t operator()(const Key &k) const { return L::hash_value(k); }
+    size_t operator()(const Key &k) const { return llvm::hash_value(k); }
   };
   /// Runtime function description that is sufficient to build an
-  /// M::FuncOp and to compare function types.
+  /// mlir::FuncOp and to compare function types.
   struct RuntimeFunction {
-    RuntimeFunction(L::StringRef n, M::FunctionType t) : symbol{n}, type{t} {};
-    L::StringRef symbol;
-    M::FunctionType type;
+    RuntimeFunction(llvm::StringRef n, mlir::FunctionType t)
+        : symbol{n}, type{t} {};
+    llvm::StringRef symbol;
+    mlir::FunctionType type;
   };
   using Map = std::unordered_multimap<Key, RuntimeFunction, Hash>;
 
-  MathRuntimeLibrary(IntrinsicLibrary::Version, M::MLIRContext &);
+  MathRuntimeLibrary(IntrinsicLibrary::Version, mlir::MLIRContext &);
 
   /// Probe the intrinsic library for a certain intrinsic and get/build the
-  /// related M::FuncOp if a runtime description is found.
+  /// related mlir::FuncOp if a runtime description is found.
   /// Also add a unit attribute "fir.runtime" to the function so that later
   /// it is possible to quickly know what function are intrinsics vs users.
-  L::Optional<M::FuncOp> getFunction(M::OpBuilder &, L::StringRef,
-                                     M::FunctionType) const;
+  llvm::Optional<mlir::FuncOp> getFunction(mlir::OpBuilder &, llvm::StringRef,
+                                           mlir::FunctionType) const;
 
 private:
-  M::FuncOp getFuncOp(M::OpBuilder &builder,
-                      const RuntimeFunction &runtime) const;
+  mlir::FuncOp getFuncOp(mlir::OpBuilder &builder,
+                         const RuntimeFunction &runtime) const;
   Map library;
 };
 
@@ -126,23 +126,25 @@ enum class ExtremumBehavior {
 // TODO error handling -> return a code or directly emit messages ?
 class IntrinsicLibrary::Implementation {
 public:
-  Implementation(Version v, M::MLIRContext &c) : runtime{v, c} {}
-  inline M::Value genval(M::Location loc, M::OpBuilder &builder,
-                         L::StringRef name, M::Type resultType,
-                         L::ArrayRef<M::Value> args);
+  Implementation(Version v, mlir::MLIRContext &c) : runtime{v, c} {}
+  inline mlir::Value genval(mlir::Location loc, mlir::OpBuilder &builder,
+                            llvm::StringRef name, mlir::Type resultType,
+                            llvm::ArrayRef<mlir::Value> args);
 
 private:
   // Info needed by Generators is passed in Context struct to keep Generator
   // signatures modification easy.
   struct Context {
-    M::Location loc;
-    M::OpBuilder *builder{nullptr};
-    L::StringRef name;
-    L::ArrayRef<M::Value> arguments;
-    M::FunctionType funcType;
-    M::ModuleOp getModuleOp() { return getModule(builder); }
-    M::MLIRContext *getMLIRContext() { return getModule(builder).getContext(); }
-    M::Type getResultType() {
+    mlir::Location loc;
+    mlir::OpBuilder *builder = nullptr;
+    llvm::StringRef name;
+    llvm::ArrayRef<mlir::Value> arguments;
+    mlir::FunctionType funcType;
+    mlir::ModuleOp getModuleOp() { return getModule(builder); }
+    mlir::MLIRContext *getMLIRContext() {
+      return getModule(builder).getContext();
+    }
+    mlir::Type getResultType() {
       assert(funcType.getNumResults() == 1);
       return funcType.getResult(0);
     }
@@ -150,7 +152,7 @@ private:
 
   /// Define the different FIR generators that can be mapped to intrinsic to
   /// generate the related code.
-  using Generator = M::Value (*)(Context &, MathRuntimeLibrary &);
+  using Generator = mlir::Value (*)(Context &, MathRuntimeLibrary &);
 
   /// Search a runtime function that is associated to the generic intrinsic name
   /// and whose signature matches the intrinsic arguments and result types.
@@ -159,27 +161,27 @@ private:
   /// conversions will be inserted before and/or after the call. This is to
   /// mainly to allow 16 bits float support even-though little or no math
   /// runtime is currently available for it.
-  static M::Value genRuntimeCall(Context &, MathRuntimeLibrary &);
+  static mlir::Value genRuntimeCall(Context &, MathRuntimeLibrary &);
 
   /// All generators can be combined with genWrapperCall that will build a
   /// function named "fir."+ <generic name> + "." + <result type code> and
   /// generate the intrinsic implementation inside instead of at the intrinsic
   /// call sites. This can be used to keep the FIR more readable.
   template <Generator g>
-  static M::Value genWrapperCall(Context &c, MathRuntimeLibrary &r) {
+  static mlir::Value genWrapperCall(Context &c, MathRuntimeLibrary &r) {
     return outlineInWrapper(g, c, r);
   }
 
   /// The defaultGenerator is always attempted if no mapping was found for the
   /// generic name provided.
-  static M::Value defaultGenerator(Context &c, MathRuntimeLibrary &r) {
+  static mlir::Value defaultGenerator(Context &c, MathRuntimeLibrary &r) {
     return genWrapperCall<&I::genRuntimeCall>(c, r);
   }
 
-  static M::Value genConjg(Context &, MathRuntimeLibrary &);
+  static mlir::Value genConjg(Context &, MathRuntimeLibrary &);
   template <Extremum, ExtremumBehavior>
-  static M::Value genExtremum(Context &, MathRuntimeLibrary &);
-  static M::Value genMerge(Context &, MathRuntimeLibrary &);
+  static mlir::Value genExtremum(Context &, MathRuntimeLibrary &);
+  static mlir::Value genMerge(Context &, MathRuntimeLibrary &);
 
   struct IntrinsicHanlder {
     const char *name;
@@ -198,18 +200,18 @@ private:
   };
 
   // helpers
-  static M::Value outlineInWrapper(Generator, Context &c,
-                                   MathRuntimeLibrary &r);
+  static mlir::Value outlineInWrapper(Generator, Context &c,
+                                      MathRuntimeLibrary &r);
 
   MathRuntimeLibrary runtime;
 };
 
 // helpers
-static std::string getIntrinsicWrapperName(const L::StringRef &intrinsic,
-                                           M::FunctionType funTy);
-static M::FunctionType getFunctionType(M::Type resultType,
-                                       L::ArrayRef<M::Value> arguments,
-                                       M::OpBuilder &);
+static std::string getIntrinsicWrapperName(const llvm::StringRef &intrinsic,
+                                           mlir::FunctionType funTy);
+static mlir::FunctionType getFunctionType(mlir::Type resultType,
+                                          llvm::ArrayRef<mlir::Value> arguments,
+                                          mlir::OpBuilder &);
 
 /// Define a simple static runtime description that will be transformed into
 /// RuntimeFunction when building the IntrinsicLibrary.
@@ -218,11 +220,11 @@ public:
   constexpr MathsRuntimeStaticDescription(const char *n, const char *s,
                                           MaybeTypeCode r, TypeCodeVector a)
       : RuntimeStaticDescription{s, r, a}, name{n} {}
-  L::StringRef getName() const { return name; }
+  llvm::StringRef getName() const { return name; }
 
 private:
   // Generic math function name
-  const char *name{nullptr};
+  const char *name = nullptr;
 };
 
 /// Description of the runtime functions available on the target.
@@ -274,13 +276,15 @@ static constexpr MathsRuntimeStaticDescription pgmathPreciseRuntime[] = {
 // IntrinsicLibrary implementation
 
 IntrinsicLibrary::IntrinsicLibrary(IntrinsicLibrary::Version v,
-                                   M::MLIRContext &context)
+                                   mlir::MLIRContext &context)
     : impl{new Implementation(v, context)} {}
 IntrinsicLibrary::~IntrinsicLibrary() = default;
 
-M::Value IntrinsicLibrary::genval(M::Location loc, M::OpBuilder &builder,
-                                  L::StringRef name, M::Type resultType,
-                                  L::ArrayRef<M::Value> args) const {
+mlir::Value IntrinsicLibrary::genval(mlir::Location loc,
+                                     mlir::OpBuilder &builder,
+                                     llvm::StringRef name,
+                                     mlir::Type resultType,
+                                     llvm::ArrayRef<mlir::Value> args) const {
   assert(impl);
   return impl->genval(loc, builder, name, resultType, args);
 }
@@ -290,7 +294,7 @@ M::Value IntrinsicLibrary::genval(M::Location loc, M::OpBuilder &builder,
 // Create the runtime description for the targeted library version.
 // So far ignore the version an only load the dummy llvm lib and pgmath precise
 MathRuntimeLibrary::MathRuntimeLibrary(IntrinsicLibrary::Version,
-                                       M::MLIRContext &mlirContext) {
+                                       mlir::MLIRContext &mlirContext) {
   for (const MathsRuntimeStaticDescription &func : llvmRuntime) {
     RuntimeFunction impl{func.getSymbol(),
                          func.getMLIRFunctionType(&mlirContext)};
@@ -303,10 +307,11 @@ MathRuntimeLibrary::MathRuntimeLibrary(IntrinsicLibrary::Version,
   }
 }
 
-M::FuncOp MathRuntimeLibrary::getFuncOp(M::OpBuilder &builder,
-                                        const RuntimeFunction &runtime) const {
-  auto module{getModule(&builder)};
-  M::FuncOp function{getNamedFunction(module, runtime.symbol)};
+mlir::FuncOp
+MathRuntimeLibrary::getFuncOp(mlir::OpBuilder &builder,
+                              const RuntimeFunction &runtime) const {
+  auto module = getModule(&builder);
+  auto function = getNamedFunction(module, runtime.symbol);
   if (!function) {
     function = createFunction(module, runtime.symbol, runtime.type);
     function.setAttr("fir.runtime", builder.getUnitAttr());
@@ -327,18 +332,16 @@ M::FuncOp MathRuntimeLibrary::getFuncOp(M::OpBuilder &builder,
 class FunctionDistance {
 public:
   FunctionDistance() : infinite{true} {}
-  FunctionDistance(M::FunctionType from, M::FunctionType to) {
-    auto nInputs{from.getNumInputs()};
-    auto nResults{from.getNumResults()};
+  FunctionDistance(mlir::FunctionType from, mlir::FunctionType to) {
+    auto nInputs = from.getNumInputs();
+    auto nResults = from.getNumResults();
     if (nResults != to.getNumResults() || nInputs != to.getNumInputs()) {
       infinite = true;
     } else {
-      for (unsigned int i{0}; i < nInputs; ++i) {
+      for (decltype(nInputs) i{0}; i < nInputs; ++i)
         addArgumentDistance(from.getInput(i), to.getInput(i));
-      }
-      for (unsigned int i{0}; i < nResults; ++i) {
+      for (decltype(nResults) i{0}; i < nResults; ++i)
         addResultDistance(to.getResult(i), from.getResult(i));
-      }
     }
   }
   bool isSmallerThan(const FunctionDistance &d) const {
@@ -355,7 +358,7 @@ public:
 private:
   enum class Conversion { Forbidden, None, Narrow, Extend };
 
-  void addArgumentDistance(M::Type from, M::Type to) {
+  void addArgumentDistance(mlir::Type from, mlir::Type to) {
     switch (conversionBetweenTypes(from, to)) {
     case Conversion::Forbidden:
       infinite = true;
@@ -370,7 +373,7 @@ private:
       break;
     }
   }
-  void addResultDistance(M::Type from, M::Type to) {
+  void addResultDistance(mlir::Type from, mlir::Type to) {
     switch (conversionBetweenTypes(from, to)) {
     case Conversion::Forbidden:
       infinite = true;
@@ -385,12 +388,12 @@ private:
       break;
     }
   }
-  // Floating point can be M::FloatType or fir::real
-  static unsigned getFloatingPointWidth(M::Type t) {
-    if (auto f{t.dyn_cast<M::FloatType>()})
+  // Floating point can be mlir::FloatType or fir::real
+  static unsigned getFloatingPointWidth(mlir::Type t) {
+    if (auto f{t.dyn_cast<mlir::FloatType>()})
       return f.getWidth();
     // FIXME: Get width another way for fir.real/complex
-    // - use fir/KindMapping.h and L::Type
+    // - use fir/KindMapping.h and llvm::Type
     // - or use evaluate/type.h
     if (auto r{t.dyn_cast<fir::RealType>()})
       return r.getFKind() * 4;
@@ -399,15 +402,15 @@ private:
     assert(false && "not a floating-point type");
     return 0;
   }
-  static bool isFloatingPointType(M::Type t) {
-    return t.isa<M::FloatType>() || t.isa<fir::RealType>();
+  static bool isFloatingPointType(mlir::Type t) {
+    return t.isa<mlir::FloatType>() || t.isa<fir::RealType>();
   }
-  static Conversion conversionBetweenTypes(M::Type from, M::Type to) {
+  static Conversion conversionBetweenTypes(mlir::Type from, mlir::Type to) {
     if (from == to) {
       return Conversion::None;
     }
-    if (auto fromIntTy{from.dyn_cast<M::IntegerType>()}) {
-      if (auto toIntTy{to.dyn_cast<M::IntegerType>()}) {
+    if (auto fromIntTy{from.dyn_cast<mlir::IntegerType>()}) {
+      if (auto toIntTy{to.dyn_cast<mlir::IntegerType>()}) {
         return fromIntTy.getWidth() > toIntTy.getWidth() ? Conversion::Narrow
                                                          : Conversion::Extend;
       }
@@ -450,14 +453,14 @@ private:
 // Select runtime function that has the smallest distance to the intrinsic
 // function type and that will not imply narrowing arguments or extending the
 // result.
-L::Optional<M::FuncOp>
-MathRuntimeLibrary::getFunction(M::OpBuilder &builder, L::StringRef name,
-                                M::FunctionType funcType) const {
-  auto range{library.equal_range(name)};
-  const RuntimeFunction *bestNearMatch{nullptr};
+llvm::Optional<mlir::FuncOp>
+MathRuntimeLibrary::getFunction(mlir::OpBuilder &builder, llvm::StringRef name,
+                                mlir::FunctionType funcType) const {
+  auto range = library.equal_range(name);
+  const RuntimeFunction *bestNearMatch = nullptr;
   FunctionDistance bestMatchDistance{};
   for (auto iter{range.first}; iter != range.second; ++iter) {
-    const RuntimeFunction &impl{iter->second};
+    const RuntimeFunction &impl = iter->second;
     if (funcType == impl.type) {
       return getFuncOp(builder, impl); // exact match
     } else {
@@ -478,11 +481,9 @@ MathRuntimeLibrary::getFunction(M::OpBuilder &builder, L::StringRef name,
 
 // IntrinsicLibrary::Implementation implementation
 
-M::Value IntrinsicLibrary::Implementation::genval(M::Location loc,
-                                                  M::OpBuilder &builder,
-                                                  L::StringRef name,
-                                                  M::Type resultType,
-                                                  L::ArrayRef<M::Value> args) {
+mlir::Value IntrinsicLibrary::Implementation::genval(
+    mlir::Location loc, mlir::OpBuilder &builder, llvm::StringRef name,
+    mlir::Type resultType, llvm::ArrayRef<mlir::Value> args) {
   Context context{loc, &builder, name, args,
                   getFunctionType(resultType, args, builder)};
   for (auto &handler : handlers) {
@@ -496,22 +497,22 @@ M::Value IntrinsicLibrary::Implementation::genval(M::Location loc,
   return defaultGenerator(context, runtime);
 }
 
-static M::FunctionType getFunctionType(M::Type resultType,
-                                       L::ArrayRef<M::Value> arguments,
-                                       M::OpBuilder &builder) {
-  L::SmallVector<M::Type, 2> argumentTypes;
+static mlir::FunctionType getFunctionType(mlir::Type resultType,
+                                          llvm::ArrayRef<mlir::Value> arguments,
+                                          mlir::OpBuilder &builder) {
+  llvm::SmallVector<mlir::Type, 2> argumentTypes;
   for (auto &arg : arguments) {
     assert(arg != nullptr); // TODO think about optionals
     argumentTypes.push_back(arg.getType());
   }
-  return M::FunctionType::get(argumentTypes, resultType,
-                              getModule(&builder).getContext());
+  return mlir::FunctionType::get(argumentTypes, resultType,
+                                 getModule(&builder).getContext());
 }
 
 // TODO find nicer type to string infra or move this in a mangling utility
 // mlir as Type::dump(ostream) methods but it may adds !
-static std::string typeToString(M::Type t) {
-  if (auto i{t.dyn_cast<M::IntegerType>()}) {
+static std::string typeToString(mlir::Type t) {
+  if (auto i{t.dyn_cast<mlir::IntegerType>()}) {
     return "i" + std::to_string(i.getWidth());
   }
   if (auto cplx{t.dyn_cast<fir::CplxType>()}) {
@@ -520,7 +521,7 @@ static std::string typeToString(M::Type t) {
   if (auto real{t.dyn_cast<fir::RealType>()}) {
     return "r" + std::to_string(real.getFKind());
   }
-  if (auto f{t.dyn_cast<M::FloatType>()}) {
+  if (auto f{t.dyn_cast<mlir::FloatType>()}) {
     return "f" + std::to_string(f.getWidth());
   }
   if (auto logical{t.dyn_cast<fir::LogicalType>()}) {
@@ -532,24 +533,25 @@ static std::string typeToString(M::Type t) {
   assert(false && "no mangling for type");
   return ""s;
 }
-static std::string getIntrinsicWrapperName(const L::StringRef &intrinsic,
-                                           M::FunctionType funTy) {
+static std::string getIntrinsicWrapperName(const llvm::StringRef &intrinsic,
+                                           mlir::FunctionType funTy) {
   std::string name{"fir." + intrinsic.str() + "."};
   assert(funTy.getNumResults() == 1 && "only function mangling supported");
   name += typeToString(funTy.getResult(0));
-  for (std::size_t i{0}; i < funTy.getNumInputs(); ++i) {
+  auto e{funTy.getNumInputs()};
+  for (decltype(e) i{0}; i < e; ++i) {
     name += "." + typeToString(funTy.getInput(i));
   }
   return name;
 }
 
-M::Value IntrinsicLibrary::Implementation::outlineInWrapper(
+mlir::Value IntrinsicLibrary::Implementation::outlineInWrapper(
     Generator generator, Context &context, MathRuntimeLibrary &runtime) {
-  M::ModuleOp module{getModule(context.builder)};
-  M::MLIRContext *mlirContext{module.getContext()};
+  auto module = getModule(context.builder);
+  auto *mlirContext = module.getContext();
   std::string wrapperName{
       getIntrinsicWrapperName(context.name, context.funcType)};
-  M::FuncOp function{getNamedFunction(module, wrapperName)};
+  auto function = getNamedFunction(module, wrapperName);
   if (!function) {
     // First time this wrapper is needed, build it.
     function = createFunction(module, wrapperName, context.funcType);
@@ -560,35 +562,35 @@ M::Value IntrinsicLibrary::Implementation::outlineInWrapper(
     // This new function is not linked to a source file location, only
     // its calls will be.
     Context localContext{context};
-    auto localBuilder{std::make_unique<M::OpBuilder>(function)};
+    auto localBuilder = std::make_unique<mlir::OpBuilder>(function);
     localBuilder->setInsertionPointToStart(&function.front());
     localContext.builder = &(*localBuilder);
-    L::SmallVector<M::Value, 2> localArguments;
-    for (M::BlockArgument bArg : function.front().getArguments()) {
+    llvm::SmallVector<mlir::Value, 2> localArguments;
+    for (mlir::BlockArgument bArg : function.front().getArguments()) {
       localArguments.push_back(bArg);
     }
     localContext.arguments = localArguments;
-    localContext.loc = M::UnknownLoc::get(mlirContext);
+    localContext.loc = mlir::UnknownLoc::get(mlirContext);
 
-    M::Value result = generator(localContext, runtime);
-    localBuilder->create<M::ReturnOp>(localContext.loc, result);
+    mlir::Value result = generator(localContext, runtime);
+    localBuilder->create<mlir::ReturnOp>(localContext.loc, result);
   } else {
     // Wrapper was already built, ensure it has the sought type
     assert(function.getType() == context.funcType);
   }
-  auto call{context.builder->create<M::CallOp>(context.loc, function,
-                                               context.arguments)};
+  auto call = context.builder->create<mlir::CallOp>(context.loc, function,
+                                                    context.arguments);
   return call.getResult(0);
 }
 
-M::Value
+mlir::Value
 IntrinsicLibrary::Implementation::genRuntimeCall(Context &context,
                                                  MathRuntimeLibrary &runtime) {
   // Look up runtime
-  M::FunctionType soughtFuncType{context.funcType};
-  if (auto funcOp{runtime.getFunction(*context.builder, context.name,
-                                      soughtFuncType)}) {
-    M::FunctionType actualFuncType{funcOp->getType()};
+  mlir::FunctionType soughtFuncType = context.funcType;
+  if (auto funcOp =
+          runtime.getFunction(*context.builder, context.name, soughtFuncType)) {
+    mlir::FunctionType actualFuncType = funcOp->getType();
     if (actualFuncType.getNumResults() != soughtFuncType.getNumResults() ||
         actualFuncType.getNumInputs() != soughtFuncType.getNumInputs() ||
         actualFuncType.getNumInputs() != context.arguments.size() ||
@@ -596,26 +598,26 @@ IntrinsicLibrary::Implementation::genRuntimeCall(Context &context,
       assert(false); // TODO better error handling
       return nullptr;
     }
-    L::SmallVector<M::Value, 2> convertedArguments;
-    int i{0};
-    for (M::Value arg : context.arguments) {
-      M::Type actualType{actualFuncType.getInput(i)};
+    llvm::SmallVector<mlir::Value, 2> convertedArguments;
+    int i = 0;
+    for (mlir::Value arg : context.arguments) {
+      auto actualType = actualFuncType.getInput(i);
       if (soughtFuncType.getInput(i) != actualType) {
-        auto castedArg{context.builder->create<fir::ConvertOp>(
-            context.loc, actualType, arg)};
+        auto castedArg = context.builder->create<fir::ConvertOp>(
+            context.loc, actualType, arg);
         convertedArguments.push_back(castedArg.getResult());
       } else {
         convertedArguments.push_back(arg);
       }
       ++i;
     }
-    auto call{context.builder->create<M::CallOp>(context.loc, *funcOp,
-                                                 convertedArguments)};
-    M::Type soughtType{soughtFuncType.getResult(0)};
-    M::Value res = call.getResult(0);
+    auto call = context.builder->create<mlir::CallOp>(context.loc, *funcOp,
+                                                      convertedArguments);
+    mlir::Type soughtType = soughtFuncType.getResult(0);
+    mlir::Value res = call.getResult(0);
     if (actualFuncType.getResult(0) != soughtType) {
-      auto castedRes{context.builder->create<fir::ConvertOp>(context.loc,
-                                                             soughtType, res)};
+      auto castedRes =
+          context.builder->create<fir::ConvertOp>(context.loc, soughtType, res);
       return castedRes.getResult();
     } else {
       return res;
@@ -630,65 +632,66 @@ IntrinsicLibrary::Implementation::genRuntimeCall(Context &context,
 }
 
 // CONJG
-M::Value IntrinsicLibrary::Implementation::genConjg(Context &genCtxt,
-                                                    MathRuntimeLibrary &) {
+mlir::Value IntrinsicLibrary::Implementation::genConjg(Context &genCtxt,
+                                                       MathRuntimeLibrary &) {
   assert(genCtxt.arguments.size() == 1);
-  M::Type resType{genCtxt.getResultType()};
+  mlir::Type resType = genCtxt.getResultType();
   assert(resType == genCtxt.arguments[0].getType());
-  M::OpBuilder &builder{*genCtxt.builder};
+  mlir::OpBuilder &builder{*genCtxt.builder};
   ComplexOpsBuilder cplxHandler{builder, genCtxt.loc};
 
-  M::Value cplx = genCtxt.arguments[0];
-  M::Value imag = cplxHandler.extract<ComplexOpsBuilder::Part::Imag>(cplx);
-  M::Value negImag = genCtxt.builder->create<fir::NegfOp>(genCtxt.loc, imag);
+  mlir::Value cplx = genCtxt.arguments[0];
+  mlir::Value imag = cplxHandler.extract<ComplexOpsBuilder::Part::Imag>(cplx);
+  mlir::Value negImag = genCtxt.builder->create<fir::NegfOp>(genCtxt.loc, imag);
   return cplxHandler.insert<ComplexOpsBuilder::Part::Imag>(cplx, negImag);
 }
 
 // MERGE
-M::Value IntrinsicLibrary::Implementation::genMerge(Context &genCtxt,
-                                                    MathRuntimeLibrary &) {
+mlir::Value IntrinsicLibrary::Implementation::genMerge(Context &genCtxt,
+                                                       MathRuntimeLibrary &) {
   assert(genCtxt.arguments.size() == 3);
-  M::Type resType{genCtxt.getResultType()};
-  M::OpBuilder &builder{*genCtxt.builder};
+  [[maybe_unused]] auto resType = genCtxt.getResultType();
+  mlir::OpBuilder &builder{*genCtxt.builder};
 
   auto &trueVal = genCtxt.arguments[0];
   auto &falseVal = genCtxt.arguments[1];
   auto &mask = genCtxt.arguments[2];
-  M::Type i1Type{M::IntegerType::get(1, builder.getContext())};
+  auto i1Type = mlir::IntegerType::get(1, builder.getContext());
   auto msk = builder.create<fir::ConvertOp>(genCtxt.loc, i1Type, mask);
-  return builder.create<M::SelectOp>(genCtxt.loc, msk, trueVal, falseVal);
+  return builder.create<mlir::SelectOp>(genCtxt.loc, msk, trueVal, falseVal);
 }
 
 // Compare two FIR values and return boolean result as i1.
 template <Extremum extremum, ExtremumBehavior behavior>
-static M::Value createExtremumCompare(M::Location loc, M::OpBuilder &builder,
-                                      M::Value left, M::Value right) {
+static mlir::Value createExtremumCompare(mlir::Location loc,
+                                         mlir::OpBuilder &builder,
+                                         mlir::Value left, mlir::Value right) {
   static constexpr auto integerPredicate{extremum == Extremum::Max
-                                             ? M::CmpIPredicate::sgt
-                                             : M::CmpIPredicate::slt};
+                                             ? mlir::CmpIPredicate::sgt
+                                             : mlir::CmpIPredicate::slt};
   static constexpr auto orderedCmp{extremum == Extremum::Max
                                        ? fir::CmpFPredicate::OGT
                                        : fir::CmpFPredicate::OLT};
-  auto type{left.getType()};
-  M::Value result;
-  if (type.isa<M::FloatType>() || type.isa<fir::RealType>()) {
+  auto type = left.getType();
+  mlir::Value result;
+  if (type.isa<mlir::FloatType>() || type.isa<fir::RealType>()) {
     // Note: the signaling/quit aspect of the result required by IEEE
     // cannot currently be obtained with LLVM without ad-hoc runtime.
     if constexpr (behavior == ExtremumBehavior::IeeeMinMaximumNumber) {
       // Return the number if one of the inputs is NaN and the other is
       // a number.
-      auto leftIsResult{
-          builder.create<fir::CmpfOp>(loc, orderedCmp, left, right)};
-      auto rightIsNan{builder.create<fir::CmpfOp>(loc, fir::CmpFPredicate::UNE,
-                                                  right, right)};
-      result = builder.create<M::OrOp>(loc, leftIsResult, rightIsNan);
+      auto leftIsResult =
+          builder.create<fir::CmpfOp>(loc, orderedCmp, left, right);
+      auto rightIsNan = builder.create<fir::CmpfOp>(
+          loc, fir::CmpFPredicate::UNE, right, right);
+      result = builder.create<mlir::OrOp>(loc, leftIsResult, rightIsNan);
     } else if constexpr (behavior == ExtremumBehavior::IeeeMinMaximum) {
       // Always return NaNs if one the input is NaNs
-      auto leftIsResult{
-          builder.create<fir::CmpfOp>(loc, orderedCmp, left, right)};
-      auto leftIsNan{builder.create<fir::CmpfOp>(loc, fir::CmpFPredicate::UNE,
-                                                 left, left)};
-      result = builder.create<M::OrOp>(loc, leftIsResult, leftIsNan);
+      auto leftIsResult =
+          builder.create<fir::CmpfOp>(loc, orderedCmp, left, right);
+      auto leftIsNan =
+          builder.create<fir::CmpfOp>(loc, fir::CmpFPredicate::UNE, left, left);
+      result = builder.create<mlir::OrOp>(loc, leftIsResult, leftIsNan);
     } else if constexpr (behavior == ExtremumBehavior::MinMaxss) {
       // If the left is a NaN, return the right whatever it is.
       result = builder.create<fir::CmpfOp>(loc, orderedCmp, left, right);
@@ -703,8 +706,8 @@ static M::Value createExtremumCompare(M::Location loc, M::OpBuilder &builder,
       static_assert(behavior == ExtremumBehavior::IeeeMinMaxNum,
                     "ieeeMinNum/ieeMaxNum behavior not implemented");
     }
-  } else if (type.isa<M::IntegerType>()) {
-    result = builder.create<M::CmpIOp>(loc, integerPredicate, left, right);
+  } else if (type.isa<mlir::IntegerType>()) {
+    result = builder.create<mlir::CmpIOp>(loc, integerPredicate, left, right);
   } else if (type.isa<fir::CharacterType>()) {
     // TODO: ! character min and max is tricky because the result
     // length is the length of the longest argument!
@@ -716,16 +719,17 @@ static M::Value createExtremumCompare(M::Location loc, M::OpBuilder &builder,
 
 // MIN and MAX
 template <Extremum extremum, ExtremumBehavior behavior>
-M::Value IntrinsicLibrary::Implementation::genExtremum(Context &genCtxt,
-                                                       MathRuntimeLibrary &) {
+mlir::Value
+IntrinsicLibrary::Implementation::genExtremum(Context &genCtxt,
+                                              MathRuntimeLibrary &) {
   auto &builder{*genCtxt.builder};
-  auto loc{genCtxt.loc};
+  auto loc = genCtxt.loc;
   assert(genCtxt.arguments.size() >= 2);
-  M::Value result = genCtxt.arguments[0];
+  mlir::Value result = genCtxt.arguments[0];
   for (auto arg : genCtxt.arguments.drop_front()) {
-    auto mask{
-        createExtremumCompare<extremum, behavior>(loc, builder, result, arg)};
-    result = builder.create<M::SelectOp>(loc, mask, result, arg);
+    auto mask =
+        createExtremumCompare<extremum, behavior>(loc, builder, result, arg);
+    result = builder.create<mlir::SelectOp>(loc, mask, result, arg);
   }
   return result;
 }

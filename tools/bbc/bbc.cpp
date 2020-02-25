@@ -49,35 +49,35 @@
 #include "llvm/Support/raw_ostream.h"
 #include <iostream>
 
-namespace Br = Fortran::lower;
-
-using namespace llvm;
-
 namespace {
 
 // Some basic command-line options
-cl::opt<std::string> inputFilename(cl::Positional, cl::Required,
-                                   cl::desc("<input file>"));
+llvm::cl::opt<std::string> inputFilename(llvm::cl::Positional,
+                                         llvm::cl::Required,
+                                         llvm::cl::desc("<input file>"));
 
-cl::opt<std::string> outputFilename("o",
-                                    cl::desc("Specify the output filename"),
-                                    cl::value_desc("filename"),
-                                    cl::init("a.mlir"));
+llvm::cl::opt<std::string>
+    outputFilename("o", llvm::cl::desc("Specify the output filename"),
+                   llvm::cl::value_desc("filename"), llvm::cl::init("a.mlir"));
 
-cl::list<std::string> includeDirs("I", cl::desc("include search paths"));
+llvm::cl::list<std::string> includeDirs("I",
+                                        llvm::cl::desc("include search paths"));
 
-cl::list<std::string> moduleDirs("module", cl::desc("module search paths"));
+llvm::cl::list<std::string> moduleDirs("module",
+                                       llvm::cl::desc("module search paths"));
 
-cl::opt<std::string> moduleSuffix("module-suffix",
-                                  cl::desc("module file suffix override"),
-                                  cl::init(".mod"));
+llvm::cl::opt<std::string>
+    moduleSuffix("module-suffix", llvm::cl::desc("module file suffix override"),
+                 llvm::cl::init(".mod"));
 
-cl::opt<bool> emitLLVM("emit-llvm",
-                       cl::desc("Add passes to lower to and emit LLVM IR"),
-                       cl::init(false));
-cl::opt<bool> emitFIR("emit-fir",
-                      cl::desc("Dump the FIR created by lowering and exit"),
-                      cl::init(false));
+llvm::cl::opt<bool>
+    emitLLVM("emit-llvm",
+             llvm::cl::desc("Add passes to lower to and emit LLVM IR"),
+             llvm::cl::init(false));
+llvm::cl::opt<bool>
+    emitFIR("emit-fir",
+            llvm::cl::desc("Dump the FIR created by lowering and exit"),
+            llvm::cl::init(false));
 
 // vestigal struct that should be deleted
 struct DriverOptions {
@@ -95,7 +95,7 @@ void convertFortranSourceToMLIR(
     std::string path, Fortran::parser::Options options, DriverOptions &driver,
     Fortran::semantics::SemanticsContext &semanticsContext) {
   if (!driver.forcedForm) {
-    auto dot{path.rfind(".")};
+    auto dot = path.rfind(".");
     if (dot != std::string::npos) {
       std::string suffix{path.substr(dot + 1)};
       options.isFixedForm = suffix == "f" || suffix == "F" || suffix == "ff";
@@ -106,7 +106,7 @@ void convertFortranSourceToMLIR(
   parsing.Prescan(path, options);
   if (!parsing.messages().empty() &&
       (driver.warningsAreErrors || parsing.messages().AnyFatalError())) {
-    errs() << driver.prefix << "could not scan " << path << '\n';
+    llvm::errs() << driver.prefix << "could not scan " << path << '\n';
     parsing.messages().Emit(std::cerr, parsing.cooked());
     exitStatus = EXIT_FAILURE;
     return;
@@ -122,7 +122,7 @@ void convertFortranSourceToMLIR(
   if ((!parsing.messages().empty() &&
        (driver.warningsAreErrors || parsing.messages().AnyFatalError())) ||
       !parsing.parseTree().has_value()) {
-    errs() << driver.prefix << "could not parse " << path << '\n';
+    llvm::errs() << driver.prefix << "could not parse " << path << '\n';
     exitStatus = EXIT_FAILURE;
     return;
   }
@@ -132,22 +132,22 @@ void convertFortranSourceToMLIR(
   semantics.Perform();
   semantics.EmitMessages(std::cerr);
   if (semantics.AnyFatalError()) {
-    errs() << driver.prefix << "semantic errors in " << path << '\n';
+    llvm::errs() << driver.prefix << "semantic errors in " << path << '\n';
     exitStatus = EXIT_FAILURE;
     return;
   }
 
   // MLIR+FIR
   fir::NameUniquer nameUniquer;
-  auto burnside = Br::BurnsideBridge::create(semanticsContext.defaultKinds(),
-                                             &parsing.cooked());
+  auto burnside = Fortran::lower::LoweringBridge::create(
+      semanticsContext.defaultKinds(), &parsing.cooked());
   fir::KindMapping kindMap{&burnside.getMLIRContext()};
   burnside.lower(parseTree, nameUniquer);
   mlir::ModuleOp mlirModule = burnside.getModule();
   std::error_code ec;
-  raw_fd_ostream out(outputFilename, ec);
+  llvm::raw_fd_ostream out(outputFilename, ec);
   if (ec) {
-    errs() << "could not open output file " << outputFilename << '\n';
+    llvm::errs() << "could not open output file " << outputFilename << '\n';
     return;
   }
   if (emitFIR) {
@@ -170,7 +170,7 @@ void convertFortranSourceToMLIR(
     llvm::ToolOutputFile out(outputFilename + ".ll", ec,
                              llvm::sys::fs::OF_None);
     if (ec) {
-      errs() << "can't open output file " + outputFilename + ".ll";
+      llvm::errs() << "can't open output file " + outputFilename + ".ll";
       return;
     }
     pm.addPass(fir::createLLVMDialectToLLVMPass(out.os()));
@@ -180,7 +180,7 @@ void convertFortranSourceToMLIR(
     mlirModule.print(out);
     out << '\n';
   } else {
-    errs() << "oops, pass manager reported failure\n";
+    llvm::errs() << "oops, pass manager reported failure\n";
     mlirModule.dump();
   }
 }
@@ -191,11 +191,11 @@ int main(int argc, char **argv) {
   mlir::registerAllDialects();
   fir::registerFIR();
   fir::registerFIRPasses();
-  [[maybe_unused]] InitLLVM y(argc, argv);
+  [[maybe_unused]] llvm::InitLLVM y(argc, argv);
 
   mlir::registerPassManagerCLOptions();
   mlir::PassPipelineCLParser passPipe("", "Compiler passes to run");
-  cl::ParseCommandLineOptions(argc, argv, "Burnside Bridge Compiler\n");
+  llvm::cl::ParseCommandLineOptions(argc, argv, "Burnside Bridge Compiler\n");
 
   DriverOptions driver;
   driver.prefix = argv[0] + ": "s;

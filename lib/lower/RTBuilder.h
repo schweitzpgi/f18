@@ -199,8 +199,8 @@ struct RuntimeTableEntry<RuntimeTableKey<KT>, RuntimeIdentifier<Cs...>> {
 #define QuoteKey(X) #X##_rt_ident
 #define ExpandKey(X) QuoteKey(X)
 #define mkKey(X)                                                               \
-  Br::RuntimeTableEntry<Br::RuntimeTableKey<decltype(X)>,                      \
-                        decltype(ExpandKey(X))>
+  Fortran::lower::RuntimeTableEntry<                                           \
+      Fortran::lower::RuntimeTableKey<decltype(X)>, decltype(ExpandKey(X))>
 
 } // namespace Fortran::lower
 

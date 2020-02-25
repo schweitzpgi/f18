@@ -7,7 +7,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "flang/lower/Runtime.h"
-#include "NSAliases.h"
 #include "flang/lower/OpBuilder.h"
 #include "flang/optimizer/Dialect/FIRType.h"
 #include "mlir/IR/StandardTypes.h"
@@ -17,50 +16,51 @@
 
 namespace Fortran::lower {
 
-M::Type RuntimeStaticDescription::getMLIRType(TypeCode t,
-                                              M::MLIRContext *context) {
+mlir::Type RuntimeStaticDescription::getMLIRType(TypeCode t,
+                                                 mlir::MLIRContext *context) {
   switch (t) {
   case TypeCode::i32:
-    return M::IntegerType::get(32, context);
+    return mlir::IntegerType::get(32, context);
   case TypeCode::i64:
-    return M::IntegerType::get(64, context);
+    return mlir::IntegerType::get(64, context);
   case TypeCode::f32:
-    return M::FloatType::getF32(context);
+    return mlir::FloatType::getF32(context);
   case TypeCode::f64:
-    return M::FloatType::getF64(context);
+    return mlir::FloatType::getF64(context);
   // TODO need to access mapping between fe/target
   case TypeCode::c32:
     return fir::CplxType::get(context, 4);
   case TypeCode::c64:
     return fir::CplxType::get(context, 8);
   case TypeCode::boolean:
-    return M::IntegerType::get(8, context);
+    return mlir::IntegerType::get(8, context);
   case TypeCode::charPtr:
     return fir::ReferenceType::get(fir::CharacterType::get(context, 1));
   // ! IOCookie is experimental only so far
   case TypeCode::IOCookie:
-    return fir::ReferenceType::get(M::IntegerType::get(64, context));
+    return fir::ReferenceType::get(mlir::IntegerType::get(64, context));
   }
   assert(false && "bug");
   return {};
 }
 
-M::FunctionType
-RuntimeStaticDescription::getMLIRFunctionType(M::MLIRContext *context) const {
-  L::SmallVector<M::Type, 2> argMLIRTypes;
+mlir::FunctionType RuntimeStaticDescription::getMLIRFunctionType(
+    mlir::MLIRContext *context) const {
+  llvm::SmallVector<mlir::Type, 2> argMLIRTypes;
   for (const TypeCode &t : argumentTypeCodes) {
     argMLIRTypes.push_back(getMLIRType(t, context));
   }
   if (resultTypeCode.has_value()) {
-    M::Type resMLIRType{getMLIRType(*resultTypeCode, context)};
-    return M::FunctionType::get(argMLIRTypes, resMLIRType, context);
+    mlir::Type resMLIRType{getMLIRType(*resultTypeCode, context)};
+    return mlir::FunctionType::get(argMLIRTypes, resMLIRType, context);
   }
-  return M::FunctionType::get(argMLIRTypes, {}, context);
+  return mlir::FunctionType::get(argMLIRTypes, {}, context);
 }
 
-M::FuncOp RuntimeStaticDescription::getFuncOp(M::OpBuilder &builder) const {
-  M::ModuleOp module{getModule(&builder)};
-  M::FunctionType funTy{getMLIRFunctionType(module.getContext())};
+mlir::FuncOp
+RuntimeStaticDescription::getFuncOp(mlir::OpBuilder &builder) const {
+  mlir::ModuleOp module{getModule(&builder)};
+  mlir::FunctionType funTy{getMLIRFunctionType(module.getContext())};
   auto function{getNamedFunction(module, symbol)};
   if (!function) {
     function = createFunction(module, symbol, funTy);
@@ -98,7 +98,8 @@ static constexpr RuntimeEntryDescription runtimeTable[]{
 static constexpr StaticMultimapView<RuntimeEntryDescription> runtimeMap{
     runtimeTable};
 
-M::FuncOp genRuntimeFunction(RuntimeEntryCode code, M::OpBuilder &builder) {
+mlir::FuncOp genRuntimeFunction(RuntimeEntryCode code,
+                                mlir::OpBuilder &builder) {
   auto description{runtimeMap.find(code)};
   assert(description != runtimeMap.end());
   return description->getFuncOp(builder);

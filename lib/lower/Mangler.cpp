@@ -7,7 +7,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "flang/lower/Mangler.h"
-#include "NSAliases.h"
 #include "flang/common/reference.h"
 #include "flang/lower/Utils.h"
 #include "flang/optimizer/Support/InternalNames.h"
@@ -17,32 +16,32 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/Twine.h"
 
-using namespace Fortran;
-
 namespace {
 
 // recursively build the vector of module scopes
-void moduleNames(const Se::Scope *scope,
-                 L::SmallVector<L::StringRef, 2> &result) {
-  if (scope->kind() == Se::Scope::Kind::Global) {
+void moduleNames(const Fortran::semantics::Scope *scope,
+                 llvm::SmallVector<llvm::StringRef, 2> &result) {
+  if (scope->kind() == Fortran::semantics::Scope::Kind::Global) {
     return;
   }
   moduleNames(&scope->parent(), result);
-  if (scope->kind() == Se::Scope::Kind::Module)
+  if (scope->kind() == Fortran::semantics::Scope::Kind::Module)
     if (auto *symbol = scope->symbol())
       result.emplace_back(toStringRef(symbol->name()));
 }
 
-L::SmallVector<L::StringRef, 2> moduleNames(const Se::Scope *scope) {
-  L::SmallVector<L::StringRef, 2> result;
+llvm::SmallVector<llvm::StringRef, 2>
+moduleNames(const Fortran::semantics::Scope *scope) {
+  llvm::SmallVector<llvm::StringRef, 2> result;
   moduleNames(scope, result);
   return result;
 }
 
-L::Optional<L::StringRef> hostName(const Se::Scope *scope) {
-  if (scope->kind() == Se::Scope::Kind::Subprogram) {
+llvm::Optional<llvm::StringRef>
+hostName(const Fortran::semantics::Scope *scope) {
+  if (scope->kind() == Fortran::semantics::Scope::Kind::Subprogram) {
     auto &parent = scope->parent();
-    if (parent.kind() == Se::Scope::Kind::Subprogram)
+    if (parent.kind() == Fortran::semantics::Scope::Kind::Subprogram)
       if (auto *symbol = parent.symbol()) {
         return {toStringRef(symbol->name())};
       }
@@ -54,20 +53,21 @@ L::Optional<L::StringRef> hostName(const Se::Scope *scope) {
 
 // Mangle the name of `symbol` to make it unique within FIR's symbol table using
 // the FIR name mangler, `mangler`
-std::string Ma::mangleName(fir::NameUniquer &uniquer,
-                           const Se::SymbolRef symbol) {
+std::string
+Fortran::lower::mangle::mangleName(fir::NameUniquer &uniquer,
+                                   const Fortran::semantics::SymbolRef symbol) {
   return std::visit(
-      Co::visitors{
-          [&](const Se::MainProgramDetails &) {
+      Fortran::common::visitors{
+          [&](const Fortran::semantics::MainProgramDetails &) {
             return uniquer.doProgramEntry().str();
           },
-          [&](const Se::SubprogramDetails &) {
+          [&](const Fortran::semantics::SubprogramDetails &) {
             auto &cb{symbol->name()};
             auto modNames{moduleNames(symbol->scope())};
             return uniquer.doProcedure(modNames, hostName(symbol->scope()),
                                        toStringRef(cb));
           },
-          [&](const Se::ProcEntityDetails &) {
+          [&](const Fortran::semantics::ProcEntityDetails &) {
             auto &cb{symbol->name()};
             auto modNames{moduleNames(symbol->scope())};
             return uniquer.doProcedure(modNames, hostName(symbol->scope()),
@@ -81,7 +81,7 @@ std::string Ma::mangleName(fir::NameUniquer &uniquer,
       symbol->details());
 }
 
-std::string Ma::demangleName(L::StringRef name) {
+std::string Fortran::lower::mangle::demangleName(llvm::StringRef name) {
   auto result{fir::NameUniquer::deconstruct(name)};
   return result.second.name;
 }
