@@ -314,21 +314,22 @@ def fir_AllocaOp : fir_AllocatableOp<"alloca"> {
     an optional name.  The allocation may have a dynamic repetition count
     for allocating a sequence of locations for the specified type.
 
-      %11 = fir.alloca i32
-      %12 = fir.alloca !fir.array<8 x i64>
-      %13 = fir.alloca f32, %5
+      %c = ... : i64
+      %x = fir.alloca i32
+      %y = fir.alloca !fir.array<8 x i64>
+      %z = fir.alloca f32, %c
 
-      %14 = ... : i16
-      %15 = ... : i32
-      %16 = fir.alloca !fir.type<PT(len1:i16, len2:i32)> (%14, %15 : i16, i32)
+      %i = ... : i16
+      %j = ... : i32
+      %w = fir.alloca !fir.type<PT(len1:i16, len2:i32)> (%i, %j : i16, i32)
 
-    Note that in the case of `%13`, a contiguous block of memory is allocated
+    Note that in the case of `%z`, a contiguous block of memory is allocated
     and its size is a runtime multiple of a 32-bit REAL value.
 
-    In the case of `%16`, the arguments `%14` and `%15` are LEN parameters
+    In the case of `%w`, the arguments `%i` and `%j` are LEN parameters
     (`len1`, `len2`) to the type `PT`.
 
-    Finally, the operation is undefined if the ssa-value `%5` is negative.
+    Finally, the operation is undefined if the ssa-value `%c` is negative.
   }];
 
   let results = (outs fir_ReferenceType);
@@ -345,20 +346,21 @@ def fir_AllocaOp : fir_AllocatableOp<"alloca"> {
   }];
 }
 
-def fir_LoadOp : fir_OneResultOp<"load", []>,
-    Arguments<(ins AnyReferenceLike:$memref)> {
+def fir_LoadOp : fir_OneResultOp<"load", []> {
   let summary = "load a value from a memory reference";
   let description = [{
     Load a value from a memory reference into an ssa-value (virtual register).
     Produces an immutable ssa-value of the referent type. A memory reference
     has type `!fir.ref<T>`, `!fir.heap<T>`, or `!fir.ptr<T>`.
 
-      %14 = fir.alloca i32 : !fir.ref<i32>
-      %15 = fir.load %14 : !fir.ref<i32>
+      %a = fir.alloca i32
+      %l = fir.load %a : !fir.ref<i32>
 
     The ssa-value has an undefined value if the memory reference is undefined
     or null.
   }];
+
+  let arguments = (ins AnyReferenceLike:$memref);
 
   let builders = [OpBuilder<
     "Builder *builder, OperationState &result, Value refVal",
@@ -400,8 +402,7 @@ def fir_LoadOp : fir_OneResultOp<"load", []>,
   }];
 }
 
-def fir_StoreOp : fir_Op<"store", []>,
-    Arguments<(ins AnyType:$value, AnyReferenceLike:$memref)> {
+def fir_StoreOp : fir_Op<"store", []> {
   let summary = "store an SSA-value to a memory location";
 
   let description = [{
@@ -409,20 +410,16 @@ def fir_StoreOp : fir_Op<"store", []>,
     value must be of the same type as the referent type of the memory
     reference.
 
-      %16 = fir.call @foo() : f64
-      %17 = fir.call @bar() : !fir.ptr<f64>
-      fir.store %16 to %17 : !fir.ptr<f64>
+      %v = ... : f64
+      %p = ... : !fir.ptr<f64>
+      fir.store %v to %p : !fir.ptr<f64>
 
     The above store changes the value to which the pointer is pointing and not
-    the pointer itself. The operation is undefined if the memory reference is
-    undefined or null.
+    the pointer itself. The operation is undefined if the memory reference,
+    `%p`, is undefined or null.
   }];
 
-  let verifier = [{
-    if (value().getType() != fir::dyn_cast_ptrEleTy(memref().getType()))
-      return emitOpError("store value type must match memory reference type");
-    return mlir::success();
-  }];
+  let arguments = (ins AnyType:$value, AnyReferenceLike:$memref);
 
   let parser = [{
     mlir::Type type;
@@ -449,6 +446,12 @@ def fir_StoreOp : fir_Op<"store", []>,
     p << " : " << memref().getType();
   }];
 
+  let verifier = [{
+    if (value().getType() != fir::dyn_cast_ptrEleTy(memref().getType()))
+      return emitOpError("store value type must match memory reference type");
+    return mlir::success();
+  }];
+
   let extraClassDeclaration = [{
     static mlir::Type elementType(mlir::Type refType);
   }];
@@ -461,7 +464,10 @@ def fir_UndefOp : fir_OneResultOp<"undefined", [NoSideEffect]> {
     This operation is typically created internally by the mem2reg conversion
     pass. An undefined value can be of any type except `!fir.ref<T>`.
 
-      %18 = fir.undefined !fir.array<10 x !fir.type<T>>
+      %a = fir.undefined !fir.array<10 x !fir.type<T>>
+
+    The example creates an array shaped ssa value. The array is rank 1, extent
+    10, and each element has type `!fir.type<T>`.
   }];
 
   let verifier = [{
@@ -473,12 +479,16 @@ def fir_UndefOp : fir_OneResultOp<"undefined", [NoSideEffect]> {
   let parser = [{
     mlir::Type intype;
     if (parser.parseType(intype) ||
+        parser.parseOptionalAttrDict(result.attributes) ||
         parser.addTypeToList(intype, result.types))
       return mlir::failure();
     return mlir::success();
   }];
 
-  let printer = [{ p << getOperationName() << ' ' << getType(); }];
+  let printer = [{
+    p << getOperationName() << ' ' << getType();
+    p.printOptionalAttrDict(getAttrs(), {});
+  }];
 }
 
 def fir_AllocMemOp : fir_AllocatableOp<"allocmem"> {
@@ -531,9 +541,11 @@ def fir_FreeMemOp : fir_Op<"freemem", []> {
 // Terminator operations
 
 class fir_SwitchTerminatorOp<string mnemonic, list<OpTrait> traits = []> :
-    fir_Op<mnemonic, !listconcat(traits, [Terminator])>,
-    Arguments<(ins Variadic<AnyType>:$args)>,
-    Results<(outs)> {
+    fir_Op<mnemonic, !listconcat(traits, [Terminator])> {
+  let arguments = (ins Variadic<AnyType>:$args);
+
+  let results = (outs);
+
   let builders = [OpBuilder<
     "Builder *, OperationState &result, Value selector,"
     "ArrayRef<Value> properOperands, ArrayRef<Block *> destinations,"
@@ -968,8 +980,10 @@ def fir_EmboxOp : fir_Op<"embox", [NoSideEffect]> {
       %c10 = constant 10 : index
       %4 = fir.dims(%c1, %c10, %c1) : (index, index, index) -> !fir.dims<1>
       %5 = ... : !fir.ref<!fir.array<10 x i32>>
-      %6 = fir.embox %5, %4 : (!fir.ref<!fir.array<10 x i32>>, !fir.dims<1>)
-                            -> !fir.box<!fir.array<10 x i32>>
+      %6 = fir.embox %5, %4 : (!fir.ref<!fir.array<10 x i32>>, !fir.dims<1>) -> !fir.box<!fir.array<10 x i32>>
+
+    The descriptor tuple may contain additional implementation-specific
+    information through the use of additional attributes.
   }];
 
   let arguments = (ins AnyReferenceLike:$memref, Variadic<AnyEmboxArg>:$args);
@@ -1093,10 +1107,12 @@ def fir_EmboxCharOp : fir_Op<"emboxchar", [NoSideEffect]> {
 
       CHARACTER(LEN=10) :: var
 
-      %4 = ...         : !fir.ref<!fir.array<10:!fir.char<1>>>
+      %4 = ...         : !fir.ref<!fir.array<10 x !fir.char<1>>>
       %5 = constant 10 : i32
-      %6 = fir.emboxchar %4, %5 : (!fir.ref<!fir.array<10:!fir.char<1>>>,
-                                   i32) -> !fir.boxchar<1>
+      %6 = fir.emboxchar %4, %5 : (!fir.ref<!fir.array<10 x !fir.char<1>>>, i32) -> !fir.boxchar<1>
+
+    In the above `%4` is a memory reference to a buffer of 10 CHARACTER units.
+    This buffer and its LEN value (10) are wrapped into a pair in `%6`.
   }];
 
   let assemblyFormat = [{
@@ -1129,6 +1145,7 @@ def fir_EmboxProcOp : fir_Op<"emboxproc", [NoSideEffect]> {
     context's values accordingly, up to and including inhibiting register
     promotion of local values.
 
+      %4 = ... : !fir.ref<tuple<i32, i32>>
       %5 = fir.emboxproc @g, %4 : ((i32) -> i32, !fir.ref<tuple<i32, i32>>) ->
                                   !fir.boxproc<(i32) -> i32>
   }];
@@ -1201,8 +1218,14 @@ def fir_UnboxOp : fir_SimpleOp<"unbox", [NoSideEffect]> {
   let summary = "unbox the boxed value into a tuple value";
 
   let description = [{
-    Unboxes a value of `box` type into a tuple of information abstracted in
-    that boxed value.
+    Unbox a boxed value into a result of multiple values from the box's
+    component data.  The values are, minimally, a reference to the data of the
+    entity, the byte-size of one element, the rank, the type descriptor, a set
+    of flags (packed in an integer, and an array of dimension information (of
+    size rank).
+
+      %40   = ... : !fir.box<!fir.type<T>>
+      %41:6 = fir.unbox %40 : (!fir.box<!fir.type<T>>) -> (!fir.ref<!fir.type<T>>, i32, i32, !fir.tdesc<!fir.type<T>>, i32, !fir.dims<4>)
   }];
 
   let arguments = (ins fir_BoxType:$box);
@@ -1217,25 +1240,31 @@ def fir_UnboxOp : fir_SimpleOp<"unbox", [NoSideEffect]> {
   );
 }
 
-def fir_UnboxCharOp : fir_SimpleOp<"unboxchar", [NoSideEffect]>,
-    Arguments<(ins fir_BoxCharType:$boxchar)>,
-    Results<(outs fir_ReferenceType, AnyIntegerLike)> {
+def fir_UnboxCharOp : fir_SimpleOp<"unboxchar", [NoSideEffect]> {
   let summary = "unbox a boxchar value into a pair value";
 
   let description = [{
     Unboxes a value of `boxchar` type into a pair consisting of a memory
     reference to the CHARACTER data and the LEN type parameter.
+
+      %45   = ... : !fir.boxchar<1>
+      %46:2 = fir.unboxchar %45 : (!fir.boxchar<1>) -> (!fir.ref<!fir.character<1>>, i32)
   }];
+
+  let arguments = (ins fir_BoxCharType:$boxchar);
+
+  let results = (outs fir_ReferenceType, AnyIntegerLike);
 }
 
-def fir_UnboxProcOp : fir_SimpleOp<"unboxproc", [NoSideEffect]>,
-    Arguments<(ins fir_BoxProcType:$boxproc)>,
-    Results<(outs FunctionType, fir_ReferenceType:$refTuple)> {
+def fir_UnboxProcOp : fir_SimpleOp<"unboxproc", [NoSideEffect]> {
   let summary = "unbox a boxproc value into a pair value";
 
   let description = [{
     Unboxes a value of `boxproc` type into a pair consisting of a procedure
     pointer and a pointer to a host context.
+
+      %47   = ... : !fir.boxproc<() -> i32>
+      %48:2 = fir.unboxproc %47 : (!fir.ref<() -> i32>, !fir.ref<tuple<f32, i32>>)
   }];
 
   let verifier = [{
@@ -1244,10 +1273,13 @@ def fir_UnboxProcOp : fir_SimpleOp<"unboxproc", [NoSideEffect]>,
         return mlir::success();
     return emitOpError("second output argument has bad type");
   }];
+
+  let arguments = (ins fir_BoxProcType:$boxproc);
+
+  let results = (outs FunctionType, fir_ReferenceType:$refTuple);
 }
 
 def fir_BoxAddrOp : fir_SimpleOneResultOp<"box_addr", [NoSideEffect]> {
-
   let summary = "return a memory reference to the boxed value";
 
   let description = [{
@@ -1255,6 +1287,10 @@ def fir_BoxAddrOp : fir_SimpleOneResultOp<"box_addr", [NoSideEffect]> {
     `boxchar`, and `boxproc`.  The result for each of these
     cases, respectively, is the address of the data, the address of the
     CHARACTER data, and the address of the procedure.
+
+      %51 = fir.box_addr %box : (!fir.box<f64>) -> !fir.ref<f64>
+      %52 = fir.box_addr %boxchar : (!fir.boxchar<1>) -> !fir.ref<!fir.char<1>>
+      %53 = fir.box_addr %boxproc : (!fir.boxproc<!P>) -> !fir.ref<!P>
   }];
 
   let arguments = (ins fir_BoxType:$val);
@@ -1267,6 +1303,9 @@ def fir_BoxCharLenOp : fir_SimpleOp<"boxchar_len", [NoSideEffect]> {
 
   let description = [{
     Extracts the LEN type parameter from a `boxchar` value.
+
+      %45 = ... : !boxchar<1>  // CHARACTER(20)
+      %59 = fir.boxchar_len %45 : (!fir.boxchar<1>) -> i64  // len=20
   }];
 
   let arguments = (ins fir_BoxCharType:$val);
@@ -1282,6 +1321,12 @@ def fir_BoxDimsOp : fir_Op<"box_dims", [NoSideEffect]> {
     of `val`, which must have a `box` type.  The dimensions are enumerated from
     left to right from 0 to rank-1. This operation has undefined behavior if
     `dim` is out of bounds.
+
+      %c1   = constant 0 : i32
+      %52:3 = fir.box_dims %40, %c1 : (!fir.box<!fir.array<*:f64>>, i32) -> (i32, i32, i32)
+
+    The above is a request to return the left most row (at index 0) triple from
+    the box. The triple will be the lower bound, upper bound, and stride.
   }];
 
   let arguments = (ins fir_BoxType:$val, AnyIntegerLike:$dim);
@@ -1303,6 +1348,12 @@ def fir_BoxEleSizeOp : fir_SimpleOneResultOp<"box_elesize", [NoSideEffect]> {
   let description = [{
     Returns the size of an element in an entity of `box` type.  This size may
     not be known until runtime.
+
+      %53 = fir.box_elesize %40 : (!fir.box<f32>, i32) -> i32  // size=4
+      %54 = fir.box_elesize %40 : (!fir.box<!fir.array<*:f32>>, i32) -> i32
+
+    In the above example, `%53` may box an array of REAL values while `%54`
+    must box an array of REAL values (with dynamic rank and extent).
   }];
 
   let arguments = (ins fir_BoxType:$val);
@@ -1310,57 +1361,80 @@ def fir_BoxEleSizeOp : fir_SimpleOneResultOp<"box_elesize", [NoSideEffect]> {
   let results = (outs AnyIntegerLike);
 }
 
-def fir_BoxIsAllocOp : fir_SimpleOp<"box_isalloc", [NoSideEffect]>,
-    Arguments<(ins fir_BoxType:$val)>,
-    Results<(outs BoolLike)> {
+def fir_BoxIsAllocOp : fir_SimpleOp<"box_isalloc", [NoSideEffect]> {
   let summary = "is the boxed value an ALLOCATABLE?";
 
   let description = [{
-    Determine if the boxed value was from an ALLOCATABLE entity.
+    Determine if the boxed value was from an ALLOCATABLE entity. This will
+    return true if the originating box value was from a `fir.embox` op
+    with a mem-ref value that had the type !fir.heap<T>.
 
-      %ref = ... : !fir.heap<i64>
-      %box = fir.embox %ref : !fir.box<i64>
-      %isheap = fir.box_isalloc %box : i1
+      %r = ... : !fir.heap<i64>
+      %b = fir.embox %r : (!fir.heap<i64>) -> !fir.box<i64>
+      %a = fir.box_isalloc %b : (!fir.box<i64>) -> i1  // true
+
+    The canonical descriptor implementation will carry a flag to record if the
+    variable is an ALLOCATABLE.
   }];
+
+  let arguments = (ins fir_BoxType:$val);
+
+  let results = (outs BoolLike);
 }
 
-def fir_BoxIsArrayOp : fir_SimpleOp<"box_isarray", [NoSideEffect]>,
-    Arguments<(ins fir_BoxType:$val)>,
-    Results<(outs BoolLike)> {
+def fir_BoxIsArrayOp : fir_SimpleOp<"box_isarray", [NoSideEffect]> {
   let summary = "is the boxed value an array?";
 
   let description = [{
-    Determine if the boxed value has a positive (> 0) rank.
+    Determine if the boxed value has a positive (> 0) rank. This will return
+    true if the originating box value was from a fir.embox with a memory
+    reference value that had the type !fir.array<T> and/or a dims argument.
 
-      %ref = ... : !fir.ref<i64>
-      %dims = fir.gendims(1, 100, 1) : !fir.dims<1>
-      %box = fir.embox %ref, %dims : !fir.box<i64>
-      %isarr = fir.box_isarray %box : i1
+      %r = ... : !fir.ref<i64>
+      %d = fir.gendims(1, 100, 1) : (i32, i32, i32) -> !fir.dims<1>
+      %b = fir.embox %r, %d : (!fir.ref<i64>, !fir.dims<1>) -> !fir.box<i64>
+      %a = fir.box_isarray %b : (!fir.box<i64>) -> i1  // true
   }];
+
+  let arguments = (ins fir_BoxType:$val);
+
+  let results = (outs BoolLike);
 }
 
-def fir_BoxIsPtrOp : fir_SimpleOp<"box_isptr", [NoSideEffect]>,
-    Arguments<(ins fir_BoxType:$val)>,
-    Results<(outs BoolLike)> {
+def fir_BoxIsPtrOp : fir_SimpleOp<"box_isptr", [NoSideEffect]> {
   let summary = "is the boxed value a POINTER?";
 
   let description = [{
     Determine if the boxed value was from a POINTER entity.
 
-      %ptr = ... : !fir.ptr<i64>
-      %box = fir.embox %ptr : !fir.box<i64>
-      %isptr = fir.box_isptr %box : i1
+      %p = ... : !fir.ptr<i64>
+      %b = fir.embox %p : (!fir.ptr<i64>) -> !fir.box<i64>
+      %a = fir.box_isptr %b : (!fir.box<i64>) -> i1  // true
   }];
+
+  let arguments = (ins fir_BoxType:$val);
+
+  let results = (outs BoolLike);
 }
 
-def fir_BoxProcHostOp : fir_SimpleOp<"boxproc_host", [NoSideEffect]>,
-    Arguments<(ins fir_BoxProcType:$val)>,
-    Results<(outs fir_ReferenceType)> {
+def fir_BoxProcHostOp : fir_SimpleOp<"boxproc_host", [NoSideEffect]> {
   let summary = "returns the host instance pointer (or null)";
 
   let description = [{
-    Extract the host context pointer from a `boxproc` value.
+    Extract the host context pointer from a boxproc value.
+
+      %8 = ... : !fir.boxproc<(!fir.ref<!fir.type<T>>) -> i32>
+      %9 = fir.boxproc_host %8 : (!fir.boxproc<(!fir.ref<!fir.type<T>>) -> i32>) -> !fir.ref<tuple<i32, i32>>
+
+    In the example, the reference to the closure over the host procedure's
+    variables is returned. This allows an internal procedure to access the
+    host's variables. It is up to lowering to determine the contract between
+    the host and the internal procedure.
   }];
+
+  let arguments = (ins fir_BoxProcType:$val);
+
+  let results = (outs fir_ReferenceType);
 }
 
 def fir_BoxRankOp : fir_SimpleOneResultOp<"box_rank", [NoSideEffect]> {
@@ -1369,6 +1443,13 @@ def fir_BoxRankOp : fir_SimpleOneResultOp<"box_rank", [NoSideEffect]> {
   let description = [{
     Return the rank of a value of `box` type.  If the value is scalar, the
     rank is 0.
+
+      %57 = fir.box_rank %40 : (!fir.box<!fir.array<*:f64>>) -> i32
+      %58 = fir.box_rank %41 : (!fir.box<f64>) -> i32
+
+    The example `%57` shows how one would determine the rank of an array that
+    has deferred rank at runtime. This rank should be at least 1. In %58, the
+    descriptor may be either an array or a scalar, so the value is nonnegative.
   }];
 
   let arguments = (ins fir_BoxType:$val);
@@ -1380,7 +1461,11 @@ def fir_BoxTypeDescOp : fir_SimpleOneResultOp<"box_tdesc", [NoSideEffect]> {
   let summary = "return the type descriptor for the boxed value";
 
   let description = [{
-    Return the opaque type descriptor of a value of `box` type.
+    Return the opaque type descriptor of a value of `box` type. A type
+    descriptor is an implementation defined value that fully describes a type
+    to the Fortran runtime.
+
+      %7 = fir.box_tdesc %41 : (!fir.box<f64>) -> !fir.tdesc<f64>
   }];
 
   let arguments = (ins fir_BoxType:$val);
@@ -1390,15 +1475,31 @@ def fir_BoxTypeDescOp : fir_SimpleOneResultOp<"box_tdesc", [NoSideEffect]> {
 
 // Record and array type operations
 
-def fir_CoordinateOp : fir_Op<"coordinate_of", [NoSideEffect]>,
-    Arguments<(ins AnyRefOrBox:$ref, Variadic<AnyCoordinateType>:$coor)>,
-    Results<(outs fir_ReferenceType)> {
+def fir_CoordinateOp : fir_Op<"coordinate_of", [NoSideEffect]> {
   let summary = "Finds the coordinate (location) of a value in memory";
 
   let description = [{
-    Determine a memory reference given a memory reference of composite type
-    and a list of index values. (This returns the address of a value.)
+    Compute the internal coordinate address starting from a boxed value or
+    unboxed memory reference. Returns a memory reference. When computing the
+    coordinate of an array element, the rank of the array must be known and
+    the number of indexing expressions must equal the rank of the array.
+
+    This operation will apply the access map from a boxed value implicitly.
+
+    Unlike LLVM's GEP instruction, one cannot stride over the outermost
+    reference; therefore, the leading 0 index must be omitted.
+
+      %i = ... : index
+      %h = ... : !fir.heap<!fir.array<?:f32>>
+      %p = fir.coordinate_of %h, %i : (!fir.heap<!fir.array<?:f32>>, index) -> !fir.ref<f32>
+
+    In the example, `%p` will be a pointer to the `%i`-th f32 value in the
+    array `%h`.
   }];
+
+  let arguments = (ins AnyRefOrBox:$ref, Variadic<AnyCoordinateType>:$coor);
+
+  let results = (outs fir_ReferenceType);
 
   let assemblyFormat = [{
     operands attr-dict `:` functional-type(operands, results)
@@ -1418,23 +1519,33 @@ def fir_CoordinateOp : fir_Op<"coordinate_of", [NoSideEffect]>,
   }];
 }
 
-def fir_ExtractValueOp : fir_OneResultOp<"extract_value", [NoSideEffect]>,
-    Arguments<(ins AnyCompositeLike:$adt, Variadic<AnyComponentType>:$coor)> {
+def fir_ExtractValueOp : fir_OneResultOp<"extract_value", [NoSideEffect]> {
   let summary = "Extract a value from an aggregate SSA-value";
 
   let description = [{
-    Extract a subobject value given a value of composite type and a list of
-    index values.
+    Extract a value from an entity with a type composed of tuples, arrays,
+    and/or derived types. Returns the value from entity with the type of the
+    specified component. Cannot be used on values of `!fir.box` type.
+
+    Note that the entity ssa-value must be of compile-time known size in order
+    to use this operation.
+
+      %f = fir.field_index field, !fir.type<X{field:i32}>
+      %s = ... : !fir.type<X>
+      %v = fir.extract_value %s, %f : (!fir.type<X>, !fir.field) -> i32
   }];
+
+  let arguments = (ins
+    AnyCompositeLike:$adt,
+    Variadic<AnyComponentType>:$coor
+  );
 
   let assemblyFormat = [{
     $adt `,` $coor attr-dict `:` functional-type(operands, results)
   }];
 }
 
-def fir_FieldIndexOp : fir_OneResultOp<"field_index", [NoSideEffect]>,
-    Arguments<(ins StrAttr:$field_id, TypeAttr:$on_type,
-               Variadic<AnyIntegerType>:$lenparams)> {
+def fir_FieldIndexOp : fir_OneResultOp<"field_index", [NoSideEffect]> {
   let summary = "create a field index value from a field identifier";
 
   let description = [{
@@ -1444,17 +1555,15 @@ def fir_FieldIndexOp : fir_OneResultOp<"field_index", [NoSideEffect]>,
     these values can be used with the `fir.coordinate_of`, `fir.extract_value`,
     or `fir.insert_value` instructions to compute (abstract) addresses of
     subobjects.
+
+      %f = fir.field_index field, !fir.type<X{field:i32}>
   }];
 
-  let builders = [OpBuilder<
-    "Builder *builder, OperationState &result, StringRef fieldName,"
-    "Type recTy, ArrayRef<Value> operands = {}",
-    [{
-      result.addAttribute(fieldAttrName(), builder->getStringAttr(fieldName));
-      result.addAttribute(typeAttrName(), TypeAttr::get(recTy));
-      result.addOperands(operands);
-    }]
-  >];
+  let arguments = (ins
+    StrAttr:$field_id,
+    TypeAttr:$on_type,
+    Variadic<AnyIntegerType>:$lenparams
+  );
 
   let parser = [{
     llvm::StringRef fieldName;
@@ -1504,6 +1613,16 @@ def fir_FieldIndexOp : fir_OneResultOp<"field_index", [NoSideEffect]>,
     }
   }];
 
+  let builders = [OpBuilder<
+    "Builder *builder, OperationState &result, StringRef fieldName,"
+    "Type recTy, ArrayRef<Value> operands = {}",
+    [{
+      result.addAttribute(fieldAttrName(), builder->getStringAttr(fieldName));
+      result.addAttribute(typeAttrName(), TypeAttr::get(recTy));
+      result.addOperands(operands);
+    }]
+  >];
+
   let extraClassDeclaration = [{
     static constexpr llvm::StringRef fieldAttrName() { return "field_id"; }
     static constexpr llvm::StringRef typeAttrName() { return "on_type"; }
@@ -1520,8 +1639,10 @@ def fir_GenDimsOp : fir_OneResultOp<"gendims", [NoSideEffect]> {
     index, the extent, and the stride for that dimension. The dimension
     information is given in the same row-to-column order as Fortran. This
     abstract dimension value must describe a reified object, so all dimension
-    information must be specified.  The extent must be non-negative and the
+    information must be specified.  The extent must be nonnegative and the
     stride must not be zero.
+
+      %d = fir.gendims %l, %u, %s : (index, index, index) -> !fir.dims<1>
   }];
 
   let arguments = (ins Variadic<AnyIntegerType>:$triples);
@@ -1546,7 +1667,18 @@ def fir_InsertValueOp : fir_OneResultOp<"insert_value", [NoSideEffect]> {
   let summary = "insert a new sub-value into a copy of an existing aggregate";
 
   let description = [{
-    Insert a value into a composite value.
+    Insert a value from an entity with a type composed of tuples, arrays,
+    and/or derived types. Returns a new ssa value with the same type as the
+    original entity. Cannot be used on values of `!fir.box` type.
+
+    Note that the entity ssa-value must be of compile-time known size in order
+    to use this operation.
+
+      %a = ... : !fir.array<10xtuple<i32, f32>>
+      %f = ... : f32
+      %o = ... : i32
+      %c = constant 1 : i32
+      %b = fir.insert_value %a, %f, %o, %c : (!fir.array<10x20xtuple<i32, f32>>, f32, i32, i32) -> !fir.array<10x20xtuple<i32, f32>>
   }];
 
   let arguments = (ins AnyCompositeLike:$adt, AnyType:$val,
@@ -1558,8 +1690,7 @@ def fir_InsertValueOp : fir_OneResultOp<"insert_value", [NoSideEffect]> {
   }];
 }
 
-def fir_LenParamIndexOp : fir_OneResultOp<"len_param_index", [NoSideEffect]>,
-    Arguments<(ins StrAttr:$field_id, TypeAttr:$on_type)> {
+def fir_LenParamIndexOp : fir_OneResultOp<"len_param_index", [NoSideEffect]> {
   let summary =
     "create a field index value from a LEN type parameter identifier";
 
@@ -1568,15 +1699,13 @@ def fir_LenParamIndexOp : fir_OneResultOp<"len_param_index", [NoSideEffect]>,
     The type of a LEN parameter value is `!fir.len` and these values can be
     used with the `fir.coordinate_of` instructions to compute (abstract)
     addresses of LEN parameters.
+
+      %e = fir.len_param_index len1, !fir.type<X(len1:i32)>
+      %p = ... : !fir.box<!fir.type<X>>
+      %q = fir.coordinate_of %p, %e : (!fir.box<!fir.type<X>>, !fir.len) -> !fir.ref<i32>
   }];
 
-  let builders = [OpBuilder<
-    "Builder *builder, OperationState &result, StringRef fieldName, Type recTy",
-    [{
-      result.addAttribute(fieldAttrName(), builder->getStringAttr(fieldName));
-      result.addAttribute(typeAttrName(), TypeAttr::get(recTy));
-    }]
-  >];
+  let arguments = (ins StrAttr:$field_id, TypeAttr:$on_type);
 
   let parser = [{
     llvm::StringRef fieldName;
@@ -1602,6 +1731,14 @@ def fir_LenParamIndexOp : fir_OneResultOp<"len_param_index", [NoSideEffect]>,
       << getAttr(typeAttrName());
   }];
 
+  let builders = [OpBuilder<
+    "Builder *builder, OperationState &result, StringRef fieldName, Type recTy",
+    [{
+      result.addAttribute(fieldAttrName(), builder->getStringAttr(fieldName));
+      result.addAttribute(typeAttrName(), TypeAttr::get(recTy));
+    }]
+  >];
+
   let extraClassDeclaration = [{
     static constexpr llvm::StringRef fieldAttrName() { return "field_id"; }
     static constexpr llvm::StringRef typeAttrName() { return "on_type"; }
@@ -1618,7 +1755,20 @@ def ImplicitFirTerminator : SingleBlockImplicitTerminator<"FirEndOp">;
 def fir_LoopOp : fir_Op<"loop", [ImplicitFirTerminator]> {
   let summary = "generalized loop operation";
   let description = [{
-    A generalized Fortran loop construct.
+    Generalized high-level looping construct. This operation is similar to
+    MLIR's `loop.for`. An ordered loop will return the final value of `%i`.
+
+      %l = constant 0 : index
+      %u = constant 9 : index
+      fir.loop %i = %l to %u unordered {
+        %x = fir.convert %i : (index) -> i32
+        %v = fir.call @compute(%x) : (i32) -> f32
+        %p = fir.coordinate_of %A, %i : (!fir.ref<f32>, index) -> !fir.ref<f32>
+        fir.store %v to %p : !fir.ref<f32>
+      }
+
+    The above example iterates over the interval `[%l, %u]`. The unordered
+    keyword indicates that the iterations can be executed in any order.
   }];
 
   let arguments = (ins
@@ -1719,9 +1869,20 @@ def fir_LoopOp : fir_Op<"loop", [ImplicitFirTerminator]> {
 def fir_WhereOp : fir_Op<"where", [ImplicitFirTerminator]> {
   let summary = "generalized conditional operation";
   let description = [{
-    This is a generalized conditional construct.
+    To conditionally execute operations (typically) within the body of a
+    `fir.loop` operation. This operation is similar to `loop.if`.
+
+      %56 = ... : i1
+      %78 = ... : !fir.ref<!T>
+      fir.where %56 {
+        fir.store %76 to %78 : !fir.ref<!T>
+      } otherwise {
+        fir.store %77 to %78 : !fir.ref<!T>
+      }
   }];
+
   let arguments = (ins I1:$condition);
+
   let regions = (region SizedRegion<1>:$whereRegion, AnyRegion:$otherRegion);
 
   let skipDefaultBuilders = 1;
@@ -1729,6 +1890,7 @@ def fir_WhereOp : fir_Op<"where", [ImplicitFirTerminator]> {
     OpBuilder<"Builder *builder, OperationState &result, "
               "Value cond, bool withOtherRegion">
   ];
+
   let parser = [{ return parseWhereOp(parser, result); }];
 
   let printer = [{
@@ -1773,30 +1935,48 @@ def fir_WhereOp : fir_Op<"where", [ImplicitFirTerminator]> {
 
 // Procedure call operations
 
-def fir_CallOp : fir_Op<"call", []>,
-    Arguments<(ins OptionalAttr<SymbolRefAttr>:$callee,
-               Variadic<AnyType>:$args)>,
-    Results<(outs Variadic<AnyType>)> {
+def fir_CallOp : fir_Op<"call", []> {
   let summary = "call a procedure";
 
   let description = [{
+    Call the specified function or function reference.
+
     Provides a custom parser and pretty printer to allow a more readable syntax
     in the FIR dialect, e.g. `fir.call @sub(%12)` or `fir.call %20(%22,%23)`.
+
+      %a = fir.call %funcref(%arg0) : (!fir.ref<f32>) -> f32
+      %b = fir.call @function(%arg1, %arg2) : (!fir.ref<f32>, !fir.ref<f32>) -> f32    
   }];
+
+  let arguments = (ins
+    OptionalAttr<SymbolRefAttr>:$callee,
+    Variadic<AnyType>:$args
+  );
+
+  let results = (outs Variadic<AnyType>);
 
   let parser = "return parseCallOp(parser, result);";
   let printer = "printCallOp(p, *this);";
 }
 
-def fir_DispatchOp : fir_Op<"dispatch", []>,
-    Arguments<(ins StrAttr:$method, fir_BoxType:$object,
-               Variadic<AnyType>:$args)>,
-    Results<(outs Variadic<AnyType>)> {
+def fir_DispatchOp : fir_Op<"dispatch", []> {
   let summary = "call a type-bound procedure";
 
   let description = [{
-    Dynamic dispatch to the specified method.
+    Perform a dynamic dispatch on the method name via the dispatch table
+    associated with the first argument.  The attribute 'pass_arg_pos' can be
+    used to select a dispatch argument other than the first one.
+
+      %r = fir.dispatch methodA(%o) : (!fir.box<none>) -> i32
   }];
+
+  let arguments = (ins
+    StrAttr:$method,
+    fir_BoxType:$object,
+    Variadic<AnyType>:$args
+  );
+
+  let results = (outs Variadic<AnyType>);
 
   let parser = [{
     mlir::FunctionType calleeType;
@@ -1961,7 +2141,8 @@ def fir_ConstfOp : fir_Op<"constf", [NoSideEffect]>,
   let summary = "create a floating point constant";
 
   let description = [{
-    FIXME
+    A floating-point constant. This operation is to augment MLIR to be able
+    to represent APFloat values that are not supported in the standard dialect.
   }];
 
   let parser = [{
@@ -2051,7 +2232,9 @@ def fir_ConstcOp : fir_Op<"constc", [NoSideEffect]>,
   let summary = "create a complex constant";
 
   let description = [{
-    FIXME
+    A complex constant. Similar to the standard dialect complex type, but this
+    extension allows constants with APFloat values that are not supported in
+    the standard dialect.
   }];
 
   let parser = [{
@@ -2114,23 +2297,26 @@ def fir_DivcOp : ComplexArithmeticOp<"divc">;
 // Pow is a builtin call and not a primitive
 
 def fir_CmpcOp : fir_Op<"cmpc",
-    [NoSideEffect, SameTypeOperands, SameOperandsAndResultShape]>,
-    Arguments<(ins fir_ComplexType:$lhs, fir_ComplexType:$rhs)>,
-    Results<(outs AnyLogicalLike)> {
+    [NoSideEffect, SameTypeOperands, SameOperandsAndResultShape]> {
   let summary = "complex floating-point comparison operator";
 
   let description = [{
     A complex comparison to handle complex types found in FIR.
   }];
 
+  let arguments = (ins fir_ComplexType:$lhs, fir_ComplexType:$rhs);
+
+  let results = (outs AnyLogicalLike);
+
+  let parser = "return fir::parseCmpcOp(parser, result);";
+
+  let printer = "fir::printCmpcOp(p, *this);";
+
   let builders = [OpBuilder<
     "Builder *builder, OperationState &result, CmpFPredicate predicate,"
     "Value lhs, Value rhs", [{
       fir::buildCmpCOp(builder, result, predicate, lhs, rhs);
   }]>];
-
-  let parser = [{ return fir::parseCmpcOp(parser, result); }];
-  let printer = [{ fir::printCmpcOp(p, *this); }];
 
   let extraClassDeclaration = [{
     static constexpr llvm::StringRef getPredicateAttrName() {
@@ -2151,6 +2337,8 @@ def fir_AddrOfOp : fir_OneResultOp<"address_of", [NoSideEffect]> {
   let description = [{
     Convert a symbol (a function or global reference) to an SSA-value to be
     used in other Operations.
+
+      %p = fir.address_of(@symbol) : !fir.ref<f64>
   }];
 
   let arguments = (ins SymbolRefAttr:$symbol);
@@ -2178,7 +2366,14 @@ def fir_AddrOfOp : fir_OneResultOp<"address_of", [NoSideEffect]> {
 def fir_ConvertOp : fir_OneResultOp<"convert", [NoSideEffect]> {
   let summary = "encapsulates all Fortran scalar type conversions";
   let description = [{
-    Generalized type conversion. Not all pairs of types have conversions.
+    Generalized type conversion. Convert the ssa value from type T to type U.
+    Not all pairs of types have conversions. When types T and U are the same
+    type, this instruction is a NOP and may be folded away.
+
+      %v = ... : i64
+      %w = fir.convert %v : (i64) -> i32
+
+    The example truncates the value `%v` from an i64 to an i32.
   }];
 
   let arguments = (ins AnyType:$value);
@@ -2207,24 +2402,12 @@ def fir_GenTypeDescOp : fir_OneResultOp<"gentypedesc", [NoSideEffect]> {
     Generates a constant object that is an abstract type descriptor of the
     specified type.  The meta-type of a type descriptor for the type `T`
     is `!fir.tdesc<T>`.
+
+      !T = type !fir.type<T{...}>
+      %t = fir.gentypedesc !T  // returns value of !fir.tdesc<!T>
   }];
 
   let arguments = (ins FortranTypeAttr:$in_type);
-
-  let verifier = [{
-    mlir::Type resultTy = getType();
-    if (auto tdesc = resultTy.dyn_cast<TypeDescType>()) {
-      if (tdesc.getOfTy() != getInType())
-        return emitOpError("wrapped type mismatched");
-    } else {
-      return emitOpError("must be !fir.tdesc type");
-    }
-    return mlir::success();
-  }];
-
-  let builders = [
-    OpBuilder<"Builder *, OperationState &result, mlir::TypeAttr inty">
-  ];
 
   let parser = [{
     mlir::Type intype;
@@ -2240,6 +2423,21 @@ def fir_GenTypeDescOp : fir_OneResultOp<"gentypedesc", [NoSideEffect]> {
   let printer = [{
     p << getOperationName() << ' ' << getAttr("in_type");
     p.printOptionalAttrDict(getAttrs(), {"in_type"});
+  }];
+
+  let builders = [
+    OpBuilder<"Builder *, OperationState &result, mlir::TypeAttr inty">
+  ];
+
+  let verifier = [{
+    mlir::Type resultTy = getType();
+    if (auto tdesc = resultTy.dyn_cast<TypeDescType>()) {
+      if (tdesc.getOfTy() != getInType())
+        return emitOpError("wrapped type mismatched");
+    } else {
+      return emitOpError("must be !fir.tdesc type");
+    }
+    return mlir::success();
   }];
 
   let extraClassDeclaration = [{
@@ -2460,6 +2658,11 @@ def fir_DispatchTableOp : fir_Op<"dispatch_table", [IsolatedFromAbove, Symbol,
     between method identifiers and corresponding `FuncOp` symbols.
 
     The ordering of associations in the map is determined by the front-end.
+
+      fir.dispatch_table @_QDTMquuzTfoo {
+        fir.dt_entry method1, @_QFNMquuzTfooPmethod1AfooR
+        fir.dt_entry method2, @_QFNMquuzTfooPmethod2AfooII
+      }
   }];
 
   let parser = [{
@@ -2538,7 +2741,7 @@ def fir_DTEntryOp : fir_Op<"dt_entry", []> {
     and uses the method identifier to select the type-bound procedure to
     be called.
 
-      fir.entry method_name, @uniquedProcedure
+      fir.dt_entry method_name, @uniquedProcedure
   }];
 
   let arguments = (ins StrAttr:$method, SymbolRefAttr:$proc);
