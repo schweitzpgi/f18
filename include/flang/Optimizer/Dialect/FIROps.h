@@ -1,4 +1,4 @@
-//===-- optimizer/Dialect/FIROps.h - FIR operations -------------*- C++ -*-===//
+//===-- Optimizer/Dialect/FIROps.h - FIR operations -------------*- C++ -*-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -63,7 +63,7 @@ ParseResult parseCmpfOp(OpAsmParser &parser, OperationState &result);
 ParseResult parseCmpcOp(OpAsmParser &parser, OperationState &result);
 
 #define GET_OP_CLASSES
-#include "flang/optimizer/Dialect/FIROps.h.inc"
+#include "flang/Optimizer/Dialect/FIROps.h.inc"
 
 LoopOp getForInductionVarOwner(Value val);
 

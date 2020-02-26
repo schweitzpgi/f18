@@ -6,9 +6,9 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "flang/optimizer/Dialect/FIRDialect.h"
-#include "flang/optimizer/Dialect/FIROps.h"
-#include "flang/optimizer/Transforms/Passes.h"
+#include "flang/Optimizer/Dialect/FIRDialect.h"
+#include "flang/Optimizer/Dialect/FIROps.h"
+#include "flang/Optimizer/Transforms/Passes.h"
 #include "mlir/Dialect/AffineOps/AffineOps.h"
 #include "mlir/Dialect/LoopOps/LoopOps.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
