@@ -968,8 +968,10 @@ def fir_EmboxOp : fir_Op<"embox", [NoSideEffect]> {
       %c10 = constant 10 : index
       %4 = fir.dims(%c1, %c10, %c1) : (index, index, index) -> !fir.dims<1>
       %5 = ... : !fir.ref<!fir.array<10 x i32>>
-      %6 = fir.embox %5, %4 : (!fir.ref<!fir.array<10 x i32>>, !fir.dims<1>)
-                            -> !fir.box<!fir.array<10 x i32>>
+      %6 = fir.embox %5, %4 : (!fir.ref<!fir.array<10 x i32>>, !fir.dims<1>) -> !fir.box<!fir.array<10 x i32>>
+
+    The descriptor tuple may contain additional implementation-specific
+    information through the use of additional attributes.
   }];
 
   let arguments = (ins AnyReferenceLike:$memref, Variadic<AnyEmboxArg>:$args);
@@ -1093,10 +1095,12 @@ def fir_EmboxCharOp : fir_Op<"emboxchar", [NoSideEffect]> {
 
       CHARACTER(LEN=10) :: var
 
-      %4 = ...         : !fir.ref<!fir.array<10:!fir.char<1>>>
+      %4 = ...         : !fir.ref<!fir.array<10 x !fir.char<1>>>
       %5 = constant 10 : i32
-      %6 = fir.emboxchar %4, %5 : (!fir.ref<!fir.array<10:!fir.char<1>>>,
-                                   i32) -> !fir.boxchar<1>
+      %6 = fir.emboxchar %4, %5 : (!fir.ref<!fir.array<10 x !fir.char<1>>>, i32) -> !fir.boxchar<1>
+
+    In the above `%4` is a memory reference to a buffer of 10 CHARACTER units.
+    This buffer and its LEN value (10) are wrapped into a pair in `%6`.
   }];
 
   let assemblyFormat = [{
@@ -1201,8 +1205,14 @@ def fir_UnboxOp : fir_SimpleOp<"unbox", [NoSideEffect]> {
   let summary = "unbox the boxed value into a tuple value";
 
   let description = [{
-    Unboxes a value of `box` type into a tuple of information abstracted in
-    that boxed value.
+    Unbox a boxed value into a result of multiple values from the box's
+    component data.  The values are, minimally, a reference to the data of the
+    entity, the byte-size of one element, the rank, the type descriptor, a set
+    of flags (packed in an integer, and an array of dimension information (of
+    size rank).
+
+      %40   = ... : !fir.box<!fir.type<T>>
+      %41:6 = fir.unbox %40 : (!fir.box<!fir.type<T>>) -> (!fir.ref<!fir.type<T>>, i32, i32, !fir.tdesc<!fir.type<T>>, i32, !fir.dims<4>)
   }];
 
   let arguments = (ins fir_BoxType:$box);
@@ -1217,25 +1227,31 @@ def fir_UnboxOp : fir_SimpleOp<"unbox", [NoSideEffect]> {
   );
 }
 
-def fir_UnboxCharOp : fir_SimpleOp<"unboxchar", [NoSideEffect]>,
-    Arguments<(ins fir_BoxCharType:$boxchar)>,
-    Results<(outs fir_ReferenceType, AnyIntegerLike)> {
+def fir_UnboxCharOp : fir_SimpleOp<"unboxchar", [NoSideEffect]> {
   let summary = "unbox a boxchar value into a pair value";
 
   let description = [{
     Unboxes a value of `boxchar` type into a pair consisting of a memory
     reference to the CHARACTER data and the LEN type parameter.
+
+      %45   = ... : !fir.boxchar<1>
+      %46:2 = fir.unboxchar %45 : (!fir.boxchar<1>) -> (!fir.ref<!fir.character<1>>, i32)
   }];
+
+  let arguments = (ins fir_BoxCharType:$boxchar);
+
+  let results = (outs fir_ReferenceType, AnyIntegerLike);
 }
 
-def fir_UnboxProcOp : fir_SimpleOp<"unboxproc", [NoSideEffect]>,
-    Arguments<(ins fir_BoxProcType:$boxproc)>,
-    Results<(outs FunctionType, fir_ReferenceType:$refTuple)> {
+def fir_UnboxProcOp : fir_SimpleOp<"unboxproc", [NoSideEffect]> {
   let summary = "unbox a boxproc value into a pair value";
 
   let description = [{
     Unboxes a value of `boxproc` type into a pair consisting of a procedure
     pointer and a pointer to a host context.
+
+      %47   = ... : !fir.boxproc<() -> i32>
+      %48:2 = fir.unboxproc %47 : (!fir.ref<() -> i32>, !fir.ref<tuple<f32, i32>>)
   }];
 
   let verifier = [{
@@ -1244,10 +1260,13 @@ def fir_UnboxProcOp : fir_SimpleOp<"unboxproc", [NoSideEffect]>,
         return mlir::success();
     return emitOpError("second output argument has bad type");
   }];
+
+  let arguments = (ins fir_BoxProcType:$boxproc);
+
+  let results = (outs FunctionType, fir_ReferenceType:$refTuple);
 }
 
 def fir_BoxAddrOp : fir_SimpleOneResultOp<"box_addr", [NoSideEffect]> {
-
   let summary = "return a memory reference to the boxed value";
 
   let description = [{
@@ -1255,6 +1274,10 @@ def fir_BoxAddrOp : fir_SimpleOneResultOp<"box_addr", [NoSideEffect]> {
     `boxchar`, and `boxproc`.  The result for each of these
     cases, respectively, is the address of the data, the address of the
     CHARACTER data, and the address of the procedure.
+
+      %51 = fir.box_addr %box     : (!fir.box<f64>) -> !fir.ref<f64>
+      %52 = fir.box_addr %boxchar : (!fir.boxchar<1>) -> !fir.ref<!fir.char<1>>
+      %53 = fir.box_addr %boxproc : (!fir.boxproc<!P>) -> !fir.ref<!P>
   }];
 
   let arguments = (ins fir_BoxType:$val);
@@ -1267,6 +1290,8 @@ def fir_BoxCharLenOp : fir_SimpleOp<"boxchar_len", [NoSideEffect]> {
 
   let description = [{
     Extracts the LEN type parameter from a `boxchar` value.
+
+      %59 = fir.boxchar_len %45 : (!fir.boxchar<1>) -> i64
   }];
 
   let arguments = (ins fir_BoxCharType:$val);
@@ -1282,6 +1307,9 @@ def fir_BoxDimsOp : fir_Op<"box_dims", [NoSideEffect]> {
     of `val`, which must have a `box` type.  The dimensions are enumerated from
     left to right from 0 to rank-1. This operation has undefined behavior if
     `dim` is out of bounds.
+
+      %c1 = constant 0 : i32
+      %52 = fir.box_dims %40, %c1 : (!fir.box<!fir.array<*:f64>>, i32) -> (i32, i32, i32)
   }];
 
   let arguments = (ins fir_BoxType:$val, AnyIntegerLike:$dim);
@@ -1303,6 +1331,12 @@ def fir_BoxEleSizeOp : fir_SimpleOneResultOp<"box_elesize", [NoSideEffect]> {
   let description = [{
     Returns the size of an element in an entity of `box` type.  This size may
     not be known until runtime.
+
+      %53 = fir.box_elesize %40 : (!fir.box<f32>, i32) -> i32
+      %54 = fir.box_elesize %40 : (!fir.box<!fir.array<*:f32>>, i32) -> i32
+
+    In the above example, `%53` may box an array of REAL values while `%54`
+    must box an array of REAL values (with dynamic rank and extent).
   }];
 
   let arguments = (ins fir_BoxType:$val);
@@ -1310,33 +1344,44 @@ def fir_BoxEleSizeOp : fir_SimpleOneResultOp<"box_elesize", [NoSideEffect]> {
   let results = (outs AnyIntegerLike);
 }
 
-def fir_BoxIsAllocOp : fir_SimpleOp<"box_isalloc", [NoSideEffect]>,
-    Arguments<(ins fir_BoxType:$val)>,
-    Results<(outs BoolLike)> {
+def fir_BoxIsAllocOp : fir_SimpleOp<"box_isalloc", [NoSideEffect]> {
   let summary = "is the boxed value an ALLOCATABLE?";
 
   let description = [{
-    Determine if the boxed value was from an ALLOCATABLE entity.
+    Determine if the boxed value was from an ALLOCATABLE entity. This will
+    return true if the originating box value was from a `fir.embox` op
+    with a mem-ref value that had the type !fir.heap<T>.
 
-      %ref = ... : !fir.heap<i64>
-      %box = fir.embox %ref : !fir.box<i64>
-      %isheap = fir.box_isalloc %box : i1
+      %r = ... : !fir.heap<i64>
+      %b = fir.embox %r : (!fir.heap<i64>) -> !fir.box<i64>
+      %a = fir.box_isalloc %b : (!fir.box<i64>) -> i1  // true
+
+    The canonical descriptor implementation will carry a flag to record if the
+    variable is an ALLOCATABLE.
   }];
+
+  let arguments = (ins fir_BoxType:$val);
+
+  let results = (outs BoolLike);
 }
 
-def fir_BoxIsArrayOp : fir_SimpleOp<"box_isarray", [NoSideEffect]>,
-    Arguments<(ins fir_BoxType:$val)>,
-    Results<(outs BoolLike)> {
+def fir_BoxIsArrayOp : fir_SimpleOp<"box_isarray", [NoSideEffect]> {
   let summary = "is the boxed value an array?";
 
   let description = [{
-    Determine if the boxed value has a positive (> 0) rank.
+    Determine if the boxed value has a positive (> 0) rank. This will return
+    true if the originating box value was from a fir.embox with a memory
+    reference value that had the type !fir.array<T> and/or a dims argument.
 
-      %ref = ... : !fir.ref<i64>
-      %dims = fir.gendims(1, 100, 1) : !fir.dims<1>
-      %box = fir.embox %ref, %dims : !fir.box<i64>
-      %isarr = fir.box_isarray %box : i1
+      %r = ... : !fir.ref<i64>
+      %d = fir.gendims(1, 100, 1) : (i32, i32, i32) -> !fir.dims<1>
+      %b = fir.embox %r, %d : (!fir.ref<i64>, !fir.dims<1>) -> !fir.box<i64>
+      %a = fir.box_isarray %b : (!fir.box<i64>) -> i1
   }];
+
+  let arguments = (ins fir_BoxType:$val);
+
+  let results = (outs BoolLike);
 }
 
 def fir_BoxIsPtrOp : fir_SimpleOp<"box_isptr", [NoSideEffect]>,
