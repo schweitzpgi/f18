@@ -1545,9 +1545,7 @@ def fir_ExtractValueOp : fir_OneResultOp<"extract_value", [NoSideEffect]> {
   }];
 }
 
-def fir_FieldIndexOp : fir_OneResultOp<"field_index", [NoSideEffect]>,
-    Arguments<(ins StrAttr:$field_id, TypeAttr:$on_type,
-               Variadic<AnyIntegerType>:$lenparams)> {
+def fir_FieldIndexOp : fir_OneResultOp<"field_index", [NoSideEffect]> {
   let summary = "create a field index value from a field identifier";
 
   let description = [{
@@ -1560,6 +1558,12 @@ def fir_FieldIndexOp : fir_OneResultOp<"field_index", [NoSideEffect]>,
 
       %f = fir.field_index field, !fir.type<X{field:i32}>
   }];
+
+  let arguments = (ins
+    StrAttr:$field_id,
+    TypeAttr:$on_type,
+    Variadic<AnyIntegerType>:$lenparams
+  );
 
   let parser = [{
     llvm::StringRef fieldName;
@@ -2293,23 +2297,26 @@ def fir_DivcOp : ComplexArithmeticOp<"divc">;
 // Pow is a builtin call and not a primitive
 
 def fir_CmpcOp : fir_Op<"cmpc",
-    [NoSideEffect, SameTypeOperands, SameOperandsAndResultShape]>,
-    Arguments<(ins fir_ComplexType:$lhs, fir_ComplexType:$rhs)>,
-    Results<(outs AnyLogicalLike)> {
+    [NoSideEffect, SameTypeOperands, SameOperandsAndResultShape]> {
   let summary = "complex floating-point comparison operator";
 
   let description = [{
     A complex comparison to handle complex types found in FIR.
   }];
 
+  let arguments = (ins fir_ComplexType:$lhs, fir_ComplexType:$rhs);
+
+  let results = (outs AnyLogicalLike);
+
+  let parser = "return fir::parseCmpcOp(parser, result);";
+
+  let printer = "fir::printCmpcOp(p, *this);";
+
   let builders = [OpBuilder<
     "Builder *builder, OperationState &result, CmpFPredicate predicate,"
     "Value lhs, Value rhs", [{
       fir::buildCmpCOp(builder, result, predicate, lhs, rhs);
   }]>];
-
-  let parser = [{ return fir::parseCmpcOp(parser, result); }];
-  let printer = [{ fir::printCmpcOp(p, *this); }];
 
   let extraClassDeclaration = [{
     static constexpr llvm::StringRef getPredicateAttrName() {
