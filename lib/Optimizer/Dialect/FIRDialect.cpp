@@ -6,10 +6,10 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "flang/optimizer/Dialect/FIRDialect.h"
-#include "flang/optimizer/Dialect/FIRAttr.h"
-#include "flang/optimizer/Dialect/FIROps.h"
-#include "flang/optimizer/Dialect/FIRType.h"
+#include "flang/Optimizer/Dialect/FIRDialect.h"
+#include "flang/Optimizer/Dialect/FIRAttr.h"
+#include "flang/Optimizer/Dialect/FIROps.h"
+#include "flang/Optimizer/Dialect/FIRType.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/IR/StandardTypes.h"
 #include "mlir/Transforms/SideEffectsInterface.h"

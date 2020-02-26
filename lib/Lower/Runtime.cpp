@@ -6,9 +6,9 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "flang/lower/Runtime.h"
-#include "flang/lower/OpBuilder.h"
-#include "flang/optimizer/Dialect/FIRType.h"
+#include "flang/Lower/Runtime.h"
+#include "flang/Lower/OpBuilder.h"
+#include "flang/Optimizer/Dialect/FIRType.h"
 #include "mlir/IR/StandardTypes.h"
 #include "mlir/IR/Types.h"
 #include "llvm/ADT/SmallVector.h"

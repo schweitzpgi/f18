@@ -11,12 +11,12 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "flang/optimizer/CodeGen/CodeGen.h"
-#include "flang/optimizer/Dialect/FIRDialect.h"
-#include "flang/optimizer/Support/InternalNames.h"
-#include "flang/optimizer/Support/KindMapping.h"
-#include "flang/optimizer/Transforms/Passes.h"
-#include "flang/optimizer/Transforms/StdConverter.h"
+#include "flang/Optimizer/CodeGen/CodeGen.h"
+#include "flang/Optimizer/Dialect/FIRDialect.h"
+#include "flang/Optimizer/Support/InternalNames.h"
+#include "flang/Optimizer/Support/KindMapping.h"
+#include "flang/Optimizer/Transforms/Passes.h"
+#include "flang/Optimizer/Transforms/StdConverter.h"
 #include "mlir/Conversion/LoopToStandard/ConvertLoopToStandard.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/Module.h"

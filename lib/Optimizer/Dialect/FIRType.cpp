@@ -6,8 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "flang/optimizer/Dialect/FIRType.h"
-#include "flang/optimizer/Dialect/FIRDialect.h"
+#include "flang/Optimizer/Dialect/FIRType.h"
+#include "flang/Optimizer/Dialect/FIRDialect.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/Dialect.h"

@@ -6,11 +6,11 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "flang/lower/Mangler.h"
-#include "flang/common/reference.h"
-#include "flang/lower/Utils.h"
-#include "flang/optimizer/Support/InternalNames.h"
-#include "flang/semantics/tools.h"
+#include "flang/Lower/Mangler.h"
+#include "flang/Common/reference.h"
+#include "flang/Lower/Utils.h"
+#include "flang/Optimizer/Support/InternalNames.h"
+#include "flang/Semantics/tools.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/Optional.h"
 #include "llvm/ADT/SmallVector.h"

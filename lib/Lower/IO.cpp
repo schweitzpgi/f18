@@ -6,15 +6,15 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "flang/lower/IO.h"
+#include "flang/Lower/IO.h"
 #include "../../runtime/io-api.h"
 #include "RTBuilder.h"
-#include "flang/lower/Bridge.h"
-#include "flang/lower/OpBuilder.h"
-#include "flang/lower/Runtime.h"
-#include "flang/optimizer/Dialect/FIROps.h"
-#include "flang/parser/parse-tree.h"
-#include "flang/semantics/tools.h"
+#include "flang/Lower/Bridge.h"
+#include "flang/Lower/OpBuilder.h"
+#include "flang/Lower/Runtime.h"
+#include "flang/Optimizer/Dialect/FIROps.h"
+#include "flang/Parser/parse-tree.h"
+#include "flang/Semantics/tools.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/Builders.h"
 
