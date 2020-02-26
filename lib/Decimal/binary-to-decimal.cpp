@@ -335,7 +335,7 @@ template void BigRadixFloatingPointNumber<11,16>::LoseLeastSignificantDigit();
 template void BigRadixFloatingPointNumber<24,16>::LoseLeastSignificantDigit();
 template void BigRadixFloatingPointNumber<53,16>::LoseLeastSignificantDigit();
 template void BigRadixFloatingPointNumber<64,16>::LoseLeastSignificantDigit();
-template void BigRadixFloatingPointNumber<112,16>::LoseLeastSignificantDigit();
+template void BigRadixFloatingPointNumber<113,16>::LoseLeastSignificantDigit();
 
 template<int PREC>
 ConversionToDecimalResult ConvertToDecimal(char *buffer, std::size_t size,
