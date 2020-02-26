@@ -1,4 +1,4 @@
-//===-- lib/lower/bridge.h --------------------------------------*- C++ -*-===//
+//===-- Lower/Bridge.h -- main interface to lowering ------------*- C++ -*-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -17,7 +17,7 @@
 #ifndef FORTRAN_LOWER_BRIDGE_H_
 #define FORTRAN_LOWER_BRIDGE_H_
 
-#include "flang/common/Fortran.h"
+#include "flang/Common/Fortran.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/Module.h"
 #include <memory>

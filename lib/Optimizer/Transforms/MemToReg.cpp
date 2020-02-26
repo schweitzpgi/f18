@@ -6,10 +6,10 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "flang/optimizer/Analysis/IteratedDominanceFrontier.h"
-#include "flang/optimizer/Dialect/FIRDialect.h"
-#include "flang/optimizer/Dialect/FIROps.h"
-#include "flang/optimizer/Transforms/Passes.h"
+#include "flang/Optimizer/Analysis/IteratedDominanceFrontier.h"
+#include "flang/Optimizer/Dialect/FIRDialect.h"
+#include "flang/Optimizer/Dialect/FIROps.h"
+#include "flang/Optimizer/Transforms/Passes.h"
 #include "mlir/Analysis/Dominance.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/Pass/Pass.h"
