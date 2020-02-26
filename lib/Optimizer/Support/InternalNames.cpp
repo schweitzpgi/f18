@@ -6,7 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "flang/optimizer/Support/InternalNames.h"
+#include "flang/Optimizer/Support/InternalNames.h"
 #include "mlir/IR/Diagnostics.h"
 #include "llvm/ADT/Optional.h"
 #include "llvm/ADT/Twine.h"

@@ -17,8 +17,8 @@
 #ifndef FORTRAN_LOWER_RT_BUILDER_H_
 #define FORTRAN_LOWER_RT_BUILDER_H_
 
-#include "flang/lower/ConvertType.h"
-#include "flang/optimizer/Dialect/FIRType.h"
+#include "flang/Lower/ConvertType.h"
+#include "flang/Optimizer/Dialect/FIRType.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/StandardTypes.h"
 #include "llvm/ADT/SmallVector.h"
