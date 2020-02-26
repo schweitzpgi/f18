@@ -6,12 +6,12 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "flang/lower/Intrinsics.h"
-#include "flang/lower/ConvertType.h"
-#include "flang/lower/OpBuilder.h"
-#include "flang/lower/Runtime.h"
-#include "flang/optimizer/Dialect/FIROps.h"
-#include "flang/optimizer/Dialect/FIRType.h"
+#include "flang/Lower/Intrinsics.h"
+#include "flang/Lower/ConvertType.h"
+#include "flang/Lower/OpBuilder.h"
+#include "flang/Lower/Runtime.h"
+#include "flang/Optimizer/Dialect/FIROps.h"
+#include "flang/Optimizer/Dialect/FIRType.h"
 #include "llvm/ADT/Optional.h"
 #include "llvm/ADT/Twine.h"
 #include <algorithm>

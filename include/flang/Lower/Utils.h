@@ -1,4 +1,4 @@
-//===-- lib/lower/utils.h ---------------------------------------*- C++ -*-===//
+//===-- Lower/Utils.h -- utilities ------------------------------*- C++ -*-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -9,7 +9,7 @@
 #ifndef FORTRAN_LOWER_UTILS_H
 #define FORTRAN_LOWER_UTILS_H
 
-#include "flang/parser/char-block.h"
+#include "flang/Parser/char-block.h"
 #include "llvm/ADT/StringRef.h"
 
 /// Convert an F18 CharBlock to an LLVM StringRef
