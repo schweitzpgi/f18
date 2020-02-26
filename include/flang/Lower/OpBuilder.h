@@ -1,4 +1,4 @@
-//===-- lib/lower/builder.h -------------------------------------*- C++ -*-===//
+//===-- Lower/OpBuilder.h -- operation builder ------------------*- C++ -*-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -9,7 +9,7 @@
 #ifndef FORTRAN_LOWER_BUILDER_H_
 #define FORTRAN_LOWER_BUILDER_H_
 
-#include "flang/semantics/symbol.h"
+#include "flang/Semantics/symbol.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Function.h"
 #include "mlir/IR/Module.h"

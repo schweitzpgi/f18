@@ -10,7 +10,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "flang/optimizer/Analysis/IteratedDominanceFrontier.h"
+#include "flang/Optimizer/Analysis/IteratedDominanceFrontier.h"
 #include "mlir/Analysis/Dominance.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallPtrSet.h"
