@@ -6,14 +6,14 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "flang/lower/ConvertType.h"
+#include "flang/Lower/ConvertType.h"
 #include "../../runtime/io-api.h"
-#include "flang/lower/Bridge.h"
-#include "flang/lower/Utils.h"
-#include "flang/optimizer/Dialect/FIRType.h"
-#include "flang/semantics/expression.h"
-#include "flang/semantics/tools.h"
-#include "flang/semantics/type.h"
+#include "flang/Lower/Bridge.h"
+#include "flang/Lower/Utils.h"
+#include "flang/Optimizer/Dialect/FIRType.h"
+#include "flang/Semantics/expression.h"
+#include "flang/Semantics/tools.h"
+#include "flang/Semantics/type.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Location.h"
 #include "mlir/IR/MLIRContext.h"

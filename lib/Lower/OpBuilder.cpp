@@ -6,11 +6,11 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "flang/lower/OpBuilder.h"
-#include "flang/lower/Bridge.h"
-#include "flang/lower/ConvertType.h"
-#include "flang/optimizer/Dialect/FIROpsSupport.h"
-#include "flang/optimizer/Dialect/FIRType.h"
+#include "flang/Lower/OpBuilder.h"
+#include "flang/Lower/Bridge.h"
+#include "flang/Lower/ConvertType.h"
+#include "flang/Optimizer/Dialect/FIROpsSupport.h"
+#include "flang/Optimizer/Dialect/FIRType.h"
 #include "mlir/IR/Module.h"
 #include "mlir/IR/Value.h"
 #include "llvm/ADT/StringRef.h"
