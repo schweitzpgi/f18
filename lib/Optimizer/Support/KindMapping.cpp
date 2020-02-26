@@ -6,7 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "flang/optimizer/Support/KindMapping.h"
+#include "flang/Optimizer/Support/KindMapping.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "llvm/ADT/Optional.h"
 #include "llvm/Support/CommandLine.h"

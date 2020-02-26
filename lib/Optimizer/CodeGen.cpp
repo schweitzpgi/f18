@@ -6,13 +6,13 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "flang/optimizer/CodeGen/CodeGen.h"
-#include "flang/optimizer/Dialect/FIRAttr.h"
-#include "flang/optimizer/Dialect/FIRDialect.h"
-#include "flang/optimizer/Dialect/FIROps.h"
-#include "flang/optimizer/Dialect/FIRType.h"
-#include "flang/optimizer/Support/InternalNames.h"
-#include "flang/optimizer/Support/KindMapping.h"
+#include "flang/Optimizer/CodeGen/CodeGen.h"
+#include "flang/Optimizer/Dialect/FIRAttr.h"
+#include "flang/Optimizer/Dialect/FIRDialect.h"
+#include "flang/Optimizer/Dialect/FIROps.h"
+#include "flang/Optimizer/Dialect/FIRType.h"
+#include "flang/Optimizer/Support/InternalNames.h"
+#include "flang/Optimizer/Support/KindMapping.h"
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVM.h"
 #include "mlir/Conversion/StandardToLLVM/ConvertStandardToLLVMPass.h"
 #include "mlir/Dialect/AffineOps/AffineOps.h"

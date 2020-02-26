@@ -6,12 +6,12 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "flang/optimizer/Transforms/StdConverter.h"
-#include "flang/optimizer/Dialect/FIRAttr.h"
-#include "flang/optimizer/Dialect/FIRDialect.h"
-#include "flang/optimizer/Dialect/FIROpsSupport.h"
-#include "flang/optimizer/Dialect/FIRType.h"
-#include "flang/optimizer/Support/KindMapping.h"
+#include "flang/Optimizer/Transforms/StdConverter.h"
+#include "flang/Optimizer/Dialect/FIRAttr.h"
+#include "flang/Optimizer/Dialect/FIRDialect.h"
+#include "flang/Optimizer/Dialect/FIROpsSupport.h"
+#include "flang/Optimizer/Dialect/FIRType.h"
+#include "flang/Optimizer/Support/KindMapping.h"
 #include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/StandardTypes.h"

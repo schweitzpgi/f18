@@ -1,4 +1,4 @@
-//===-- lib/lower/convert-type.h --------------------------------*- C++ -*-===//
+//===-- Lower/ConvertType.h -- lowering of types ----------------*- C++ -*-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -17,7 +17,7 @@
 ///
 /// [Coding style](https://llvm.org/docs/CodingStandards.html)
 
-#include "flang/common/Fortran.h"
+#include "flang/Common/Fortran.h"
 #include "mlir/IR/Types.h"
 
 namespace mlir {

@@ -6,10 +6,10 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "flang/optimizer/Dialect/FIROps.h"
-#include "flang/optimizer/Dialect/FIRAttr.h"
-#include "flang/optimizer/Dialect/FIROpsSupport.h"
-#include "flang/optimizer/Dialect/FIRType.h"
+#include "flang/Optimizer/Dialect/FIROps.h"
+#include "flang/Optimizer/Dialect/FIRAttr.h"
+#include "flang/Optimizer/Dialect/FIROpsSupport.h"
+#include "flang/Optimizer/Dialect/FIRType.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/Function.h"
@@ -568,6 +568,6 @@ GlobalOp createGlobalOp(mlir::Location loc, mlir::ModuleOp module,
 // Tablegen operators
 
 #define GET_OP_CLASSES
-#include "flang/optimizer/Dialect/FIROps.cpp.inc"
+#include "flang/Optimizer/Dialect/FIROps.cpp.inc"
 
 } // namespace fir
