@@ -1,4 +1,4 @@
-//===-- optimizer/Dialect/FIROpsSupport.h -- FIR op support -----*- C++ -*-===//
+//===-- Optimizer/Dialect/FIROpsSupport.h -- FIR op support -----*- C++ -*-===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -9,7 +9,7 @@
 #ifndef OPTIMIZER_DIALECT_FIROPSSUPPORT_H
 #define OPTIMIZER_DIALECT_FIROPSSUPPORT_H
 
-#include "flang/optimizer/Dialect/FIROps.h"
+#include "flang/Optimizer/Dialect/FIROps.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 
 namespace fir {
