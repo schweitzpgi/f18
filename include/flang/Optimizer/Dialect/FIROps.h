@@ -63,7 +63,7 @@ ParseResult parseCmpfOp(OpAsmParser &parser, OperationState &result);
 ParseResult parseCmpcOp(OpAsmParser &parser, OperationState &result);
 
 #define GET_OP_CLASSES
-#include "flang/optimizer/Dialect/FIROps.h.inc"
+#include "flang/Optimizer/Dialect/FIROps.h.inc"
 
 LoopOp getForInductionVarOwner(Value val);
 

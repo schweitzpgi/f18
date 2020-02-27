@@ -568,6 +568,6 @@ GlobalOp createGlobalOp(mlir::Location loc, mlir::ModuleOp module,
 // Tablegen operators
 
 #define GET_OP_CLASSES
-#include "flang/optimizer/Dialect/FIROps.cpp.inc"
+#include "flang/Optimizer/Dialect/FIROps.cpp.inc"
 
 } // namespace fir
