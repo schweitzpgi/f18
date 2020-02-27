@@ -1,4 +1,8 @@
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-error -Wno-unused-parameter")
+if ((CMAKE_CXX_COMPILER_ID MATCHES "Clang"))
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-unused-private-field")
+endif()
+
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-unused-parameter -Wno-error")
 
 add_subdirectory(Dialect)
 add_subdirectory(Support)

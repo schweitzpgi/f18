@@ -174,8 +174,9 @@ struct RuntimeTableKey<RT(ATs...)> {
 
 #if defined(__clang__)
 #pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wgcc-extension"
+#pragma clang diagnostic ignored "-Wgnu-string-literal-operator-template"
 #endif
+// clang++ generates warnings about usage of a GNU extension, ignore them
 template <char... Cs>
 using RuntimeIdentifier = std::integer_sequence<char, Cs...>;
 template <typename T, T... Cs>
