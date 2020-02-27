@@ -78,6 +78,7 @@ private:
                                   kindMap.getContext());
   }
 
+  // clang++ erroneously complains this variable is unused (see CMakeLists.txt)
   KindMapping &kindMap;
 };
 

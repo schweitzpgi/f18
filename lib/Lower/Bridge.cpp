@@ -50,7 +50,7 @@ using CFGSinkListType = llvm::SmallVector<Fortran::lower::pft::Evaluation *, 2>;
 using CFGMapType =
     llvm::DenseMap<Fortran::lower::pft::Evaluation *, CFGSinkListType *>;
 
-constexpr static bool isStopStmt(const Fortran::parser::StopStmt &stm) {
+static constexpr bool isStopStmt(const Fortran::parser::StopStmt &stm) {
   return std::get<Fortran::parser::StopStmt::Kind>(stm.t) ==
          Fortran::parser::StopStmt::Kind::Stop;
 }
@@ -919,7 +919,7 @@ class FirConverter : public Fortran::lower::AbstractConverter {
     auto callee = genRuntimeFunction(
         Fortran::lower::RuntimeEntryCode::StopStatement, *builder);
     // TODO: 3 args: stop-code-opt, ierror, quiet-opt
-    // auto isError{genFIRLo!isStopStmt(stmt)}
+    [[maybe_unused]] bool isStop{isStopStmt(stm)};
     builder->create<mlir::CallOp>(toLocation(), callee, llvm::None);
   }
 
