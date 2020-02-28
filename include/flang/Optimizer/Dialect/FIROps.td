@@ -1842,10 +1842,11 @@ def fir_LoopOp : fir_Op<"loop", [ImplicitFirTerminator]> {
   let skipDefaultBuilders = 1;
   let builders = [
     OpBuilder<"mlir::Builder *builder, OperationState &result,"
-              "int64_t lowerBound, int64_t upperBound, int64_t step = 1">,
+              "int64_t lowerBound, int64_t upperBound, int64_t step = 1,"
+              "ArrayRef<NamedAttribute> attributes = {}">,
     OpBuilder<"mlir::Builder *builder, OperationState &result,"
               "mlir::Value lowerBound, mlir::Value upperBound,"
-              "ValueRange step = {}">
+              "ValueRange step = {}, ArrayRef<NamedAttribute> attributes = {}">
   ];
 
   let parser = "return parseLoopOp(parser, result);";
@@ -1862,7 +1863,7 @@ def fir_LoopOp : fir_Op<"loop", [ImplicitFirTerminator]> {
       p << " unordered";
     p.printRegion(region(), /*printEntryBlockArgs=*/false,
                             /*printBlockTerminators=*/false);
-    p.printOptionalAttrDict(getAttrs(), {unorderedKeyword(), stepKeyword()});
+    p.printOptionalAttrDict(getAttrs(), {unorderedAttrName(), stepKeyword()});
   }];
 
   let verifier = [{
@@ -1888,11 +1889,11 @@ def fir_LoopOp : fir_Op<"loop", [ImplicitFirTerminator]> {
   }];
 
   let extraClassDeclaration = [{
-    static constexpr const char *unorderedKeyword() { return "unordered"; }
+    static constexpr const char *unorderedAttrName() { return "unordered"; }
     static constexpr const char *stepKeyword() { return "step"; }
 
     /// Is this an unordered loop?
-    bool isUnordered() { return getAttr(unorderedKeyword()).isa<UnitAttr>(); }
+    bool isUnordered() { return getAttr(unorderedAttrName()).isa<UnitAttr>(); }
 
     /// Does loop set (and return) the final value of the control variable?
     bool hasLastValue() { return lastVal().size(); }

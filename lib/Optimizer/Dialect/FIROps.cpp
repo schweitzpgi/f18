@@ -352,12 +352,14 @@ mlir::ParseResult LoadOp::getElementOf(mlir::Type &ele, mlir::Type ref) {
 // LoopOp
 
 void LoopOp::build(mlir::Builder *builder, OperationState &result,
-                   int64_t lowerBound, int64_t upperBound, int64_t step) {
+                   int64_t lowerBound, int64_t upperBound, int64_t step,
+                   ArrayRef<NamedAttribute> attributes) {
   assert(false && "not implemented");
 }
 
 void LoopOp::build(mlir::Builder *builder, OperationState &result,
-                   mlir::Value lb, mlir::Value ub, ValueRange step) {
+                   mlir::Value lb, mlir::Value ub, ValueRange step,
+                   ArrayRef<NamedAttribute> attributes) {
   if (step.empty())
     result.addOperands({lb, ub});
   else
@@ -365,6 +367,10 @@ void LoopOp::build(mlir::Builder *builder, OperationState &result,
   mlir::Region *bodyRegion = result.addRegion();
   LoopOp::ensureTerminator(*bodyRegion, *builder, result.location);
   bodyRegion->front().addArgument(builder->getIndexType());
+  result.addAttributes(attributes);
+  NamedAttributeList attrs(attributes);
+  if (!attrs.get(unorderedAttrName()))
+    result.addTypes(builder->getIndexType());
 }
 
 mlir::ParseResult parseLoopOp(OpAsmParser &parser, OperationState &result) {
@@ -392,8 +398,8 @@ mlir::ParseResult parseLoopOp(OpAsmParser &parser, OperationState &result) {
 
   // Parse the optional `unordered` keyword
   bool isUnordered = false;
-  if (!parser.parseOptionalKeyword(LoopOp::unorderedKeyword())) {
-    result.addAttribute(LoopOp::unorderedKeyword(), builder.getUnitAttr());
+  if (!parser.parseOptionalKeyword(LoopOp::unorderedAttrName())) {
+    result.addAttribute(LoopOp::unorderedAttrName(), builder.getUnitAttr());
     isUnordered = true;
   }
 
