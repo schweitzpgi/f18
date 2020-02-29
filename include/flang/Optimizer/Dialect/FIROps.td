@@ -370,7 +370,7 @@ def fir_LoadOp : fir_OneResultOp<"load", []> {
         mlir::emitError(result.location, "LoadOp has null argument");
         return;
       }
-      fir::ReferenceType refTy = refVal.getType().cast<fir::ReferenceType>();
+      auto refTy = refVal.getType().cast<fir::ReferenceType>();
       result.addOperands(refVal);
       result.addTypes(refTy.getEleTy());
     }]
@@ -1863,7 +1863,7 @@ def fir_LoopOp : fir_Op<"loop", [ImplicitFirTerminator]> {
       p << " unordered";
     p.printRegion(region(), /*printEntryBlockArgs=*/false,
                             /*printBlockTerminators=*/false);
-    p.printOptionalAttrDict(getAttrs(), {unorderedAttrName(), stepKeyword()});
+    p.printOptionalAttrDict(getAttrs(), {unorderedAttrName(), stepAttrName()});
   }];
 
   let verifier = [{
@@ -1890,7 +1890,7 @@ def fir_LoopOp : fir_Op<"loop", [ImplicitFirTerminator]> {
 
   let extraClassDeclaration = [{
     static constexpr const char *unorderedAttrName() { return "unordered"; }
-    static constexpr const char *stepKeyword() { return "step"; }
+    static constexpr const char *stepAttrName() { return "step"; }
 
     /// Is this an unordered loop?
     bool isUnordered() { return getAttr(unorderedAttrName()).isa<UnitAttr>(); }
@@ -2018,6 +2018,10 @@ def fir_CallOp : fir_Op<"call", []> {
 
   let parser = "return parseCallOp(parser, result);";
   let printer = "printCallOp(p, *this);";
+
+  let extraClassDeclaration = [{
+    static constexpr StringRef calleeAttrName() { return "callee"; }
+  }];
 }
 
 def fir_DispatchOp : fir_Op<"dispatch", []> {
@@ -2186,7 +2190,7 @@ class fir_ArithmeticOp<string mnemonic, list<OpTrait> traits = []> :
     return impl::parseOneResultSameOperandTypeOp(parser, result);
   }];
 
-  let printer = [{ return fir::printBinaryOp(this->getOperation(), p); }];
+  let printer = [{ return printBinaryOp(this->getOperation(), p); }];
 }
 
 class fir_UnaryArithmeticOp<string mnemonic, list<OpTrait> traits = []> :
@@ -2197,7 +2201,7 @@ class fir_UnaryArithmeticOp<string mnemonic, list<OpTrait> traits = []> :
     return impl::parseOneResultSameOperandTypeOp(parser, result);
   }];
 
-  let printer = [{ return fir::printUnaryOp(this->getOperation(), p); }];
+  let printer = [{ return printUnaryOp(this->getOperation(), p); }];
 }
 
 def fir_ConstfOp : fir_Op<"constf", [NoSideEffect]> {
@@ -2272,12 +2276,12 @@ def fir_CmpfOp : fir_Op<"cmpf",
   let builders = [OpBuilder<
     "Builder *builder, OperationState &result, CmpFPredicate predicate,"
     "Value lhs, Value rhs", [{
-      fir::buildCmpFOp(builder, result, predicate, lhs, rhs);
+      buildCmpFOp(builder, result, predicate, lhs, rhs);
   }]>];
 
-  let parser = [{ return fir::parseCmpfOp(parser, result); }];
+  let parser = [{ return parseCmpfOp(parser, result); }];
 
-  let printer = [{ fir::printCmpfOp(p, *this); }];
+  let printer = [{ printCmpfOp(p, *this); }];
 
   let extraClassDeclaration = [{
     static constexpr llvm::StringRef getPredicateAttrName() {
@@ -2373,14 +2377,14 @@ def fir_CmpcOp : fir_Op<"cmpc",
 
   let results = (outs AnyLogicalLike);
 
-  let parser = "return fir::parseCmpcOp(parser, result);";
+  let parser = "return parseCmpcOp(parser, result);";
 
-  let printer = "fir::printCmpcOp(p, *this);";
+  let printer = "printCmpcOp(p, *this);";
 
   let builders = [OpBuilder<
     "Builder *builder, OperationState &result, CmpFPredicate predicate,"
     "Value lhs, Value rhs", [{
-      fir::buildCmpCOp(builder, result, predicate, lhs, rhs);
+      buildCmpCOp(builder, result, predicate, lhs, rhs);
   }]>];
 
   let extraClassDeclaration = [{
