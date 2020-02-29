@@ -1,10 +1,11 @@
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-unused-parameter")
+get_property(dialect_libs GLOBAL PROPERTY MLIR_DIALECT_LIBS)
 
 set(LIBS
   FIRDialect
   FIROptimizer
   FIRTransforms
-  MLIRAllDialects
+  ${dialect_libs}
   MLIRIR
   MLIRLLVMIR
   MLIRPass
