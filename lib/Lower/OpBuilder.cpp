@@ -46,23 +46,29 @@ Fortran::lower::SymMap::lookupSymbol(Fortran::semantics::SymbolRef symbol) {
   return (iter == symbolMap.end()) ? nullptr : iter->second;
 }
 
-void Fortran::lower::SymMap::pushShadowSymbol(
-    Fortran::semantics::SymbolRef symbol, mlir::Value value) {
-  // find any existing mapping for symbol
-  auto iter{symbolMap.find(&*symbol)};
-  const Fortran::semantics::Symbol *sym{nullptr};
-  mlir::Value val;
-  // if mapping exists, save it on the shadow stack
+void Fortran::lower::SymMap::pushShadowSymbol(semantics::SymbolRef symbol,
+                                              mlir::Value value) {
+  auto iter{symbolMap.find(&*symbol)}; // existing mapping, if any
+  mlir::Value originalValue;
   if (iter != symbolMap.end()) {
-    sym = iter->first;
-    val = iter->second;
+    originalValue = iter->second;
     symbolMap.erase(iter);
   }
-  shadowStack.emplace_back(sym, val);
-  // insert new shadow mapping
-  auto r{symbolMap.try_emplace(&*symbol, value)};
-  assert(r.second && "unexpected insertion failure");
-  (void)r;
+  shadowStack.emplace_back(&*symbol, originalValue); // save original value
+  symbolMap.try_emplace(&*symbol, value);            // update to new value
+}
+
+void Fortran::lower::SymMap::popShadowSymbol() {
+  auto &pair{shadowStack.back()};
+  assert(pair.first && "missing pop symbol");
+  if (pair.second) {
+    symbolMap[pair.first] = pair.second; // reinstate original value
+  } else {
+    auto iter{symbolMap.find(pair.first)};
+    assert(iter != symbolMap.end() && "missing pop symbol mapping");
+    symbolMap.erase(iter); // remove shadow symbol
+  }
+  shadowStack.pop_back();
 }
 
 mlir::Value
