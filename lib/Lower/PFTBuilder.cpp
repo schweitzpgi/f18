@@ -9,7 +9,7 @@
 #include "flang/Lower/PFTBuilder.h"
 #include "flang/Parser/dump-parse-tree.h"
 #include "flang/Parser/parse-tree-visitor.h"
-#include "llvm/ADT/DenseMap.h"
+#include "llvm/Support/CommandLine.h"
 #include <algorithm>
 #include <cassert>
 #include <utility>
@@ -46,38 +46,37 @@ struct UnwrapStmt<parser::Statement<A>> {
   static constexpr bool isStmt{true};
   using Type = typename RemoveIndirectionHelper<A>::Type;
   constexpr UnwrapStmt(const parser::Statement<A> &a)
-      : unwrapped{removeIndirection(a.statement)}, pos{a.source}, lab{a.label} {
-  }
+      : unwrapped{removeIndirection(a.statement)}, position{a.source},
+        label{a.label} {}
   const Type &unwrapped;
-  parser::CharBlock pos;
-  std::optional<parser::Label> lab;
+  parser::CharBlock position;
+  std::optional<parser::Label> label;
 };
 template <typename A>
 struct UnwrapStmt<parser::UnlabeledStatement<A>> {
   static constexpr bool isStmt{true};
   using Type = typename RemoveIndirectionHelper<A>::Type;
   constexpr UnwrapStmt(const parser::UnlabeledStatement<A> &a)
-      : unwrapped{removeIndirection(a.statement)}, pos{a.source} {}
+      : unwrapped{removeIndirection(a.statement)}, position{a.source} {}
   const Type &unwrapped;
-  parser::CharBlock pos;
-  std::optional<parser::Label> lab;
+  parser::CharBlock position;
+  std::optional<parser::Label> label;
 };
 
 /// The instantiation of a parse tree visitor (Pre and Post) is extremely
-/// expensive in terms of compile and link time, so one goal here is to limit
-/// the bridge to one such instantiation.
+/// expensive in terms of compile and link time.  So one goal here is to
+/// limit the bridge to one such instantiation.
 class PFTBuilder {
 public:
-  PFTBuilder() : pgm{new pft::Program}, parents{*pgm.get()} {}
+  PFTBuilder() : pgm{new pft::Program}, parentTypeStack{*pgm.get()} {}
 
   /// Get the result
   std::unique_ptr<pft::Program> result() { return std::move(pgm); }
 
   template <typename A>
   constexpr bool Pre(const A &a) {
-    bool visit{true};
     if constexpr (pft::isFunctionLike<A>) {
-      return enterFunc(a);
+      return enterFunction(a);
     } else if constexpr (pft::isConstruct<A>) {
       return enterConstruct(a);
     } else if constexpr (UnwrapStmt<A>::isStmt) {
@@ -87,21 +86,22 @@ public:
       // or UnlabeledStatement<Indirection<T>>
       auto stmt{UnwrapStmt<A>(a)};
       if constexpr (pft::isConstructStmt<T> || pft::isOtherStmt<T>) {
-        addEval(pft::Evaluation{stmt.unwrapped, parents.back(), stmt.pos,
-                                stmt.lab});
-        visit = false;
+        addEvaluation(pft::Evaluation{stmt.unwrapped, parentTypeStack.back(),
+                                      stmt.position, stmt.label});
+        return false;
       } else if constexpr (std::is_same_v<T, parser::ActionStmt>) {
-        addEval(makeEvalAction(stmt.unwrapped, stmt.pos, stmt.lab));
-        visit = false;
+        addEvaluation(
+            makeEvaluationAction(stmt.unwrapped, stmt.position, stmt.label));
+        return true;
       }
     }
-    return visit;
+    return true;
   }
 
   template <typename A>
   constexpr void Post(const A &) {
     if constexpr (pft::isFunctionLike<A>) {
-      exitFunc();
+      exitFunction();
     } else if constexpr (pft::isConstruct<A>) {
       exitConstruct();
     }
@@ -116,24 +116,25 @@ public:
 
   // Block data
   bool Pre(const parser::BlockData &node) {
-    addUnit(pft::BlockDataUnit{node, parents.back()});
+    addUnit(pft::BlockDataUnit{node, parentTypeStack.back()});
     return false;
   }
 
   // Get rid of production wrapper
   bool Pre(const parser::UnlabeledStatement<parser::ForallAssignmentStmt>
                &statement) {
-    addEval(std::visit(
+    addEvaluation(std::visit(
         [&](const auto &x) {
-          return pft::Evaluation{x, parents.back(), statement.source, {}};
+          return pft::Evaluation{
+              x, parentTypeStack.back(), statement.source, {}};
         },
         statement.statement.u));
     return false;
   }
   bool Pre(const parser::Statement<parser::ForallAssignmentStmt> &statement) {
-    addEval(std::visit(
+    addEvaluation(std::visit(
         [&](const auto &x) {
-          return pft::Evaluation{x, parents.back(), statement.source,
+          return pft::Evaluation{x, parentTypeStack.back(), statement.source,
                                  statement.label};
         },
         statement.statement.u));
@@ -145,8 +146,9 @@ public:
             [&](const parser::Statement<parser::AssignmentStmt> &stmt) {
               // Not caught as other AssignmentStmt because it is not
               // wrapped in a parser::ActionStmt.
-              addEval(pft::Evaluation{stmt.statement, parents.back(),
-                                      stmt.source, stmt.label});
+              addEvaluation(pft::Evaluation{stmt.statement,
+                                            parentTypeStack.back(), stmt.source,
+                                            stmt.label});
               return false;
             },
             [&](const auto &) { return true; },
@@ -155,79 +157,80 @@ public:
   }
 
 private:
-  // ActionStmt has a couple of non-conforming cases, which get handled
-  // explicitly here.  The other cases use an Indirection, which we discard in
-  // the PFT.
-  pft::Evaluation makeEvalAction(const parser::ActionStmt &statement,
-                                 parser::CharBlock pos,
-                                 std::optional<parser::Label> lab) {
-    return std::visit(
-        common::visitors{
-            [&](const auto &x) {
-              return pft::Evaluation{removeIndirection(x), parents.back(), pos,
-                                     lab};
-            },
-        },
-        statement.u);
-  }
-
-  // When we enter a function-like structure, we want to build a new unit and
-  // set the builder's cursors to point to it.
-  template <typename A>
-  bool enterFunc(const A &func) {
-    auto &unit = addFunc(pft::FunctionLikeUnit{func, parents.back()});
-    funclist = &unit.funcs;
-    pushEval(&unit.evals);
-    parents.emplace_back(unit);
-    return true;
-  }
-  /// Make funclist to point to current parent function list if it exists.
-  void setFunctListToParentFuncs() {
-    if (!parents.empty()) {
-      std::visit(common::visitors{
-                     [&](pft::FunctionLikeUnit *p) { funclist = &p->funcs; },
-                     [&](pft::ModuleLikeUnit *p) { funclist = &p->funcs; },
-                     [&](auto *) { funclist = nullptr; },
-                 },
-                 parents.back().p);
-    }
-  }
-
-  void exitFunc() {
-    popEval();
-    parents.pop_back();
-    setFunctListToParentFuncs();
-  }
-
-  // When we enter a construct structure, we want to build a new construct and
-  // set the builder's evaluation cursor to point to it.
-  template <typename A>
-  bool enterConstruct(const A &construct) {
-    auto &con = addEval(pft::Evaluation{construct, parents.back()});
-    con.subs.reset(new pft::EvaluationCollection);
-    pushEval(con.subs.get());
-    parents.emplace_back(con);
-    return true;
-  }
-
-  void exitConstruct() {
-    popEval();
-    parents.pop_back();
-  }
-
-  // When we enter a module structure, we want to build a new module and
-  // set the builder's function cursor to point to it.
+  /// Initialize a new module-like unit and make it the builder's focus.
   template <typename A>
   bool enterModule(const A &func) {
-    auto &unit = addUnit(pft::ModuleLikeUnit{func, parents.back()});
-    funclist = &unit.funcs;
-    parents.emplace_back(unit);
+    auto &unit = addUnit(pft::ModuleLikeUnit{func, parentTypeStack.back()});
+    functionList = &unit.containedFunctions;
+    parentTypeStack.emplace_back(unit);
     return true;
   }
 
   void exitModule() {
-    parents.pop_back();
-    setFunctListToParentFuncs();
+    parentTypeStack.pop_back();
+    ResetFunctionList();
+  }
+
+  /// Initialize a new function-like unit and make it the builder's focus.
+  template <typename A>
+  bool enterFunction(const A &func) {
+    auto &unit =
+        addFunction(pft::FunctionLikeUnit{func, parentTypeStack.back()});
+    labelEvaluationMap = &unit.labelEvaluationMap;
+    assignSymbolLabelMap = &unit.assignSymbolLabelMap;
+    functionList = &unit.containedFunctions;
+    pushEvaluationList(&unit.evaluationList);
+    parentTypeStack.emplace_back(unit);
+    return true;
+  }
+
+  void exitFunction() {
+    // Guarantee that there is a branch target after the last user statement.
+    static const parser::ContinueStmt endTarget{};
+    addEvaluation(pft::Evaluation{endTarget, parentTypeStack.back(), {}, {}});
+    lastLexicalEvaluation = nullptr;
+    analyzeBranches(nullptr, *evaluationListStack.back()); // add branch links
+    popEvaluationList();
+    labelEvaluationMap = nullptr;
+    assignSymbolLabelMap = nullptr;
+    parentTypeStack.pop_back();
+    ResetFunctionList();
+    labelEvaluationMap = nullptr;
+    assignSymbolLabelMap = nullptr;
+  }
+
+  /// Initialize a new construct and make it the builder's focus.
+  template <typename A>
+  bool enterConstruct(const A &construct) {
+    auto &eval =
+        addEvaluation(pft::Evaluation{construct, parentTypeStack.back()});
+    eval.evaluationList.reset(new pft::EvaluationList);
+    pushEvaluationList(eval.evaluationList.get());
+    parentTypeStack.emplace_back(eval);
+    constructStack.emplace_back(&eval);
+    return true;
+  }
+
+  void exitConstruct() {
+    popEvaluationList();
+    parentTypeStack.pop_back();
+    constructStack.pop_back();
+  }
+
+  /// Reset functionList to an enclosing function's functionList.
+  void ResetFunctionList() {
+    if (!parentTypeStack.empty()) {
+      std::visit(common::visitors{
+                     [&](pft::FunctionLikeUnit *p) {
+                       functionList = &p->containedFunctions;
+                     },
+                     [&](pft::ModuleLikeUnit *p) {
+                       functionList = &p->containedFunctions;
+                     },
+                     [&](auto *) { functionList = nullptr; },
+                 },
+                 parentTypeStack.back().p);
+    }
   }
 
   template <typename A>
@@ -237,45 +240,513 @@ private:
   }
 
   template <typename A>
-  A &addFunc(A &&func) {
-    if (funclist) {
-      funclist->emplace_back(std::move(func));
-      return funclist->back();
+  A &addFunction(A &&func) {
+    if (functionList) {
+      functionList->emplace_back(std::move(func));
+      return functionList->back();
     }
     return addUnit(std::move(func));
   }
 
-  /// move the Evaluation to the end of the current list
-  pft::Evaluation &addEval(pft::Evaluation &&eval) {
-    assert(funclist && "not in a function");
-    assert(evallist.size() > 0);
-    evallist.back()->emplace_back(std::move(eval));
-    return evallist.back()->back();
+  // ActionStmt has a couple of non-conforming cases, explicitly handled here.
+  // The other cases use an Indirection, which are discarded in the PFT.
+  pft::Evaluation makeEvaluationAction(const parser::ActionStmt &statement,
+                                       parser::CharBlock position,
+                                       std::optional<parser::Label> label) {
+    return std::visit(
+        common::visitors{
+            [&](const auto &x) {
+              return pft::Evaluation{removeIndirection(x),
+                                     parentTypeStack.back(), position, label};
+            },
+        },
+        statement.u);
+  }
+
+  /// Append an Evaluation to the end of the current list.
+  pft::Evaluation &addEvaluation(pft::Evaluation &&eval) {
+    assert(functionList && "not in a function");
+    assert(evaluationListStack.size() > 0);
+    if (constructStack.size() > 0) {
+      eval.parentConstruct = constructStack.back();
+    }
+    evaluationListStack.back()->emplace_back(std::move(eval));
+    pft::Evaluation *p = &evaluationListStack.back()->back();
+    if (p->isActionStmt() || p->isConstructStmt()) {
+      if (lastLexicalEvaluation) {
+        lastLexicalEvaluation->lexicalSuccessor = p;
+        p->printIndex = lastLexicalEvaluation->printIndex + 1;
+      } else {
+        p->printIndex = 1;
+      }
+      lastLexicalEvaluation = p;
+    }
+    if (p->label.has_value()) {
+      labelEvaluationMap->try_emplace(*p->label, p);
+    }
+    return evaluationListStack.back()->back();
   }
 
   /// push a new list on the stack of Evaluation lists
-  void pushEval(pft::EvaluationCollection *eval) {
-    assert(funclist && "not in a function");
+  void pushEvaluationList(pft::EvaluationList *eval) {
+    assert(functionList && "not in a function");
     assert(eval && eval->empty() && "evaluation list isn't correct");
-    evallist.emplace_back(eval);
+    evaluationListStack.emplace_back(eval);
   }
 
   /// pop the current list and return to the last Evaluation list
-  void popEval() {
-    assert(funclist && "not in a function");
-    evallist.pop_back();
+  void popEvaluationList() {
+    assert(functionList && "not in a function");
+    evaluationListStack.pop_back();
+  }
+
+  /// Mark I/O statement ERR, EOR, and END specifier branch targets.
+  template <typename A>
+  constexpr void analyzeIoBranches(pft::Evaluation &eval, const A &stmt) {
+    if constexpr (std::is_same_v<A, parser::ReadStmt> ||
+                  std::is_same_v<A, parser::WriteStmt>) {
+      for (const auto &control : stmt.controls) {
+        if (std::holds_alternative<parser::ErrLabel>(control.u) ||
+            std::holds_alternative<parser::EorLabel>(control.u) ||
+            std::holds_alternative<parser::EndLabel>(control.u)) {
+          pft::Evaluation *t{labelEvaluationMap->find(stmt->v)->second};
+          markBranchTarget(eval, *t);
+        }
+      }
+    }
+    if constexpr (std::is_same_v<A, parser::WaitStmt> ||
+                  std::is_same_v<A, parser::OpenStmt> ||
+                  std::is_same_v<A, parser::CloseStmt> ||
+                  std::is_same_v<A, parser::BackspaceStmt> ||
+                  std::is_same_v<A, parser::EndfileStmt> ||
+                  std::is_same_v<A, parser::RewindStmt> ||
+                  std::is_same_v<A, parser::FlushStmt>) {
+      for (const auto &spec : stmt.v) {
+        if (std::holds_alternative<parser::ErrLabel>(spec.u) ||
+            std::holds_alternative<parser::EorLabel>(spec.u) ||
+            std::holds_alternative<parser::EndLabel>(spec.u)) {
+          pft::Evaluation *t{labelEvaluationMap->find(stmt->v)->second};
+          markBranchTarget(eval, *t);
+        }
+      }
+    }
+    if constexpr (std::is_same_v<A, parser::InquireStmt>) {
+      for (const auto &spec :
+           std::get<std::list<parser::InquireSpec>>(stmt.u)) {
+        if (std::holds_alternative<parser::ErrLabel>(spec.u) ||
+            std::holds_alternative<parser::EorLabel>(spec.u) ||
+            std::holds_alternative<parser::EndLabel>(spec.u)) {
+          pft::Evaluation *t{labelEvaluationMap->find(stmt->v)->second};
+          markBranchTarget(eval, *t);
+        }
+      }
+    }
+  }
+
+  void markBranchTarget(pft::Evaluation &sourceEvaluation,
+                        pft::Evaluation &targetEvaluation) {
+    targetEvaluation.isNewBlock = true;
+    sourceEvaluation.isUnstructured = true;
+    if (sourceEvaluation.parentConstruct) {
+      sourceEvaluation.parentConstruct->isUnstructured = true;
+    }
+    if (!sourceEvaluation.controlSuccessor) {
+      sourceEvaluation.controlSuccessor = &targetEvaluation;
+    }
+  }
+  void markBranchTarget(pft::Evaluation &sourceEvaluation,
+                        parser::Label label) {
+    pft::Evaluation *targetEvaluation{labelEvaluationMap->find(label)->second};
+    assert(targetEvaluation && "missing branch target");
+    markBranchTarget(sourceEvaluation, *targetEvaluation);
+  }
+
+  /// Set the exit of a construct, possibly from multiple enclosing constructs.
+  void setConstructExit(pft::Evaluation &eval) {
+    pft::Evaluation *constructExit{
+        eval.evaluationList->back().lexicalSuccessor};
+    // Exit from enclosing constructs with nop end statements.
+    if (eval.parentConstruct &&
+        std::visit(common::visitors{
+                       [](const parser::EndAssociateStmt *) { return true; },
+                       [](const parser::CaseStmt *) { return true; },
+                       [](const parser::EndSelectStmt *) { return true; },
+                       [](const parser::EndChangeTeamStmt *) { return true; },
+                       [](const parser::EndCriticalStmt *) { return true; },
+                       [](const parser::ElseIfStmt *) { return true; },
+                       [](const parser::ElseStmt *) { return true; },
+                       [](const parser::EndIfStmt *) { return true; },
+                       [](const parser::SelectRankCaseStmt *) { return true; },
+                       [](const parser::TypeGuardStmt *) { return true; },
+                       [](const auto *) { return false; },
+                   },
+                   constructExit->u)) {
+      constructExit = eval.parentConstruct->constructExit;
+    }
+    assert(constructExit && "missing construct exit");
+    eval.constructExit = constructExit;
+  }
+
+  /// Return the lexical successor of an Evaluation, accounting for (some) nops.
+  pft::Evaluation *effectiveLexicalSuccessor(pft::Evaluation &eval) {
+    pft::Evaluation *successor{eval.lexicalSuccessor};
+    if (!successor->isNewBlock && eval.parentConstruct &&
+        &eval.parentConstruct->evaluationList->back() == successor) {
+      successor = eval.parentConstruct->constructExit;
+    }
+    assert(successor && "missing effective lexical successor");
+    return successor;
+  }
+
+  /// Mark the effective lexical successor of an Evaluation as a new block.
+  void markSuccessorNewBlock(pft::Evaluation &eval) {
+    effectiveLexicalSuccessor(eval)->isNewBlock = true;
+  }
+
+  template <typename A>
+  constexpr std::string getConstructName(const A &stmt) {
+    if constexpr (std::is_same_v<A, parser::BlockStmt *> ||
+                  std::is_same_v<A, const parser::CycleStmt *> ||
+                  std::is_same_v<A, const parser::ElseStmt *> ||
+                  std::is_same_v<A, const parser::ElsewhereStmt *> ||
+                  std::is_same_v<A, const parser::EndAssociateStmt *> ||
+                  std::is_same_v<A, const parser::EndBlockStmt *> ||
+                  std::is_same_v<A, const parser::EndCriticalStmt *> ||
+                  std::is_same_v<A, const parser::EndDoStmt *> ||
+                  std::is_same_v<A, const parser::EndForallStmt *> ||
+                  std::is_same_v<A, const parser::EndIfStmt *> ||
+                  std::is_same_v<A, const parser::EndSelectStmt *> ||
+                  std::is_same_v<A, const parser::EndWhereStmt *> ||
+                  std::is_same_v<A, const parser::ExitStmt *>) {
+      if (stmt->v) {
+        return stmt->v->ToString();
+      }
+    }
+    if constexpr (std::is_same_v<A, const parser::AssociateStmt *> ||
+                  std::is_same_v<A, const parser::CaseStmt *> ||
+                  std::is_same_v<A, const parser::ChangeTeamStmt *> ||
+                  std::is_same_v<A, const parser::CriticalStmt *> ||
+                  std::is_same_v<A, const parser::ElseIfStmt *> ||
+                  std::is_same_v<A, const parser::EndChangeTeamStmt *> ||
+                  std::is_same_v<A, const parser::ForallConstructStmt *> ||
+                  std::is_same_v<A, const parser::IfThenStmt *> ||
+                  std::is_same_v<A, const parser::LabelDoStmt *> ||
+                  std::is_same_v<A, const parser::MaskedElsewhereStmt *> ||
+                  std::is_same_v<A, const parser::NonLabelDoStmt *> ||
+                  std::is_same_v<A, const parser::SelectCaseStmt *> ||
+                  std::is_same_v<A, const parser::SelectRankCaseStmt *> ||
+                  std::is_same_v<A, const parser::TypeGuardStmt *> ||
+                  std::is_same_v<A, const parser::WhereConstructStmt *>) {
+      if (auto name{std::get<std::optional<parser::Name>>(stmt->t)}) {
+        return name->ToString();
+      }
+    }
+    if constexpr (std::is_same_v<A, const parser::SelectRankStmt *> ||
+                  std::is_same_v<A, const parser::SelectTypeStmt *>) {
+      if (auto name{std::get<0>(stmt->t)}) {
+        return name->ToString();
+      }
+    }
+    return {};
+  }
+
+  template <typename A>
+  void insertConstructName(const A &stmt, pft::Evaluation *parentConstruct) {
+    std::string name{getConstructName(stmt)};
+    if (!name.empty()) {
+      constructNameMap[name] = parentConstruct;
+    }
+  }
+
+  /// Insert branch links for a list of Evaluations.
+  void analyzeBranches(pft::Evaluation *parentConstruct,
+                       std::list<pft::Evaluation> &evaluationList) {
+    pft::Evaluation *lastIfConstructEvaluation{nullptr};
+    pft::Evaluation *lastIfStmtEvaluation{nullptr};
+    for (auto &eval : evaluationList) {
+      std::visit(
+          common::visitors{
+              // Action statements
+              [&](const parser::BackspaceStmt *s) {
+                analyzeIoBranches(eval, s);
+              },
+              [&](const parser::CallStmt *s) {
+                // Look for alternate return specifiers.
+                const auto &args{
+                    std::get<std::list<parser::ActualArgSpec>>(s->v.t)};
+                for (const auto &arg : args) {
+                  const auto &actual{std::get<parser::ActualArg>(arg.t)};
+                  if (const auto *altReturn{
+                          std::get_if<parser::AltReturnSpec>(&actual.u)}) {
+                    markBranchTarget(eval, altReturn->v);
+                  }
+                }
+              },
+              [&](const parser::CloseStmt *s) { analyzeIoBranches(eval, s); },
+              [&](const parser::CycleStmt *s) {
+                std::string name{getConstructName(s)};
+                pft::Evaluation *construct{name.empty()
+                                               ? doConstructStack.back()
+                                               : constructNameMap[name]};
+                assert(construct && "missing CYCLE construct");
+                markBranchTarget(eval, construct->evaluationList->back());
+              },
+              [&](const parser::EndfileStmt *s) { analyzeIoBranches(eval, s); },
+              [&](const parser::ExitStmt *s) {
+                std::string name{getConstructName(s)};
+                pft::Evaluation *construct{name.empty()
+                                               ? doConstructStack.back()
+                                               : constructNameMap[name]};
+                assert(construct && "missing EXIT construct");
+                markBranchTarget(eval, *construct->constructExit);
+              },
+              [&](const parser::FlushStmt *s) { analyzeIoBranches(eval, s); },
+              [&](const parser::GotoStmt *s) { markBranchTarget(eval, s->v); },
+              [&](const parser::IfStmt *) { lastIfStmtEvaluation = &eval; },
+              [&](const parser::InquireStmt *s) { analyzeIoBranches(eval, s); },
+              [&](const parser::OpenStmt *s) { analyzeIoBranches(eval, s); },
+              [&](const parser::ReadStmt *s) { analyzeIoBranches(eval, s); },
+              [&](const parser::ReturnStmt *) { eval.isUnstructured = true; },
+              [&](const parser::RewindStmt *s) { analyzeIoBranches(eval, s); },
+              [&](const parser::StopStmt *) { eval.isUnstructured = true; },
+              [&](const parser::WaitStmt *s) { analyzeIoBranches(eval, s); },
+              [&](const parser::WriteStmt *s) { analyzeIoBranches(eval, s); },
+              [&](const parser::ComputedGotoStmt *s) {
+                for (auto &label : std::get<std::list<parser::Label>>(s->t)) {
+                  markBranchTarget(eval, label);
+                }
+              },
+              [&](const parser::ArithmeticIfStmt *s) {
+                markBranchTarget(eval, std::get<1>(s->t));
+                markBranchTarget(eval, std::get<2>(s->t));
+                markBranchTarget(eval, std::get<3>(s->t));
+              },
+              [&](const parser::AssignStmt *s) { // legacy label assignment
+                auto &label = std::get<parser::Label>(s->t);
+                auto sym = std::get<parser::Name>(s->t).symbol;
+                assert(sym && "missing AssignStmt symbol");
+                pft::Evaluation *t{labelEvaluationMap->find(label)->second};
+                if (!std::get_if<const parser::FormatStmt *const>(&t->u)) {
+                  markBranchTarget(eval, label);
+                }
+                auto iter = assignSymbolLabelMap->find(sym);
+                if (iter == assignSymbolLabelMap->end()) {
+                  assignSymbolLabelMap->try_emplace(
+                      sym, std::set<parser::Label>{label});
+                } else {
+                  iter->second.insert(label);
+                }
+              },
+              [&](const parser::AssignedGotoStmt *) {
+                // Specific control successors are not in general known.
+                // Compensate by directly marking the successor new block.
+                markSuccessorNewBlock(eval);
+              },
+
+              // Construct statements
+              [&](const parser::AssociateStmt *s) {
+                insertConstructName(&*s, parentConstruct);
+              },
+              [&](const parser::BlockStmt *s) {
+                insertConstructName(&*s, parentConstruct);
+              },
+              [&](const parser::SelectCaseStmt *s) {
+                insertConstructName(&*s, parentConstruct);
+                eval.lexicalSuccessor->isNewBlock = true;
+              },
+              [&](const parser::CaseStmt *) { eval.isNewBlock = true; },
+              [&](const parser::ChangeTeamStmt *s) {
+                insertConstructName(&*s, parentConstruct);
+              },
+              [&](const parser::CriticalStmt *s) {
+                insertConstructName(&*s, parentConstruct);
+              },
+              [&](const parser::NonLabelDoStmt *s) {
+                insertConstructName(&*s, parentConstruct);
+                doConstructStack.push_back(parentConstruct);
+                auto &control{
+                    std::get<std::optional<parser::LoopControl>>(s->t)};
+                // eval.block is the loop preheader block, which will be set
+                // elsewhere if the NonLabelDoStmt is itself a target.
+                // eval.localBlocks[0] is the loop header block.
+                eval.localBlocks.emplace_back(nullptr);
+                if (!control.has_value()) {
+                  eval.isUnstructured = true; // infinite loop
+                  return;
+                }
+                eval.lexicalSuccessor->isNewBlock = true;
+                eval.controlSuccessor = &evaluationList.back();
+                if (std::holds_alternative<parser::ScalarLogicalExpr>(
+                        control->u)) {
+                  eval.isUnstructured = true; // while loop
+                }
+                // Defer additional processing for a concurrent loop to the
+                // EndDoStmt, when it is known if the loop is structured or not.
+              },
+              [&](const parser::EndDoStmt *) {
+                pft::Evaluation &doEval{evaluationList.front()};
+                eval.controlSuccessor = &doEval;
+                doConstructStack.pop_back();
+                if (parentConstruct->LowerAsStructured()) {
+                  return;
+                }
+                parentConstruct->constructExit->isNewBlock = true;
+                const auto &doStmt{doEval.getIf<parser::NonLabelDoStmt>()};
+                assert(doStmt && "missing NonLabelDoStmt");
+                auto &control{
+                    std::get<std::optional<parser::LoopControl>>(doStmt->t)};
+                if (!control.has_value()) {
+                  return; // infinite loop
+                }
+                const auto *concurrent{
+                    std::get_if<parser::LoopControl::Concurrent>(&control->u)};
+                if (!concurrent) {
+                  return;
+                }
+                // Unstructured concurrent loop.  NonLabelDoStmt code accounts
+                // for one concurrent loop dimension.  Reserve preheader,
+                // header, and latch blocks for the remaining dimensions, and
+                // one block for a mask expression.
+                const auto &header{
+                    std::get<parser::ConcurrentHeader>(concurrent->t)};
+                auto dims{
+                    std::get<std::list<parser::ConcurrentControl>>(header.t)
+                        .size()};
+                for (; dims > 1; --dims) {
+                  doEval.localBlocks.emplace_back(nullptr); // preheader
+                  doEval.localBlocks.emplace_back(nullptr); // header
+                  eval.localBlocks.emplace_back(nullptr);   // latch
+                }
+                if (std::get<std::optional<parser::ScalarLogicalExpr>>(
+                        header.t)) {
+                  doEval.localBlocks.emplace_back(nullptr); // mask
+                }
+              },
+              [&](const parser::IfThenStmt *s) {
+                insertConstructName(&*s, parentConstruct);
+                eval.lexicalSuccessor->isNewBlock = true;
+                lastIfConstructEvaluation = &eval;
+              },
+              [&](const parser::ElseIfStmt *s) {
+                eval.isNewBlock = true;
+                eval.lexicalSuccessor->isNewBlock = true;
+                lastIfConstructEvaluation->controlSuccessor = &eval;
+                lastIfConstructEvaluation = &eval;
+              },
+              [&](const parser::ElseStmt *s) {
+                eval.isNewBlock = true;
+                lastIfConstructEvaluation->controlSuccessor = &eval;
+                lastIfConstructEvaluation = &eval;
+              },
+              [&](const parser::EndIfStmt *) {
+                if (parentConstruct->LowerAsUnstructured()) {
+                  parentConstruct->constructExit->isNewBlock = true;
+                }
+                lastIfConstructEvaluation->controlSuccessor =
+                    parentConstruct->constructExit;
+                lastIfConstructEvaluation = nullptr;
+              },
+              [&](const parser::SelectRankStmt *s) {
+                insertConstructName(&*s, parentConstruct);
+                eval.lexicalSuccessor->isNewBlock = true;
+              },
+              [&](const parser::SelectRankCaseStmt *) {
+                eval.isNewBlock = true;
+              },
+              [&](const parser::SelectTypeStmt *s) {
+                insertConstructName(&*s, parentConstruct);
+                eval.lexicalSuccessor->isNewBlock = true;
+              },
+              [&](const parser::TypeGuardStmt *) { eval.isNewBlock = true; },
+
+              // Constructs - set (unstructured construct) exit targets
+              [&](const parser::AssociateConstruct *) {
+                setConstructExit(eval);
+              },
+              [&](const parser::BlockConstruct *) {
+                // EndBlockStmt may have exit code.
+                eval.constructExit = &eval.evaluationList->back();
+              },
+              [&](const parser::CaseConstruct *) { setConstructExit(eval); },
+              [&](const parser::ChangeTeamConstruct *) {
+                setConstructExit(eval);
+              },
+              [&](const parser::CriticalConstruct *) {
+                setConstructExit(eval);
+              },
+              [&](const parser::DoConstruct *) { setConstructExit(eval); },
+              [&](const parser::IfConstruct *) { setConstructExit(eval); },
+              [&](const parser::SelectRankConstruct *) {
+                setConstructExit(eval);
+              },
+              [&](const parser::SelectTypeConstruct *) {
+                setConstructExit(eval);
+              },
+
+              [](const auto *) { /* do nothing */ },
+          },
+          eval.u);
+
+      // Analyze branches in a nested construct.
+      if (eval.evaluationList) {
+        analyzeBranches(&eval, *eval.evaluationList);
+      }
+
+      // Insert branch links for an unstructured IF statement.
+      if (lastIfStmtEvaluation && lastIfStmtEvaluation != &eval) {
+        // eval is the action substatement of an IfStmt.
+        if (eval.LowerAsUnstructured()) {
+          eval.isNewBlock = true;
+          markSuccessorNewBlock(eval);
+          lastIfStmtEvaluation->isUnstructured = true;
+        }
+        lastIfStmtEvaluation->controlSuccessor =
+            effectiveLexicalSuccessor(eval);
+        lastIfStmtEvaluation = nullptr;
+      }
+
+      // Set the successor of the last statement in an IF or SELECT block.
+      if (!eval.controlSuccessor && eval.lexicalSuccessor &&
+          std::visit(
+              common::visitors{
+                  [](const parser::CaseStmt *) { return true; },
+                  [](const parser::ElseIfStmt *) { return true; },
+                  [](const parser::ElseStmt *) { return true; },
+                  [](const parser::SelectRankCaseStmt *) { return true; },
+                  [](const parser::TypeGuardStmt *) { return true; },
+                  [](const auto *) { return false; },
+              },
+              eval.lexicalSuccessor->u)) {
+        eval.controlSuccessor = parentConstruct->constructExit;
+        eval.lexicalSuccessor->isNewBlock = true;
+      }
+
+      // The lexical successor of a branch starts a new block.
+      if (eval.controlSuccessor && eval.isActionStmt()) {
+        markSuccessorNewBlock(eval);
+      }
+
+      // Propagate isUnstructured flag to enclosing construct.
+      if (parentConstruct && eval.isUnstructured) {
+        parentConstruct->isUnstructured = true;
+      }
+    }
   }
 
   std::unique_ptr<pft::Program> pgm;
-  /// funclist points to FunctionLikeUnit::funcs list (resp.
-  /// ModuleLikeUnit::funcs) when building a FunctionLikeUnit (resp.
-  /// ModuleLikeUnit) to store internal procedures (resp. module procedures).
-  /// Otherwise (e.g. when building the top level Program), it is null.
-  std::list<pft::FunctionLikeUnit> *funclist{nullptr};
-  /// evallist is a stack of pointer to FunctionLikeUnit::evals (or
-  /// Evaluation::subs) that are being build.
-  std::vector<pft::EvaluationCollection *> evallist;
-  std::vector<pft::ParentType> parents;
+  /// functionList points to the internal or module procedure function list
+  /// of a FunctionLikeUnit or a ModuleLikeUnit.  It may be null.
+  std::list<pft::FunctionLikeUnit> *functionList{nullptr};
+  std::vector<pft::ParentType> parentTypeStack;
+  std::vector<pft::Evaluation *> constructStack{};
+  std::vector<pft::Evaluation *> doConstructStack{};
+  /// evaluationListStack is the current nested construct evaluationList state.
+  std::vector<pft::EvaluationList *> evaluationListStack{};
+  llvm::DenseMap<parser::Label, pft::Evaluation *> *labelEvaluationMap{nullptr};
+  std::map<semantics::Symbol *, std::set<parser::Label>> *assignSymbolLabelMap{
+      nullptr};
+  std::map<std::string, pft::Evaluation *> constructNameMap{};
+  pft::Evaluation *lastLexicalEvaluation{nullptr};
 };
 
 template <typename Label, typename A>
@@ -304,178 +775,6 @@ constexpr bool hasLabel(const A &stmt) {
   return false;
 }
 
-bool hasAltReturns(const parser::CallStmt &callStmt) {
-  const auto &args{std::get<std::list<parser::ActualArgSpec>>(callStmt.v.t)};
-  for (const auto &arg : args) {
-    const auto &actual{std::get<parser::ActualArg>(arg.t)};
-    if (std::holds_alternative<parser::AltReturnSpec>(actual.u))
-      return true;
-  }
-  return false;
-}
-
-/// Determine if `callStmt` has alternate returns and if so set `e` to be the
-/// origin of a switch-like control flow
-///
-/// \param cstr points to the current construct. It may be null at the top-level
-/// of a FunctionLikeUnit.
-void altRet(pft::Evaluation &evaluation, const parser::CallStmt &callStmt,
-            pft::Evaluation *cstr) {
-  if (hasAltReturns(callStmt))
-    evaluation.setCFG(pft::CFGAnnotation::Switch, cstr);
-}
-
-/// \param cstr points to the current construct. It may be null at the top-level
-/// of a FunctionLikeUnit.
-void annotateEvalListCFG(pft::EvaluationCollection &evaluationCollection,
-                         pft::Evaluation *cstr) {
-  bool nextIsTarget = false;
-  for (auto &eval : evaluationCollection) {
-    eval.isTarget = nextIsTarget;
-    nextIsTarget = false;
-    if (auto *subs{eval.getConstructEvals()}) {
-      annotateEvalListCFG(*subs, &eval);
-      // assume that the entry and exit are both possible branch targets
-      nextIsTarget = true;
-    }
-
-    if (eval.isActionOrGenerated() && eval.lab.has_value())
-      eval.isTarget = true;
-    eval.visit(common::visitors{
-        [&](const parser::CallStmt &statement) {
-          altRet(eval, statement, cstr);
-        },
-        [&](const parser::CycleStmt &) {
-          eval.setCFG(pft::CFGAnnotation::Goto, cstr);
-        },
-        [&](const parser::ExitStmt &) {
-          eval.setCFG(pft::CFGAnnotation::Goto, cstr);
-        },
-        [&](const parser::FailImageStmt &) {
-          eval.setCFG(pft::CFGAnnotation::Terminate, cstr);
-        },
-        [&](const parser::GotoStmt &) {
-          eval.setCFG(pft::CFGAnnotation::Goto, cstr);
-        },
-        [&](const parser::IfStmt &) {
-          eval.setCFG(pft::CFGAnnotation::CondGoto, cstr);
-        },
-        [&](const parser::ReturnStmt &) {
-          eval.setCFG(pft::CFGAnnotation::Return, cstr);
-        },
-        [&](const parser::StopStmt &) {
-          eval.setCFG(pft::CFGAnnotation::Terminate, cstr);
-        },
-        [&](const parser::ArithmeticIfStmt &) {
-          eval.setCFG(pft::CFGAnnotation::Switch, cstr);
-        },
-        [&](const parser::AssignedGotoStmt &) {
-          eval.setCFG(pft::CFGAnnotation::IndGoto, cstr);
-        },
-        [&](const parser::ComputedGotoStmt &) {
-          eval.setCFG(pft::CFGAnnotation::Switch, cstr);
-        },
-        [&](const parser::WhereStmt &) {
-          // fir.loop + fir.where around the next stmt
-          eval.isTarget = true;
-          eval.setCFG(pft::CFGAnnotation::Iterative, cstr);
-        },
-        [&](const parser::ForallStmt &) {
-          // fir.loop around the next stmt
-          eval.isTarget = true;
-          eval.setCFG(pft::CFGAnnotation::Iterative, cstr);
-        },
-        [&](pft::CGJump &) { eval.setCFG(pft::CFGAnnotation::Goto, cstr); },
-        [&](const parser::SelectCaseStmt &) {
-          eval.setCFG(pft::CFGAnnotation::Switch, cstr);
-        },
-        [&](const parser::NonLabelDoStmt &) {
-          eval.isTarget = true;
-          eval.setCFG(pft::CFGAnnotation::Iterative, cstr);
-        },
-        [&](const parser::EndDoStmt &) {
-          eval.isTarget = true;
-          eval.setCFG(pft::CFGAnnotation::Goto, cstr);
-        },
-        [&](const parser::IfThenStmt &) {
-          eval.setCFG(pft::CFGAnnotation::CondGoto, cstr);
-        },
-        [&](const parser::ElseIfStmt &) {
-          eval.setCFG(pft::CFGAnnotation::CondGoto, cstr);
-        },
-        [&](const parser::SelectRankStmt &) {
-          eval.setCFG(pft::CFGAnnotation::Switch, cstr);
-        },
-        [&](const parser::SelectTypeStmt &) {
-          eval.setCFG(pft::CFGAnnotation::Switch, cstr);
-        },
-        [&](const parser::WhereConstruct &) {
-          // mark the WHERE as if it were a DO loop
-          eval.isTarget = true;
-          eval.setCFG(pft::CFGAnnotation::Iterative, cstr);
-        },
-        [&](const parser::WhereConstructStmt &) {
-          eval.setCFG(pft::CFGAnnotation::CondGoto, cstr);
-        },
-        [&](const parser::MaskedElsewhereStmt &) {
-          eval.isTarget = true;
-          eval.setCFG(pft::CFGAnnotation::CondGoto, cstr);
-        },
-        [&](const parser::ForallConstructStmt &) {
-          eval.isTarget = true;
-          eval.setCFG(pft::CFGAnnotation::Iterative, cstr);
-        },
-
-        [&](const auto &stmt) {
-          // Handle statements with similar impact on control flow
-          using IoStmts = std::tuple<parser::BackspaceStmt, parser::CloseStmt,
-                                     parser::EndfileStmt, parser::FlushStmt,
-                                     parser::InquireStmt, parser::OpenStmt,
-                                     parser::ReadStmt, parser::RewindStmt,
-                                     parser::WaitStmt, parser::WriteStmt>;
-
-          using TargetStmts =
-              std::tuple<parser::EndAssociateStmt, parser::EndBlockStmt,
-                         parser::CaseStmt, parser::EndSelectStmt,
-                         parser::EndChangeTeamStmt, parser::EndCriticalStmt,
-                         parser::ElseStmt, parser::EndIfStmt,
-                         parser::SelectRankCaseStmt, parser::TypeGuardStmt,
-                         parser::ElsewhereStmt, parser::EndWhereStmt,
-                         parser::EndForallStmt>;
-
-          using DoNothingConstructStmts =
-              std::tuple<parser::BlockStmt, parser::AssociateStmt,
-                         parser::CriticalStmt, parser::ChangeTeamStmt>;
-
-          using A = std::decay_t<decltype(stmt)>;
-          if constexpr (common::HasMember<A, IoStmts>) {
-            if (hasLabel<parser::ErrLabel>(stmt) ||
-                hasLabel<parser::EorLabel>(stmt) ||
-                hasLabel<parser::EndLabel>(stmt))
-              eval.setCFG(pft::CFGAnnotation::IoSwitch, cstr);
-          } else if constexpr (common::HasMember<A, TargetStmts>) {
-            eval.isTarget = true;
-          } else if constexpr (common::HasMember<A, DoNothingConstructStmts>) {
-            // Explicitly do nothing for these construct statements
-          } else {
-            static_assert(!pft::isConstructStmt<A>,
-                          "All ConstructStmts impact on the control flow "
-                          "should be explicitly handled");
-          }
-          /* else do nothing */
-        },
-    });
-  }
-}
-
-/// Annotate the PFT with CFG source decorations (see CFGAnnotation) and mark
-/// potential branch targets
-inline void annotateFuncCFG(pft::FunctionLikeUnit &functionLikeUnit) {
-  annotateEvalListCFG(functionLikeUnit.evals, nullptr);
-  for (auto &internalFunc : functionLikeUnit.funcs)
-    annotateFuncCFG(internalFunc);
-}
-
 class PFTDumper {
 public:
   void dumpPFT(llvm::raw_ostream &outputStream, pft::Program &pft) {
@@ -495,35 +794,53 @@ public:
                  },
                  unit);
     }
-    resetIndexes();
   }
 
-  llvm::StringRef evalName(pft::Evaluation &eval) {
+  llvm::StringRef evaluationName(pft::Evaluation &eval) {
     return eval.visit(common::visitors{
-        [](const pft::CGJump) { return "CGJump"; },
         [](const auto &parseTreeNode) {
           return parser::ParseTreeDumper::GetNodeName(parseTreeNode);
         },
     });
   }
 
-  void dumpEvalList(llvm::raw_ostream &outputStream,
-                    pft::EvaluationCollection &evaluationCollection,
-                    int indent = 1) {
+  void dumpEvaluationList(llvm::raw_ostream &outputStream,
+                          pft::EvaluationList &evaluationList, int indent = 1) {
     static const std::string white{"                                      ++"};
     std::string indentString{white.substr(0, indent * 2)};
-    for (pft::Evaluation &eval : evaluationCollection) {
-      outputStream << indentString << getNodeIndex(eval) << " ";
-      llvm::StringRef name{evalName(eval)};
-      if (auto *subs{eval.getConstructEvals()}) {
-        outputStream << "<<" << name << ">>";
-        outputStream << "\n";
-        dumpEvalList(outputStream, *subs, indent + 1);
-        outputStream << indentString << "<<End" << name << ">>\n";
-      } else {
-        outputStream << name;
-        outputStream << ": " << eval.pos.ToString() + "\n";
+    for (pft::Evaluation &eval : evaluationList) {
+      llvm::StringRef name{evaluationName(eval)};
+      std::string bang{eval.isUnstructured ? "!" : ""};
+      if (eval.isConstruct()) {
+        outputStream << indentString << "<<" << name << bang << ">>";
+        if (eval.constructExit) {
+          outputStream << " -> " << eval.constructExit->printIndex;
+        }
+        outputStream << '\n';
+        dumpEvaluationList(outputStream, *eval.evaluationList, indent + 1);
+        outputStream << indentString << "<<End " << name << bang << ">>\n";
+        continue;
       }
+      outputStream << indentString;
+      if (eval.printIndex) {
+        outputStream << eval.printIndex << ' ';
+      }
+      if (eval.isNewBlock) {
+        outputStream << '^';
+      }
+      if (eval.localBlocks.size()) {
+        outputStream << '*';
+      }
+      outputStream << name << bang;
+      if (eval.isActionStmt() || eval.isConstructStmt()) {
+        if (eval.controlSuccessor) {
+          outputStream << " -> " << eval.controlSuccessor->printIndex;
+        }
+      }
+      if (eval.position.size()) {
+        outputStream << ": " << eval.position.ToString();
+      }
+      outputStream << '\n';
     }
   }
 
@@ -569,10 +886,10 @@ public:
     if (header.size())
       outputStream << ": " << header;
     outputStream << '\n';
-    dumpEvalList(outputStream, functionLikeUnit.evals);
-    if (!functionLikeUnit.funcs.empty()) {
+    dumpEvaluationList(outputStream, functionLikeUnit.evaluationList);
+    if (!functionLikeUnit.containedFunctions.empty()) {
       outputStream << "\nContains\n";
-      for (auto &func : functionLikeUnit.funcs)
+      for (auto &func : functionLikeUnit.containedFunctions)
         dumpFunctionLikeUnit(outputStream, func);
       outputStream << "EndContains\n";
     }
@@ -584,7 +901,7 @@ public:
     outputStream << getNodeIndex(moduleLikeUnit) << " ";
     outputStream << "ModuleLike: ";
     outputStream << "\nContains\n";
-    for (auto &func : moduleLikeUnit.funcs)
+    for (auto &func : moduleLikeUnit.containedFunctions)
       dumpFunctionLikeUnit(outputStream, func);
     outputStream << "EndContains\nEndModuleLike\n\n";
   }
@@ -600,11 +917,6 @@ public:
     return nextIndex++;
   }
   std::size_t getNodeIndex(const pft::Program &) { return 0; }
-
-  void resetIndexes() {
-    nodeIndexes.clear();
-    nextIndex = 1;
-  }
 
 private:
   llvm::DenseMap<const void *, std::size_t> nodeIndexes;
@@ -623,6 +935,18 @@ pft::ModuleLikeUnit::ModuleStatement getModuleStmt(const T &mod) {
 }
 
 } // namespace
+
+llvm::cl::opt<bool> ClDisableStructuredFir(
+    "no-structured-fir", llvm::cl::desc("disable generation of structured FIR"),
+    llvm::cl::init(false), llvm::cl::Hidden);
+
+bool pft::Evaluation::LowerAsStructured() const {
+  return !LowerAsUnstructured();
+}
+
+bool pft::Evaluation::LowerAsUnstructured() const {
+  return isUnstructured || ClDisableStructuredFir;
+}
 
 pft::FunctionLikeUnit::FunctionLikeUnit(const parser::MainProgram &func,
                                         const pft::ParentType &parent)
@@ -673,20 +997,6 @@ std::unique_ptr<pft::Program> createPFT(const parser::Program &root) {
   PFTBuilder walker;
   Walk(root, walker);
   return walker.result();
-}
-
-void annotateControl(pft::Program &pft) {
-  for (auto &unit : pft.getUnits()) {
-    std::visit(common::visitors{
-                   [](pft::BlockDataUnit &) {},
-                   [](pft::FunctionLikeUnit &func) { annotateFuncCFG(func); },
-                   [](pft::ModuleLikeUnit &unit) {
-                     for (auto &func : unit.funcs)
-                       annotateFuncCFG(func);
-                   },
-               },
-               unit);
-  }
 }
 
 void dumpPFT(llvm::raw_ostream &outputStream, pft::Program &pft) {
