@@ -53,7 +53,7 @@ public:
   mlir::Value lookupSymbol(semantics::SymbolRef symbol);
 
   void pushShadowSymbol(semantics::SymbolRef symbol, mlir::Value value);
-  void popShadowSymbol() { shadowStack.pop_back(); }
+  void popShadowSymbol();
 
   void clear() {
     symbolMap.clear();
