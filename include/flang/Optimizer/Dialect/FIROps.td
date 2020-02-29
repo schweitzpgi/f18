@@ -1959,7 +1959,8 @@ def fir_WhereOp : fir_Op<"where", [ImplicitFirTerminator]> {
 
     // Print the 'else' regions if it exists and has a block.
     auto &otherReg = otherRegion();
-    if (!otherReg.empty()) {
+    if (!otherReg.empty() && !otherReg.front().empty() &&
+        otherReg.front().front().isKnownNonTerminator()) {
       p << " otherwise";
       p.printRegion(otherReg, /*printEntryBlockArgs=*/false,
           /*printBlockTerminators=*/false);
