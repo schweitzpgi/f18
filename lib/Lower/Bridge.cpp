@@ -28,6 +28,16 @@
 #include "mlir/Target/LLVMIR.h"
 #include "llvm/Support/CommandLine.h"
 
+#undef TODO
+#define TODO()                                                                 \
+  {                                                                            \
+    if (disableToDoAssertions)                                                 \
+      mlir::emitError(toLocation(), __FILE__)                                  \
+          << ":" << __LINE__ << " not implemented";                            \
+    else                                                                       \
+      assert(false && "not yet implemented");                                  \
+  }
+
 namespace {
 
 llvm::cl::opt<bool>
@@ -39,43 +49,16 @@ llvm::cl::opt<bool>
                           llvm::cl::desc("disable burnside bridge asserts"),
                           llvm::cl::init(false), llvm::cl::Hidden);
 
-#undef TODO
-#define TODO() assert(false && "not implemented yet")
-
-using SelectCaseConstruct = Fortran::parser::CaseConstruct;
-using SelectRankConstruct = Fortran::parser::SelectRankConstruct;
-using SelectTypeConstruct = Fortran::parser::SelectTypeConstruct;
-
-using CFGSinkListType = llvm::SmallVector<Fortran::lower::pft::Evaluation *, 2>;
-using CFGMapType =
-    llvm::DenseMap<Fortran::lower::pft::Evaluation *, CFGSinkListType *>;
-
-static constexpr bool isStopStmt(const Fortran::parser::StopStmt &stm) {
-  return std::get<Fortran::parser::StopStmt::Kind>(stm.t) ==
+static constexpr bool isStopStmt(const Fortran::parser::StopStmt &stmt) {
+  return std::get<Fortran::parser::StopStmt::Kind>(stmt.t) ==
          Fortran::parser::StopStmt::Kind::Stop;
 }
 
-// CfgBuilder implementation
-#include "CFGBuilder.h"
-
-#undef TODO
-#define TODO()                                                                 \
-  {                                                                            \
-    if (disableToDoAssertions)                                                 \
-      mlir::emitError(toLocation(), __FILE__)                                  \
-          << ":" << __LINE__ << " not implemented";                            \
-    else                                                                       \
-      assert(false && "not yet implemented");                                  \
-  }
-
 /// Converter from PFT to FIR
 ///
-/// After building the PFT and decorating it, the FirConverter processes that
-/// representation and lowers it to the FIR executable representation.
+/// After building the PFT, the FirConverter processes that representation
+/// and lowers it to the FIR executable representation.
 class FirConverter : public Fortran::lower::AbstractConverter {
-  using LabelMapType =
-      std::map<Fortran::lower::pft::Evaluation *, mlir::Block *>;
-  using Closure = std::function<void(const LabelMapType &)>;
 
   //
   // Helper function members
@@ -103,8 +86,9 @@ class FirConverter : public Fortran::lower::AbstractConverter {
 
   mlir::FuncOp genFunctionFIR(llvm::StringRef callee,
                               mlir::FunctionType funcTy) {
-    if (auto func = Fortran::lower::getNamedFunction(module, callee))
+    if (auto func{Fortran::lower::getNamedFunction(module, callee)}) {
       return func;
+    }
     return createFunction(*this, callee, funcTy);
   }
 
@@ -118,9 +102,8 @@ class FirConverter : public Fortran::lower::AbstractConverter {
                           },
                           [](auto *) { return false; },
                       },
-                      cstr->parent.p);
+                      cstr->parentType.p);
   }
-
   static const Fortran::parser::SubroutineStmt *
   inSubroutine(Fortran::lower::pft::Evaluation *cstr) {
     return std::visit(
@@ -133,7 +116,7 @@ class FirConverter : public Fortran::lower::AbstractConverter {
               return nullptr;
             },
         },
-        cstr->parent.p);
+        cstr->parentType.p);
   }
   static const Fortran::parser::FunctionStmt *
   inFunction(Fortran::lower::pft::Evaluation *cstr) {
@@ -147,58 +130,56 @@ class FirConverter : public Fortran::lower::AbstractConverter {
               return nullptr;
             },
         },
-        cstr->parent.p);
+        cstr->parentType.p);
   }
   static const Fortran::parser::MpSubprogramStmt *
-  inMPSubp(Fortran::lower::pft::Evaluation *cstr) {
+  inMpSubprogram(Fortran::lower::pft::Evaluation *cstr) {
     return std::visit(
         Fortran::common::visitors{
             [](Fortran::lower::pft::FunctionLikeUnit *c) {
-              return c->getMPSubp();
+              return c->getMpSubprogram();
             },
-            [&](Fortran::lower::pft::Evaluation *c) { return inMPSubp(c); },
+            [&](Fortran::lower::pft::Evaluation *c) {
+              return inMpSubprogram(c);
+            },
             [](auto *) -> const Fortran::parser::MpSubprogramStmt * {
               return nullptr;
             },
         },
-        cstr->parent.p);
+        cstr->parentType.p);
   }
 
-  template <typename A>
-  static const Fortran::semantics::SomeExpr *
-  getScalarExprOfTuple(const A &tuple) {
-    return Fortran::semantics::GetExpr(
-        std::get<Fortran::parser::ScalarLogicalExpr>(tuple));
+  void genFIRUnconditionalBranch(mlir::Block *targetBlock) {
+    assert(targetBlock && "missing unconditional target block");
+    builder->create<mlir::BranchOp>(toLocation(), targetBlock);
   }
-  template <typename A>
-  static const Fortran::semantics::SomeExpr *getExprOfTuple(const A &tuple) {
-    return Fortran::semantics::GetExpr(
-        std::get<Fortran::parser::LogicalExpr>(tuple));
+
+  void
+  genFIRUnconditionalBranch(Fortran::lower::pft::Evaluation *targetEvaluation) {
+    builder->create<mlir::BranchOp>(toLocation(), targetEvaluation->block);
   }
-  /// Get the condition expression for a CondGoto evaluation
-  const Fortran::semantics::SomeExpr *
-  getEvaluationCondition(Fortran::lower::pft::Evaluation &eval) {
-    return eval.visit(Fortran::common::visitors{
-        [&](const Fortran::parser::IfStmt &stmt) {
-          return getScalarExprOfTuple(stmt.t);
-        },
-        [&](const Fortran::parser::IfThenStmt &stmt) {
-          return getScalarExprOfTuple(stmt.t);
-        },
-        [&](const Fortran::parser::ElseIfStmt &stmt) {
-          return getScalarExprOfTuple(stmt.t);
-        },
-        [&](const Fortran::parser::WhereConstructStmt &stmt) {
-          return getExprOfTuple(stmt.t);
-        },
-        [&](const Fortran::parser::MaskedElsewhereStmt &stmt) {
-          return getExprOfTuple(stmt.t);
-        },
-        [&](auto &) -> const Fortran::semantics::SomeExpr * {
-          mlir::emitError(toLocation(), "unexpected conditional branch case");
-          return nullptr;
-        },
-    });
+
+  void genFIRConditionalBranch(mlir::Value &cond, mlir::Block *trueTarget,
+                               mlir::Block *falseTarget) {
+    assert(trueTarget && "missing conditional branch true block");
+    assert(falseTarget && "missing conditional branch false block");
+    llvm::SmallVector<mlir::Value, 2> blk;
+    builder->create<mlir::CondBranchOp>(toLocation(), cond, trueTarget, blk,
+                                        falseTarget, blk);
+  }
+
+  void genFIRConditionalBranch(mlir::Value &cond,
+                               Fortran::lower::pft::Evaluation *trueTarget,
+                               Fortran::lower::pft::Evaluation *falseTarget) {
+    genFIRConditionalBranch(cond, trueTarget->block, falseTarget->block);
+  }
+
+  void genFIRConditionalBranch(const Fortran::parser::ScalarLogicalExpr &expr,
+                               Fortran::lower::pft::Evaluation *trueTarget,
+                               Fortran::lower::pft::Evaluation *falseTarget) {
+    mlir::Value cond{
+        createLogicalExprAsI1(toLocation(), Fortran::semantics::GetExpr(expr))};
+    genFIRConditionalBranch(cond, trueTarget->block, falseTarget->block);
   }
 
   //
@@ -215,13 +196,13 @@ class FirConverter : public Fortran::lower::AbstractConverter {
       const Fortran::parser::Statement<Fortran::parser::EndProgramStmt> &stmt,
       std::string &, const Fortran::semantics::Symbol *&) {
     setCurrentPosition(stmt.source);
-    genFIR(stmt.statement);
+    genFIRProgramExit();
   }
   void
   genFIR(const Fortran::parser::Statement<Fortran::parser::FunctionStmt> &stmt,
          std::string &name, const Fortran::semantics::Symbol *&symbol) {
     setCurrentPosition(stmt.source);
-    auto &n = std::get<Fortran::parser::Name>(stmt.statement.t);
+    auto &n{std::get<Fortran::parser::Name>(stmt.statement.t)};
     symbol = n.symbol;
     assert(symbol && "Name resolution failure");
     name = mangleName(*symbol);
@@ -237,7 +218,7 @@ class FirConverter : public Fortran::lower::AbstractConverter {
       const Fortran::parser::Statement<Fortran::parser::SubroutineStmt> &stmt,
       std::string &name, const Fortran::semantics::Symbol *&symbol) {
     setCurrentPosition(stmt.source);
-    auto &n = std::get<Fortran::parser::Name>(stmt.statement.t);
+    auto &n{std::get<Fortran::parser::Name>(stmt.statement.t)};
     symbol = n.symbol;
     assert(symbol && "Name resolution failure");
     name = mangleName(*symbol);
@@ -247,13 +228,14 @@ class FirConverter : public Fortran::lower::AbstractConverter {
              &stmt,
          std::string &, const Fortran::semantics::Symbol *&) {
     setCurrentPosition(stmt.source);
-    genFIR(stmt.statement);
+    genFIRProcedureExit(
+        static_cast<const Fortran::parser::SubroutineStmt *>(nullptr));
   }
   void genFIR(
       const Fortran::parser::Statement<Fortran::parser::MpSubprogramStmt> &stmt,
       std::string &name, const Fortran::semantics::Symbol *&symbol) {
     setCurrentPosition(stmt.source);
-    auto &n = stmt.statement.v;
+    auto &n{stmt.statement.v};
     name = n.ToString();
     symbol = n.symbol;
   }
@@ -261,8 +243,8 @@ class FirConverter : public Fortran::lower::AbstractConverter {
   genFIR(const Fortran::parser::Statement<Fortran::parser::EndMpSubprogramStmt>
              &stmt,
          std::string &, const Fortran::semantics::Symbol *&) {
-    setCurrentPosition(stmt.source);
-    genFIR(stmt.statement);
+    genFIRProcedureExit(
+        static_cast<const Fortran::parser::MpSubprogramStmt *>(nullptr));
   }
 
   //
@@ -279,10 +261,10 @@ class FirConverter : public Fortran::lower::AbstractConverter {
   ///
   /// Generate the cleanup block before the procedure exits
   void genFIRFunctionReturn(const Fortran::semantics::Symbol &functionSymbol) {
-    const auto &details =
-        functionSymbol.get<Fortran::semantics::SubprogramDetails>();
-    mlir::Value resultRef = localSymbols.lookupSymbol(details.result());
-    mlir::Value r = builder->create<fir::LoadOp>(toLocation(), resultRef);
+    const auto &details{
+        functionSymbol.get<Fortran::semantics::SubprogramDetails>()};
+    mlir::Value resultRef{localSymbols.lookupSymbol(details.result())};
+    mlir::Value r{builder->create<fir::LoadOp>(toLocation(), resultRef)};
     builder->create<mlir::ReturnOp>(toLocation(), r);
   }
   template <typename A>
@@ -303,74 +285,6 @@ class FirConverter : public Fortran::lower::AbstractConverter {
   // Statements that have control-flow semantics
   //
 
-  // Conditional goto control-flow semantics
-  void genFIREvalCondGoto(Fortran::lower::pft::Evaluation &eval) {
-    genFIR(eval);
-    auto targets = findTargetsOf(eval);
-    auto *expr = getEvaluationCondition(eval);
-    assert(expr && "condition expression missing");
-    auto cond = createLogicalExprAsI1(toLocation(), expr);
-    genFIRCondBranch(cond, targets[0], targets[1]);
-  }
-
-  void genFIRCondBranch(mlir::Value cond,
-                        Fortran::lower::pft::Evaluation *trueDest,
-                        Fortran::lower::pft::Evaluation *falseDest) {
-    using namespace std::placeholders;
-    localEdgeQ.emplace_back(std::bind(
-        [](mlir::OpBuilder *builder, mlir::Block *block, mlir::Value cnd,
-           Fortran::lower::pft::Evaluation *trueDest,
-           Fortran::lower::pft::Evaluation *falseDest, mlir::Location location,
-           const LabelMapType &map) {
-          llvm::SmallVector<mlir::Value, 2> blk;
-          builder->setInsertionPointToEnd(block);
-          auto tdp = map.find(trueDest);
-          auto fdp = map.find(falseDest);
-          assert(tdp != map.end() && fdp != map.end());
-          builder->create<mlir::CondBranchOp>(location, cnd, tdp->second, blk,
-                                              fdp->second, blk);
-        },
-        builder, builder->getInsertionBlock(), cond, trueDest, falseDest,
-        toLocation(), _1));
-  }
-
-  // Goto control-flow semantics
-  //
-  // These are unconditional jumps. There is nothing to evaluate.
-  void genFIREvalGoto(Fortran::lower::pft::Evaluation &eval) {
-    using namespace std::placeholders;
-    localEdgeQ.emplace_back(std::bind(
-        [](mlir::OpBuilder *builder, mlir::Block *block,
-           Fortran::lower::pft::Evaluation *dest, mlir::Location location,
-           const LabelMapType &map) {
-          builder->setInsertionPointToEnd(block);
-          assert(map.find(dest) != map.end() && "no destination");
-          builder->create<mlir::BranchOp>(location, map.find(dest)->second);
-        },
-        builder, builder->getInsertionBlock(), findSinkOf(eval), toLocation(),
-        _1));
-  }
-
-  // Indirect goto control-flow semantics
-  //
-  // For assigned gotos, which is an obsolescent feature. Lower to a switch.
-  void genFIREvalIndGoto(Fortran::lower::pft::Evaluation &eval) {
-    genFIR(eval);
-    // FIXME
-  }
-
-  // IO statements that have control-flow semantics
-  //
-  // First lower the IO statement and then do the multiway switch op
-  void genFIREvalIoSwitch(Fortran::lower::pft::Evaluation &eval) {
-    genFIR(eval);
-    genFIRIOSwitch(eval);
-  }
-  void genFIRIOSwitch(Fortran::lower::pft::Evaluation &) { TODO(); }
-
-  // Iterative loop control-flow semantics
-  void genFIREvalIterative(Fortran::lower::pft::Evaluation &) { TODO(); }
-
   void switchInsertionPointToWhere(fir::WhereOp &where) {
     builder->setInsertionPointToStart(&where.whereRegion().front());
   }
@@ -379,129 +293,25 @@ class FirConverter : public Fortran::lower::AbstractConverter {
   }
   template <typename A>
   void genWhereCondition(fir::WhereOp &where, const A *stmt) {
-    auto cond = createLogicalExprAsI1(
+    auto cond{createLogicalExprAsI1(
         toLocation(),
         Fortran::semantics::GetExpr(
-            std::get<Fortran::parser::ScalarLogicalExpr>(stmt->t)));
+            std::get<Fortran::parser::ScalarLogicalExpr>(stmt->t)))};
     where = builder->create<fir::WhereOp>(toLocation(), cond, true);
     switchInsertionPointToWhere(where);
   }
 
+  mlir::Value genFIRLoopIndex(const Fortran::parser::ScalarExpr &x,
+                              mlir::Type t) {
+    mlir::Value v{genExprValue(*Fortran::semantics::GetExpr(x))};
+    return v.getType() == t
+               ? v
+               : builder->create<fir::ConvertOp>(toLocation(), t, v);
+  }
+
   mlir::Value genFIRLoopIndex(const Fortran::parser::ScalarExpr &x) {
-    return builder->create<fir::ConvertOp>(
-        toLocation(), mlir::IndexType::get(&mlirContext),
-        genExprValue(*Fortran::semantics::GetExpr(x)));
+    return genFIRLoopIndex(x, mlir::IndexType::get(&mlirContext));
   }
-
-  /// Structured control op (`fir.loop`, `fir.where`)
-  ///
-  /// Convert a DoConstruct to a `fir.loop` op.
-  /// Convert an IfConstruct to a `fir.where` op.
-  ///
-  void genFIREvalStructuredOp(Fortran::lower::pft::Evaluation &eval) {
-    // TODO: array expressions, FORALL, WHERE ...
-
-    // process the list of Evaluations
-    assert(eval.subs && "eval must have a body");
-    auto *insPt = builder->getInsertionBlock();
-
-    if (const auto *doConstruct{eval.getIf<Fortran::parser::DoConstruct>()}) {
-      if (const auto &loopControl{doConstruct->GetLoopControl()}) {
-        std::visit(
-            Fortran::common::visitors{
-                [&](const Fortran::parser::LoopControl::Bounds &x) {
-                  mlir::Value lo = genFIRLoopIndex(x.lower);
-                  mlir::Value hi = genFIRLoopIndex(x.upper);
-                  auto step =
-                      x.step.has_value()
-                          ? genExprValue(*Fortran::semantics::GetExpr(*x.step))
-                          : mlir::Value{};
-                  auto *sym = x.name.thing.symbol;
-                  Fortran::lower::LoopBuilder{*builder, toLocation()}
-                      .createLoop(lo, hi, step,
-                                  [&](Fortran::lower::OpBuilderWrapper &handler,
-                                      mlir::Value index) {
-                                    // TODO: should push this cast down to the
-                                    // uses
-                                    auto cvt = handler.create<fir::ConvertOp>(
-                                        genType(*sym), index);
-                                    localSymbols.pushShadowSymbol(*sym, cvt);
-                                    for (auto &e : *eval.subs) {
-                                      genFIR(e);
-                                    }
-                                    localSymbols.popShadowSymbol();
-                                  });
-                },
-                [&](const Fortran::parser::ScalarLogicalExpr &) {
-                  // we should never reach here
-                  mlir::emitError(toLocation(), "loop lacks iteration space");
-                },
-                [&](const Fortran::parser::LoopControl::Concurrent &x) {
-                  // FIXME: can project a multi-dimensional space
-                  Fortran::lower::LoopBuilder{*builder, toLocation()}
-                      .createLoop(
-                          mlir::Value{}, mlir::Value{},
-                          [&](Fortran::lower::OpBuilderWrapper &, mlir::Value) {
-                            for (auto &e : *eval.subs) {
-                              genFIR(e);
-                            }
-                          });
-                },
-            },
-            loopControl->u);
-      } else {
-        // TODO: Infinite loop: 11.1.7.4.1 par 2
-        TODO();
-      }
-    } else if (eval.isA<Fortran::parser::IfConstruct>()) {
-      // Construct fir.where
-      fir::WhereOp where;
-      for (auto &e : *eval.subs) {
-        if (auto *s{e.getIf<Fortran::parser::IfThenStmt>()}) {
-          // fir.where op
-          genWhereCondition(where, s);
-        } else if (auto *s{e.getIf<Fortran::parser::ElseIfStmt>()}) {
-          // otherwise block, then nested fir.where
-          switchInsertionPointToOtherwise(where);
-          genWhereCondition(where, s);
-        } else if (e.isA<Fortran::parser::ElseStmt>()) {
-          // otherwise block
-          switchInsertionPointToOtherwise(where);
-        } else if (e.isA<Fortran::parser::EndIfStmt>()) {
-          // close all open fir.where ops
-          builder->clearInsertionPoint();
-        } else {
-          genFIR(e);
-        }
-      }
-    } else {
-      assert(false && "not yet implemented");
-    }
-    builder->setInsertionPointToEnd(insPt);
-  }
-
-  // Return from subprogram control-flow semantics
-  void genFIREvalReturn(Fortran::lower::pft::Evaluation &eval) {
-    // Handled case-by-case
-    // FIXME: think about moving the case code here
-  }
-
-  // Multiway switch control-flow semantics
-  void genFIREvalSwitch(Fortran::lower::pft::Evaluation &eval) {
-    genFIR(eval);
-    // FIXME
-  }
-
-  // Terminate process control-flow semantics
-  //
-  // Call a runtime routine that does not return
-  void genFIREvalTerminate(Fortran::lower::pft::Evaluation &eval) {
-    genFIR(eval);
-    builder->create<fir::UnreachableOp>(toLocation());
-  }
-
-  // No control-flow
-  void genFIREvalNone(Fortran::lower::pft::Evaluation &eval) { genFIR(eval); }
 
   mlir::FuncOp getFunc(llvm::StringRef name, mlir::FunctionType ty) {
     if (auto func = Fortran::lower::getNamedFunction(module, name)) {
@@ -516,7 +326,8 @@ class FirConverter : public Fortran::lower::AbstractConverter {
   /// 1. Determine what function is being called/dispatched to
   /// 2. Build a tuple of arguments to be passed to that function
   /// 3. Emit fir.call/fir.dispatch on arguments
-  void genFIR(const Fortran::parser::CallStmt &stmt) {
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::CallStmt &stmt) {
     llvm::SmallVector<mlir::Type, 8> argTy;
     llvm::SmallVector<mlir::Type, 2> resTy;
     llvm::StringRef funName;
@@ -525,7 +336,7 @@ class FirConverter : public Fortran::lower::AbstractConverter {
     std::visit(Fortran::common::visitors{
                    [&](const Fortran::parser::Name &name) {
                      auto *sym = name.symbol;
-                     auto n = sym->name();
+                     auto n{sym->name()};
                      funName = llvm::StringRef{n.begin(), n.size()};
                      auto &details =
                          sym->get<Fortran::semantics::SubprogramDetails>();
@@ -537,13 +348,13 @@ class FirConverter : public Fortran::lower::AbstractConverter {
                },
                std::get<Fortran::parser::ProcedureDesignator>(stmt.v.t).u);
     for (auto *d : argsList) {
-      Fortran::semantics::SymbolRef sr = *d;
+      Fortran::semantics::SymbolRef sr{*d};
       // FIXME:
       argTy.push_back(fir::ReferenceType::get(genType(sr)));
     }
-    auto funTy = mlir::FunctionType::get(argTy, resTy, builder->getContext());
+    auto funTy{mlir::FunctionType::get(argTy, resTy, builder->getContext())};
     // FIXME: mangle name
-    mlir::FuncOp func = getFunc(funName, funTy);
+    mlir::FuncOp func{getFunc(funName, funTy)};
     (void)func; // FIXME
     std::vector<mlir::Value> actuals;
     for (auto &aa :
@@ -574,51 +385,338 @@ class FirConverter : public Fortran::lower::AbstractConverter {
                                  builder->getSymbolRefAttr(funName), actuals);
   }
 
-  void genFIR(const Fortran::parser::IfStmt &) { TODO(); }
-  void genFIR(const Fortran::parser::WaitStmt &) { TODO(); }
-  void genFIR(const Fortran::parser::WhereStmt &) { TODO(); }
-  void genFIR(const Fortran::parser::ComputedGotoStmt &stmt) {
-    auto *exp = Fortran::semantics::GetExpr(
-        std::get<Fortran::parser::ScalarIntExpr>(stmt.t));
-    auto e1 = genExprValue(*exp);
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::IfStmt &stmt) {
+    if (eval.LowerAsUnstructured()) {
+      genFIRConditionalBranch(
+          std::get<Fortran::parser::ScalarLogicalExpr>(stmt.t),
+          eval.lexicalSuccessor, eval.controlSuccessor);
+      return;
+    }
+
+    // Generate fir.where.
+    mlir::Block *ifStmtBlock{builder->getInsertionBlock()};
+    fir::WhereOp where;
+    genWhereCondition(where, &stmt);
+    genFIR(*eval.lexicalSuccessor, false);
+    eval.lexicalSuccessor->skip = true;
+    builder->setInsertionPointToEnd(ifStmtBlock);
+  }
+
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::WaitStmt &) {
+    TODO();
+  }
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::WhereStmt &) {
+    TODO();
+  }
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::ComputedGotoStmt &stmt) {
+    auto *exp{Fortran::semantics::GetExpr(
+        std::get<Fortran::parser::ScalarIntExpr>(stmt.t))};
+    auto e1{genExprValue(*exp)};
     (void)e1;
     TODO();
   }
-  void genFIR(const Fortran::parser::ForallStmt &) { TODO(); }
-  void genFIR(const Fortran::parser::ArithmeticIfStmt &stmt) {
-    auto *exp =
-        Fortran::semantics::GetExpr(std::get<Fortran::parser::Expr>(stmt.t));
-    auto e1 = genExprValue(*exp);
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::ForallStmt &) {
+    TODO();
+  }
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::ArithmeticIfStmt &stmt) {
+    auto *exp{
+        Fortran::semantics::GetExpr(std::get<Fortran::parser::Expr>(stmt.t))};
+    auto e1{genExprValue(*exp)};
     (void)e1;
     TODO();
   }
-  void genFIR(const Fortran::parser::AssignedGotoStmt &) { TODO(); }
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::AssignedGotoStmt &) {
+    TODO();
+  }
 
-  void genFIR(const Fortran::parser::AssociateConstruct &) { TODO(); }
-  void genFIR(const Fortran::parser::BlockConstruct &) { TODO(); }
-  void genFIR(const Fortran::parser::ChangeTeamConstruct &) { TODO(); }
-  void genFIR(const Fortran::parser::CriticalConstruct &) { TODO(); }
-  void genFIR(const Fortran::parser::DoConstruct &) { TODO(); }
-  void genFIR(const Fortran::parser::IfConstruct &) { TODO(); }
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::AssociateConstruct &) {
+    TODO();
+  }
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::BlockConstruct &) {
+    TODO();
+  }
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::ChangeTeamConstruct &) {
+    TODO();
+  }
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::CriticalConstruct &) {
+    TODO();
+  }
 
-  void genFIR(const SelectCaseConstruct &) { TODO(); }
-  void genFIR(const SelectRankConstruct &) { TODO(); }
-  void genFIR(const SelectTypeConstruct &) { TODO(); }
+  // Information for generating a structured or unstructured increment loop.
+  struct IncrementLoopInfo {
+    IncrementLoopInfo(
+        Fortran::semantics::Symbol *sym,
+        const Fortran::parser::ScalarExpr &lowerExpr,
+        const Fortran::parser::ScalarExpr &upperExpr,
+        const std::optional<Fortran::parser::ScalarExpr> &stepExpr,
+        mlir::Type type, mlir::Block *preheader)
+        : loopVariableSym{sym}, lowerExpr{lowerExpr}, upperExpr{upperExpr},
+          stepExpr{stepExpr}, loopVariableType{type} {}
 
-  void genFIR(const Fortran::parser::WhereConstruct &) { TODO(); }
+    bool isStructured() const { return headerBlock == nullptr; }
+
+    // Data members for both structured and unstructured loops.
+    Fortran::semantics::Symbol *loopVariableSym;
+    const Fortran::parser::ScalarExpr &lowerExpr;
+    const Fortran::parser::ScalarExpr &upperExpr;
+    const std::optional<Fortran::parser::ScalarExpr> &stepExpr;
+    mlir::Type loopVariableType;
+    mlir::Value loopVariable{mlir::Value{}};
+    mlir::Value stepValue{mlir::Value{}}; // possible uses in multiple blocks
+
+    // Data members for structured loops.
+    fir::LoopOp doLoop{};
+    mlir::OpBuilder::InsertPoint insertionPoint{};
+
+    // Data members for unstructured loops.
+    mlir::Value tripVariable{mlir::Value{}};
+    mlir::Block *headerBlock{nullptr};    // loop entry and test block
+    mlir::Block *bodyBlock{nullptr};      // first loop body block
+    mlir::Block *successorBlock{nullptr}; // loop exit target block
+  };
+
+  /// Generate FIR for a DO construct.  There are six variants:
+  ///  - unstructured infinite and while loops
+  ///  - structured and unstructured increment loops
+  ///  - structured and unstructured concurrent loops
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::DoConstruct &) {
+    bool unstructuredContext{eval.LowerAsUnstructured()};
+    Fortran::lower::pft::Evaluation &doStmtEval{eval.evaluationList->front()};
+    auto *doStmt{doStmtEval.getIf<Fortran::parser::NonLabelDoStmt>()};
+    assert(doStmt && "missing DO statement");
+    const auto &loopControl{
+        std::get<std::optional<Fortran::parser::LoopControl>>(doStmt->t)};
+    llvm::SmallVector<IncrementLoopInfo, 1> incrementLoopInfo;
+    const Fortran::parser::ScalarLogicalExpr *whileCondition{nullptr};
+    bool infiniteLoop{!loopControl.has_value()};
+    if (infiniteLoop) {
+      assert(unstructuredContext && "infinite loop must be unstructured");
+      startBlock(doStmtEval.localBlocks[0]); // header block
+    } else if ((whileCondition =
+                    std::get_if<Fortran::parser::ScalarLogicalExpr>(
+                        &loopControl->u))) {
+      assert(unstructuredContext && "while loop must be unstructured");
+      startBlock(doStmtEval.localBlocks[0]); // header block
+      genFIRConditionalBranch(*whileCondition, doStmtEval.lexicalSuccessor,
+                              doStmtEval.parentConstruct->constructExit);
+    } else if (const auto *bounds{
+                   std::get_if<Fortran::parser::LoopControl::Bounds>(
+                       &loopControl->u)}) {
+      // "Normal" increment loop.
+      incrementLoopInfo.emplace_back(IncrementLoopInfo(
+          bounds->name.thing.symbol, bounds->lower, bounds->upper, bounds->step,
+          genType(*bounds->name.thing.symbol), builder->getInsertionBlock()));
+      if (unstructuredContext) {
+        maybeStartBlock(doStmtEval.block); // preheader block
+        incrementLoopInfo[0].headerBlock = doStmtEval.localBlocks[0];
+        incrementLoopInfo[0].bodyBlock = doStmtEval.lexicalSuccessor->block;
+        incrementLoopInfo[0].successorBlock =
+            doStmtEval.parentConstruct->constructExit->block;
+      }
+    } else {
+      const auto *concurrentInfo{
+          std::get_if<Fortran::parser::LoopControl::Concurrent>(
+              &loopControl->u)};
+      assert(concurrentInfo && "DO loop variant is invalid");
+      TODO();
+      // Add entries to incrementLoopInfo.  (Define extra members for a mask.)
+    }
+    for (size_t i{0}, n{incrementLoopInfo.size()}; i < n; ++i) {
+      genFIRIncrementLoopBegin(incrementLoopInfo[i]);
+    }
+
+    // Generate loop body code.
+    for (auto &e : *eval.evaluationList) {
+      genFIR(e, unstructuredContext);
+    }
+
+    // Generate end loop code.
+    if (infiniteLoop || whileCondition) {
+      genFIRUnconditionalBranch(doStmtEval.localBlocks[0]);
+    } else {
+      for (size_t i{incrementLoopInfo.size()}; i > 0;) {
+        genFIRIncrementLoopEnd(incrementLoopInfo[--i]);
+      }
+    }
+  }
+
+  /// Generate FIR to begin a structured or unstructured increment loop.
+  void genFIRIncrementLoopBegin(IncrementLoopInfo &info) {
+    mlir::Location location{toLocation()};
+    mlir::Type type{info.isStructured()
+                        ? mlir::IndexType::get(builder->getContext())
+                        : info.loopVariableType};
+    mlir::Value lowerValue{genFIRLoopIndex(info.lowerExpr, type)};
+    mlir::Value upperValue{genFIRLoopIndex(info.upperExpr, type)};
+    if (info.stepExpr.has_value()) {
+      info.stepValue = genFIRLoopIndex(*info.stepExpr, type);
+    }
+    info.loopVariable = createTemporary(location, *info.loopVariableSym);
+
+    // Structured loop - generate fir.loop.
+    if (info.isStructured()) {
+      info.insertionPoint = builder->saveInsertionPoint();
+      llvm::SmallVector<mlir::Value, 1> stepVector;
+      if (info.stepValue) {
+        stepVector.push_back(info.stepValue);
+      }
+      info.doLoop = builder->create<fir::LoopOp>(location, lowerValue,
+                                                 upperValue, stepVector);
+      builder->setInsertionPointToStart(info.doLoop.getBody());
+      mlir::Value shadow{builder->create<fir::ConvertOp>(
+          location, info.loopVariableType, info.doLoop.getInductionVar())};
+      localSymbols.pushShadowSymbol(*info.loopVariableSym, shadow);
+      return;
+    }
+
+    // Unstructured loop preheader code - initialize tripVariable, loopVariable.
+    if (!info.stepValue) {
+      info.stepValue = builder->create<mlir::ConstantOp>(
+          location, builder->getIntegerAttr(info.loopVariableType, 1));
+    }
+    mlir::Value tripCount;
+    tripCount = builder->create<mlir::SubIOp>(location, upperValue, lowerValue);
+    tripCount =
+        builder->create<mlir::AddIOp>(location, tripCount, info.stepValue);
+    if (info.stepExpr.has_value()) {
+      tripCount = builder->create<mlir::SignedDivIOp>(location, tripCount,
+                                                      info.stepValue);
+    }
+    info.tripVariable = Fortran::lower::createTemporary(
+        location, *builder, localSymbols, info.loopVariableType, nullptr);
+    builder->create<fir::StoreOp>(location, tripCount, info.tripVariable);
+    builder->create<fir::StoreOp>(location, lowerValue, info.loopVariable);
+
+    // Unstructured loop header code - generate loop condition.
+    startBlock(info.headerBlock);
+    mlir::Value tripVariable{
+        builder->create<fir::LoadOp>(location, info.tripVariable)};
+    mlir::Value zero{builder->create<mlir::ConstantOp>(
+        location, builder->getIntegerAttr(info.loopVariableType, 0))};
+    mlir::Value cond{builder->create<mlir::CmpIOp>(
+        location, mlir::CmpIPredicate::sgt, tripVariable, zero)};
+    genFIRConditionalBranch(cond, info.bodyBlock, info.successorBlock);
+  }
+
+  /// Generate FIR to end a structured or unstructured increment loop.
+  void genFIRIncrementLoopEnd(IncrementLoopInfo &info) {
+    mlir::Location location{toLocation()};
+    if (info.isStructured()) {
+      // End fir.loop.
+      localSymbols.popShadowSymbol();
+      builder->restoreInsertionPoint(info.insertionPoint);
+      assert(info.doLoop.hasLastValue() && "loop must have a result");
+      mlir::Value result{builder->create<fir::ConvertOp>(
+          location, info.loopVariableType, info.doLoop.lastVal()[0])};
+      builder->create<fir::StoreOp>(location, result, info.loopVariable);
+      return;
+    }
+
+    // Unstructured loop - increment loopVariable.
+    mlir::Value loopVariable{
+        builder->create<fir::LoadOp>(location, info.loopVariable)};
+    loopVariable =
+        builder->create<mlir::AddIOp>(location, loopVariable, info.stepValue);
+    builder->create<fir::StoreOp>(location, loopVariable, info.loopVariable);
+
+    // Unstructured loop - decrement tripVariable.
+    mlir::Value tripVariable{
+        builder->create<fir::LoadOp>(location, info.tripVariable)};
+    mlir::Value one{builder->create<mlir::ConstantOp>(
+        location, builder->getIntegerAttr(info.loopVariableType, 1))};
+    tripVariable = builder->create<mlir::SubIOp>(location, tripVariable, one);
+    builder->create<fir::StoreOp>(location, tripVariable, info.tripVariable);
+    genFIRUnconditionalBranch(info.headerBlock);
+  }
+
+  /// Generate structured or unstructured FIR for an IF construct.
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::IfConstruct &) {
+    if (eval.LowerAsStructured()) {
+      // Structured fir.where nest.
+      fir::WhereOp where;
+      mlir::OpBuilder::InsertPoint insertionPoint{
+          builder->saveInsertionPoint()};
+      for (auto &e : *eval.evaluationList) {
+        if (auto *s{e.getIf<Fortran::parser::IfThenStmt>()}) {
+          // fir.where op
+          genWhereCondition(where, s);
+        } else if (auto *s{e.getIf<Fortran::parser::ElseIfStmt>()}) {
+          // otherwise block, then nested fir.where
+          switchInsertionPointToOtherwise(where);
+          genWhereCondition(where, s);
+        } else if (e.isA<Fortran::parser::ElseStmt>()) {
+          // otherwise block
+          switchInsertionPointToOtherwise(where);
+        } else {
+          genFIR(e, false);
+        }
+      }
+      builder->restoreInsertionPoint(insertionPoint);
+      return;
+    }
+
+    // Unstructured branch sequence.
+    for (auto &e : *eval.evaluationList) {
+      if (auto *s{e.getIf<Fortran::parser::IfThenStmt>()}) {
+        maybeStartBlock(e.block);
+        genFIRConditionalBranch(
+            std::get<Fortran::parser::ScalarLogicalExpr>(s->t),
+            e.lexicalSuccessor, e.controlSuccessor);
+      } else if (auto *s{e.getIf<Fortran::parser::ElseIfStmt>()}) {
+        startBlock(e.block);
+        genFIRConditionalBranch(
+            std::get<Fortran::parser::ScalarLogicalExpr>(s->t),
+            e.lexicalSuccessor, e.controlSuccessor);
+      } else {
+        genFIR(e);
+      }
+    }
+  }
+
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::CaseConstruct &) {
+    TODO();
+  }
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::SelectRankConstruct &) {
+    TODO();
+  }
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::SelectTypeConstruct &) {
+    TODO();
+  }
+
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::WhereConstruct &) {
+    TODO();
+  }
 
   /// Lower FORALL construct (See 10.2.4)
-  void genFIR(const Fortran::parser::ForallConstruct &forall) {
-    auto &stmt = std::get<
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::ForallConstruct &forall) {
+    auto &stmt{std::get<
         Fortran::parser::Statement<Fortran::parser::ForallConstructStmt>>(
-        forall.t);
+        forall.t)};
     setCurrentPosition(stmt.source);
-    auto &fas = stmt.statement;
-    auto &ctrl =
+    auto &fas{stmt.statement};
+    auto &ctrl{
         std::get<
             Fortran::common::Indirection<Fortran::parser::ConcurrentHeader>>(
             fas.t)
-            .value();
+            .value()};
     (void)ctrl;
     for (auto &s :
          std::get<std::list<Fortran::parser::ForallBodyConstruct>>(forall.t)) {
@@ -627,67 +725,148 @@ class FirConverter : public Fortran::lower::AbstractConverter {
               [&](const Fortran::parser::Statement<
                   Fortran::parser::ForallAssignmentStmt> &b) {
                 setCurrentPosition(b.source);
-                genFIR(b.statement);
+                // genFIR(eval, b.statement);
               },
               [&](const Fortran::parser::Statement<Fortran::parser::WhereStmt>
                       &b) {
                 setCurrentPosition(b.source);
-                genFIR(b.statement);
+                // genFIR(eval, b.statement);
               },
-              [&](const Fortran::parser::WhereConstruct &b) { genFIR(b); },
+              [&](const Fortran::parser::WhereConstruct &b) {
+                // genFIR(eval, b);
+              },
               [&](const Fortran::common::Indirection<
-                  Fortran::parser::ForallConstruct> &b) { genFIR(b.value()); },
+                  Fortran::parser::ForallConstruct> &b) {
+                // genFIR(eval, b.value());
+              },
               [&](const Fortran::parser::Statement<Fortran::parser::ForallStmt>
                       &b) {
                 setCurrentPosition(b.source);
-                genFIR(b.statement);
+                // genFIR(eval, b.statement);
               },
           },
           s.u);
     }
     TODO();
   }
-  void genFIR(const Fortran::parser::ForallAssignmentStmt &s) {
-    std::visit([&](auto &b) { genFIR(b); }, s.u);
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::ForallAssignmentStmt &s) {
+    // std::visit([&](auto &b) { genFIR(b); }, s.u);  // ...
   }
 
-  void genFIR(const Fortran::parser::CompilerDirective &) { TODO(); }
-  void genFIR(const Fortran::parser::OpenMPConstruct &) { TODO(); }
-  void genFIR(const Fortran::parser::OmpEndLoopDirective &) { TODO(); }
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::CompilerDirective &) {
+    TODO();
+  }
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::OpenMPConstruct &) {
+    TODO();
+  }
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::OmpEndLoopDirective &) {
+    TODO();
+  }
 
-  void genFIR(const Fortran::parser::AssociateStmt &) { TODO(); }
-  void genFIR(const Fortran::parser::EndAssociateStmt &) { TODO(); }
-  void genFIR(const Fortran::parser::BlockStmt &) { TODO(); }
-  void genFIR(const Fortran::parser::EndBlockStmt &) { TODO(); }
-  void genFIR(const Fortran::parser::SelectCaseStmt &) { TODO(); }
-  void genFIR(const Fortran::parser::CaseStmt &) { TODO(); }
-  void genFIR(const Fortran::parser::EndSelectStmt &) { TODO(); }
-  void genFIR(const Fortran::parser::ChangeTeamStmt &) { TODO(); }
-  void genFIR(const Fortran::parser::EndChangeTeamStmt &) { TODO(); }
-  void genFIR(const Fortran::parser::CriticalStmt &) { TODO(); }
-  void genFIR(const Fortran::parser::EndCriticalStmt &) { TODO(); }
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::AssociateStmt &) {
+    TODO();
+  }
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::EndAssociateStmt &) {
+    TODO();
+  }
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::BlockStmt &) {
+    TODO();
+  }
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::EndBlockStmt &) {
+    TODO();
+  }
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::SelectCaseStmt &) {
+    TODO();
+  }
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::CaseStmt &) {
+    TODO();
+  }
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::EndSelectStmt &) {
+    TODO();
+  }
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::ChangeTeamStmt &) {
+    TODO();
+  }
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::EndChangeTeamStmt &) {
+    TODO();
+  }
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::CriticalStmt &) {
+    TODO();
+  }
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::EndCriticalStmt &) {
+    TODO();
+  }
 
-  // Do loop is handled by EvalIterative(), EvalStructuredOp()
-  void genFIR(const Fortran::parser::NonLabelDoStmt &) {} // do nothing
-  void genFIR(const Fortran::parser::EndDoStmt &) {}      // do nothing
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::NonLabelDoStmt &) {} // nop
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::EndDoStmt &) {} // nop
 
-  // If-Then-Else is handled by EvalCondGoto(), EvalStructuredOp()
-  void genFIR(const Fortran::parser::IfThenStmt &) {} // do nothing
-  void genFIR(const Fortran::parser::ElseIfStmt &) {} // do nothing
-  void genFIR(const Fortran::parser::ElseStmt &) {}   // do nothing
-  void genFIR(const Fortran::parser::EndIfStmt &) {}  // do nothing
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::IfThenStmt &) {} // nop
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::ElseIfStmt &) {} // nop
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::ElseStmt &) {} // nop
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::EndIfStmt &) {} // nop
 
-  void genFIR(const Fortran::parser::SelectRankStmt &) { TODO(); }
-  void genFIR(const Fortran::parser::SelectRankCaseStmt &) { TODO(); }
-  void genFIR(const Fortran::parser::SelectTypeStmt &) { TODO(); }
-  void genFIR(const Fortran::parser::TypeGuardStmt &) { TODO(); }
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::SelectRankStmt &) {
+    TODO();
+  }
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::SelectRankCaseStmt &) {
+    TODO();
+  }
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::SelectTypeStmt &) {
+    TODO();
+  }
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::TypeGuardStmt &) {
+    TODO();
+  }
 
-  void genFIR(const Fortran::parser::WhereConstructStmt &) { TODO(); }
-  void genFIR(const Fortran::parser::MaskedElsewhereStmt &) { TODO(); }
-  void genFIR(const Fortran::parser::ElsewhereStmt &) { TODO(); }
-  void genFIR(const Fortran::parser::EndWhereStmt &) { TODO(); }
-  void genFIR(const Fortran::parser::ForallConstructStmt &) { TODO(); }
-  void genFIR(const Fortran::parser::EndForallStmt &) { TODO(); }
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::WhereConstructStmt &) {
+    TODO();
+  }
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::MaskedElsewhereStmt &) {
+    TODO();
+  }
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::ElsewhereStmt &) {
+    TODO();
+  }
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::EndWhereStmt &) {
+    TODO();
+  }
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::ForallConstructStmt &) {
+    TODO();
+  }
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::EndForallStmt &) {
+    TODO();
+  }
 
   //
   // Statements that do not have control-flow semantics
@@ -695,79 +874,94 @@ class FirConverter : public Fortran::lower::AbstractConverter {
 
   // IO statements (see io.h)
 
-  void genFIR(const Fortran::parser::BackspaceStmt &stmt) {
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::BackspaceStmt &stmt) {
     genBackspaceStatement(*this, stmt);
   }
-  void genFIR(const Fortran::parser::CloseStmt &stmt) {
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::CloseStmt &stmt) {
     genCloseStatement(*this, stmt);
   }
-  void genFIR(const Fortran::parser::EndfileStmt &stmt) {
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::EndfileStmt &stmt) {
     genEndfileStatement(*this, stmt);
   }
-  void genFIR(const Fortran::parser::FlushStmt &stmt) {
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::FlushStmt &stmt) {
     genFlushStatement(*this, stmt);
   }
-  void genFIR(const Fortran::parser::InquireStmt &stmt) {
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::InquireStmt &stmt) {
     genInquireStatement(*this, stmt);
   }
-  void genFIR(const Fortran::parser::OpenStmt &stmt) {
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::OpenStmt &stmt) {
     genOpenStatement(*this, stmt);
   }
-  void genFIR(const Fortran::parser::PrintStmt &stmt) {
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::PrintStmt &stmt) {
     genPrintStatement(*this, stmt);
   }
-  void genFIR(const Fortran::parser::ReadStmt &stmt) {
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::ReadStmt &stmt) {
     genReadStatement(*this, stmt);
   }
-  void genFIR(const Fortran::parser::RewindStmt &stmt) {
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::RewindStmt &stmt) {
     genRewindStatement(*this, stmt);
   }
-  void genFIR(const Fortran::parser::WriteStmt &stmt) {
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::WriteStmt &stmt) {
     genWriteStatement(*this, stmt);
   }
 
-  void genFIR(const Fortran::parser::AllocateStmt &) { TODO(); }
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::AllocateStmt &) {
+    TODO();
+  }
 
-  void
-  genCharacterAssignement(const Fortran::evaluate::Assignment &assignment) {
+  void genCharacterAssignment(const Fortran::evaluate::Assignment &assignment) {
     // Helper to get address and length from an Expr that is a character
     // variable designator
-    auto getAddrAndLength =
-        [&](const Fortran::lower::SomeExpr &charDesignatorExpr)
-        -> Fortran::lower::CharacterOpsBuilder::CharValue {
-      mlir::Value addr = genExprAddr(charDesignatorExpr);
-      const auto &charExpr =
-          std::get<Fortran::evaluate::Expr<Fortran::evaluate::SomeCharacter>>(
-              charDesignatorExpr.u);
-      auto lenExpr = charExpr.LEN();
-      assert(lenExpr && "could not get expression to compute character length");
-      mlir::Value len =
-          genExprValue(Fortran::evaluate::AsGenericExpr(std::move(*lenExpr)));
-      return Fortran::lower::CharacterOpsBuilder::CharValue{addr, len};
-    };
+    auto getAddrAndLength{
+        [&](const Fortran::semantics::SomeExpr &charDesignatorExpr)
+            -> Fortran::lower::CharacterOpsBuilder::CharValue {
+          mlir::Value addr = genExprAddr(charDesignatorExpr);
+          const auto &charExpr{std::get<
+              Fortran::evaluate::Expr<Fortran::evaluate::SomeCharacter>>(
+              charDesignatorExpr.u)};
+          std::optional<
+              Fortran::evaluate::Expr<Fortran::evaluate::SubscriptInteger>>
+              lenExpr{charExpr.LEN()};
+          assert(lenExpr &&
+                 "could not get expression to compute character length");
+          mlir::Value len{genExprValue(
+              Fortran::evaluate::AsGenericExpr(std::move(*lenExpr)))};
+          return Fortran::lower::CharacterOpsBuilder::CharValue{addr, len};
+        }};
 
     Fortran::lower::CharacterOpsBuilder charBuilder{*builder, toLocation()};
 
     // RHS evaluation.
     // FIXME:  Only works with rhs that are variable reference.
     // Other expression evaluation are not simple copies.
-    auto rhs = getAddrAndLength(assignment.rhs);
+    auto rhs{getAddrAndLength(assignment.rhs)};
     // A temp is needed to evaluate rhs until proven it does not depend on lhs.
-    auto tempToEvalRhs =
-        charBuilder.createTemp(rhs.getCharacterType(), rhs.len);
+    auto tempToEvalRhs{charBuilder.createTemp(rhs.getCharacterType(), rhs.len)};
     charBuilder.createCopy(tempToEvalRhs, rhs, rhs.len);
 
     // Copy the minimum of the lhs and rhs lengths and pad the lhs remainder
-    auto lhs = getAddrAndLength(assignment.lhs);
-    auto cmpLen = charBuilder.create<mlir::CmpIOp>(mlir::CmpIPredicate::slt,
-                                                   lhs.len, rhs.len);
-    auto copyCount =
-        charBuilder.create<mlir::SelectOp>(cmpLen, lhs.len, rhs.len);
+    auto lhs{getAddrAndLength(assignment.lhs)};
+    auto cmpLen{charBuilder.create<mlir::CmpIOp>(mlir::CmpIPredicate::slt,
+                                                 lhs.len, rhs.len)};
+    auto copyCount{
+        charBuilder.create<mlir::SelectOp>(cmpLen, lhs.len, rhs.len)};
     charBuilder.createCopy(lhs, tempToEvalRhs, copyCount);
     charBuilder.createPadding(lhs, copyCount, lhs.len);
   }
 
-  void genFIR(const Fortran::parser::AssignmentStmt &stmt) {
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::AssignmentStmt &stmt) {
     assert(stmt.typedAssignment && stmt.typedAssignment->v &&
            "assignment analysis failed");
     const auto &assignment = *stmt.typedAssignment->v;
@@ -807,7 +1001,7 @@ class FirConverter : public Fortran::lower::AbstractConverter {
                   break;
                 case Fortran::lower::CharacterCat:
                   // Fortran 2018 10.2.1.3 p10 and p11
-                  genCharacterAssignement(assignment);
+                  genCharacterAssignment(assignment);
                   break;
                 case Fortran::lower::DerivedCat:
                   // Fortran 2018 10.2.1.3 p12 and p13
@@ -832,19 +1026,29 @@ class FirConverter : public Fortran::lower::AbstractConverter {
         assignment.u);
   }
 
-  void genFIR(const Fortran::parser::ContinueStmt &) {} // do nothing
-  void genFIR(const Fortran::parser::DeallocateStmt &) { TODO(); }
-  void genFIR(const Fortran::parser::EventPostStmt &) {
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::ContinueStmt &) {} // nop
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::DeallocateStmt &) {
+    TODO();
+  }
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::EventPostStmt &) {
     // call some runtime routine
     TODO();
   }
-  void genFIR(const Fortran::parser::EventWaitStmt &) {
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::EventWaitStmt &) {
     // call some runtime routine
     TODO();
   }
 
-  void genFIR(const Fortran::parser::FormTeamStmt &) { TODO(); }
-  void genFIR(const Fortran::parser::LockStmt &) {
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::FormTeamStmt &) {
+    TODO();
+  }
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::LockStmt &) {
     // call some runtime routine
     TODO();
   }
@@ -853,19 +1057,20 @@ class FirConverter : public Fortran::lower::AbstractConverter {
   ///
   /// For each pointer object, reset the pointer to a disassociated status.
   /// We do this by setting each pointer to null.
-  void genFIR(const Fortran::parser::NullifyStmt &stmt) {
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::NullifyStmt &stmt) {
     for (auto &po : stmt.v) {
       std::visit(
           Fortran::common::visitors{
               [&](const Fortran::parser::Name &sym) {
-                auto ty = genType(*sym.symbol);
-                auto load = builder->create<fir::LoadOp>(
-                    toLocation(), localSymbols.lookupSymbol(*sym.symbol));
-                auto idxTy = mlir::IndexType::get(&mlirContext);
-                auto zero = builder->create<mlir::ConstantOp>(
-                    toLocation(), idxTy, builder->getIntegerAttr(idxTy, 0));
-                auto cast =
-                    builder->create<fir::ConvertOp>(toLocation(), ty, zero);
+                auto ty{genType(*sym.symbol)};
+                auto load{builder->create<fir::LoadOp>(
+                    toLocation(), localSymbols.lookupSymbol(*sym.symbol))};
+                auto idxTy{mlir::IndexType::get(&mlirContext)};
+                auto zero{builder->create<mlir::ConstantOp>(
+                    toLocation(), idxTy, builder->getIntegerAttr(idxTy, 0))};
+                auto cast{
+                    builder->create<fir::ConvertOp>(toLocation(), ty, zero)};
                 builder->create<fir::StoreOp>(toLocation(), cast, load);
               },
               [&](const Fortran::parser::StructureComponent &) { TODO(); },
@@ -873,127 +1078,132 @@ class FirConverter : public Fortran::lower::AbstractConverter {
           po.u);
     }
   }
-  void genFIR(const Fortran::parser::PointerAssignmentStmt &) { TODO(); }
-
-  void genFIR(const Fortran::parser::SyncAllStmt &) {
-    // call some runtime routine
-    TODO();
-  }
-  void genFIR(const Fortran::parser::SyncImagesStmt &) {
-    // call some runtime routine
-    TODO();
-  }
-  void genFIR(const Fortran::parser::SyncMemoryStmt &) {
-    // call some runtime routine
-    TODO();
-  }
-  void genFIR(const Fortran::parser::SyncTeamStmt &) {
-    // call some runtime routine
-    TODO();
-  }
-  void genFIR(const Fortran::parser::UnlockStmt &) {
-    // call some runtime routine
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::PointerAssignmentStmt &) {
     TODO();
   }
 
-  void genFIR(const Fortran::parser::AssignStmt &) { TODO(); }
-  void genFIR(const Fortran::parser::FormatStmt &) { TODO(); }
-  void genFIR(const Fortran::parser::EntryStmt &) { TODO(); }
-  void genFIR(const Fortran::parser::PauseStmt &) {
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::SyncAllStmt &) {
     // call some runtime routine
     TODO();
   }
-  void genFIR(const Fortran::parser::DataStmt &) { TODO(); }
-  void genFIR(const Fortran::parser::NamelistStmt &) { TODO(); }
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::SyncImagesStmt &) {
+    // call some runtime routine
+    TODO();
+  }
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::SyncMemoryStmt &) {
+    // call some runtime routine
+    TODO();
+  }
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::SyncTeamStmt &) {
+    // call some runtime routine
+    TODO();
+  }
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::UnlockStmt &) {
+    // call some runtime routine
+    TODO();
+  }
+
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::AssignStmt &) {
+    TODO();
+  }
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::FormatStmt &) {
+    TODO();
+  }
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::EntryStmt &) {
+    TODO();
+  }
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::PauseStmt &) {
+    // call some runtime routine
+    TODO();
+  }
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::DataStmt &) {
+    TODO();
+  }
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::NamelistStmt &) {
+    TODO();
+  }
 
   // call FAIL IMAGE in runtime
-  void genFIR(const Fortran::parser::FailImageStmt &stmt) {
-    auto callee = genRuntimeFunction(
-        Fortran::lower::RuntimeEntryCode::FailImageStatement, *builder);
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::FailImageStmt &stmt) {
+    auto callee{genRuntimeFunction(
+        Fortran::lower::RuntimeEntryCode::FailImageStatement, *builder)};
     llvm::SmallVector<mlir::Value, 1> operands; // FAIL IMAGE has no args
     builder->create<mlir::CallOp>(toLocation(), callee, operands);
   }
 
   // call STOP, ERROR STOP in runtime
-  void genFIR(const Fortran::parser::StopStmt &stm) {
-    auto callee = genRuntimeFunction(
-        Fortran::lower::RuntimeEntryCode::StopStatement, *builder);
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::StopStmt &stmt) {
+    auto callee{genRuntimeFunction(
+        Fortran::lower::RuntimeEntryCode::StopStatement, *builder)};
     // TODO: 3 args: stop-code-opt, ierror, quiet-opt
-    [[maybe_unused]] bool isStop{isStopStmt(stm)};
-    builder->create<mlir::CallOp>(toLocation(), callee, llvm::None);
+    // auto isError{genFIRLo!isStopStmt(stmt)}
+    llvm::SmallVector<mlir::Value, 8> operands;
+    builder->create<mlir::CallOp>(toLocation(), callee, operands);
   }
 
   // gen expression, if any; share code with END of procedure
-  void genFIR(const Fortran::parser::ReturnStmt &) {
-    if (inMainProgram(currentEvaluation)) {
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::ReturnStmt &) {
+    if (inMainProgram(&eval)) {
       builder->create<mlir::ReturnOp>(toLocation());
-    } else if (auto *stmt = inSubroutine(currentEvaluation)) {
+    } else if (auto *stmt = inSubroutine(&eval)) {
       genFIRProcedureExit(stmt);
-    } else if (auto *stmt = inFunction(currentEvaluation)) {
+    } else if (auto *stmt = inFunction(&eval)) {
       auto *symbol = std::get<Fortran::parser::Name>(stmt->t).symbol;
       assert(symbol);
       genFIRFunctionReturn(*symbol);
-    } else if (auto *stmt = inMPSubp(currentEvaluation)) {
+    } else if (auto *stmt = inMpSubprogram(&eval)) {
       genFIRProcedureExit(stmt);
     } else {
       mlir::emitError(toLocation(), "unknown subprogram type");
     }
   }
 
-  // stubs for generic goto statements; see genFIREvalGoto()
-  void genFIR(const Fortran::parser::CycleStmt &) {} // do nothing
-  void genFIR(const Fortran::parser::ExitStmt &) {}  // do nothing
-  void genFIR(const Fortran::parser::GotoStmt &) {}  // do nothing
-
-  void genFIR(Fortran::lower::pft::Evaluation &eval) {
-    currentEvaluation = &eval;
-    eval.visit(Fortran::common::visitors{
-        [&](const auto &p) { genFIR(p); },
-        [](const Fortran::lower::pft::CGJump &) { /* do nothing */ },
-    });
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::CycleStmt &) {
+    genFIRUnconditionalBranch(eval.controlSuccessor);
+  }
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::ExitStmt &) {
+    genFIRUnconditionalBranch(eval.controlSuccessor);
+  }
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              const Fortran::parser::GotoStmt &) {
+    genFIRUnconditionalBranch(eval.controlSuccessor);
   }
 
-  /// Lower an Evaluation
-  ///
-  /// If the Evaluation is annotated, we can attempt to lower it by the class of
-  /// annotation. Otherwise, attempt to lower the Evaluation on a case-by-case
-  /// basis.
-  void lowerEval(Fortran::lower::pft::Evaluation &eval) {
-    setCurrentPosition(eval.pos);
-    if (eval.isControlTarget()) {
-      // start a new block
+  void genFIR(Fortran::lower::pft::Evaluation &eval,
+              bool unstructuredContext = true) {
+    if (eval.skip) {
+      return; // rhs of {Forall, If, Where}Stmt has already been processed
     }
-    switch (eval.cfg) {
-    case Fortran::lower::pft::CFGAnnotation::None:
-      genFIREvalNone(eval);
-      break;
-    case Fortran::lower::pft::CFGAnnotation::Goto:
-      genFIREvalGoto(eval);
-      break;
-    case Fortran::lower::pft::CFGAnnotation::CondGoto:
-      genFIREvalCondGoto(eval);
-      break;
-    case Fortran::lower::pft::CFGAnnotation::IndGoto:
-      genFIREvalIndGoto(eval);
-      break;
-    case Fortran::lower::pft::CFGAnnotation::IoSwitch:
-      genFIREvalIoSwitch(eval);
-      break;
-    case Fortran::lower::pft::CFGAnnotation::Switch:
-      genFIREvalSwitch(eval);
-      break;
-    case Fortran::lower::pft::CFGAnnotation::Iterative:
-      genFIREvalIterative(eval);
-      break;
-    case Fortran::lower::pft::CFGAnnotation::FirStructuredOp:
-      genFIREvalStructuredOp(eval);
-      break;
-    case Fortran::lower::pft::CFGAnnotation::Return:
-      genFIREvalReturn(eval);
-      break;
-    case Fortran::lower::pft::CFGAnnotation::Terminate:
-      genFIREvalTerminate(eval);
-      break;
+    setCurrentPosition(eval.position);
+    if (unstructuredContext) {
+      // When transitioning from unstructured to structured code,
+      // the structured code might be a target that starts a new block.
+      maybeStartBlock(eval.isConstruct() && eval.LowerAsStructured()
+                          ? eval.evaluationList->front().block
+                          : eval.block);
+    }
+    std::visit([&](const auto *p) { genFIR(eval, *p); }, eval.u);
+    if (unstructuredContext && eval.LowerAsUnstructured() &&
+        eval.controlSuccessor && eval.isActionStmt() && blockIsUnterminated()) {
+      // Exit from an unstructured IF or SELECT construct block.
+      genFIRUnconditionalBranch(eval.controlSuccessor);
     }
   }
 
@@ -1002,8 +1212,8 @@ class FirConverter : public Fortran::lower::AbstractConverter {
     // get arguments and return type if any, otherwise just use empty vectors
     llvm::SmallVector<mlir::Type, 8> args;
     llvm::SmallVector<mlir::Type, 2> results;
-    auto funcTy = symbol ? genFunctionType(*symbol)
-                         : mlir::FunctionType::get(args, results, &mlirContext);
+    auto funcTy{symbol ? genFunctionType(*symbol)
+                       : mlir::FunctionType::get(args, results, &mlirContext)};
     return createFunction(*this, name, funcTy);
   }
 
@@ -1011,9 +1221,10 @@ class FirConverter : public Fortran::lower::AbstractConverter {
   void startNewFunction(Fortran::lower::pft::FunctionLikeUnit &funit,
                         llvm::StringRef name,
                         const Fortran::semantics::Symbol *symbol) {
-    mlir::FuncOp func = Fortran::lower::getNamedFunction(module, name);
-    if (!func)
+    mlir::FuncOp func{Fortran::lower::getNamedFunction(module, name)};
+    if (!func) {
       func = createNewFunction(name, symbol);
+    }
     func.addEntryBlock();
     assert(!builder && "expected nullptr");
     builder = new mlir::OpBuilder(func);
@@ -1022,10 +1233,10 @@ class FirConverter : public Fortran::lower::AbstractConverter {
 
     // plumb function's arguments
     if (symbol) {
-      auto *entryBlock = &func.front();
-      auto *details =
-          symbol->detailsIf<Fortran::semantics::SubprogramDetails>();
-      assert(details && "details for semantics symbol must be subprogram");
+      auto *entryBlock{&func.front()};
+      auto *details{symbol->detailsIf<Fortran::semantics::SubprogramDetails>()};
+      assert(details &&
+             "details for Fortran::semantics symbol must be subprogram");
       for (const auto &v :
            llvm::zip(details->dummyArgs(), entryBlock->getArguments())) {
         if (std::get<0>(v)) {
@@ -1038,18 +1249,65 @@ class FirConverter : public Fortran::lower::AbstractConverter {
         createTemporary(toLocation(), details->result());
       }
     }
+
+    // Create most function blocks in advance.
+    createEmptyBlocks(funit.evaluationList);
+
+    // Reinstate entry block as the current insertion point.
+    builder->setInsertionPointToEnd(&func.front());
   }
 
-  void finalizeQueuedEdges() {
-    for (auto &edgeFunc : localEdgeQ)
-      edgeFunc(localBlockMap);
-    localEdgeQ.clear();
-    localBlockMap.clear();
+  /// Create empty blocks for the current function.
+  void createEmptyBlocks(
+      std::list<Fortran::lower::pft::Evaluation> &evaluationList) {
+    for (auto &eval : evaluationList) {
+      if (eval.isNewBlock) {
+        eval.block = Fortran::lower::createBlock(builder);
+      }
+      for (size_t i{0}; i < eval.localBlocks.size(); ++i) {
+        eval.localBlocks[i] = Fortran::lower::createBlock(builder);
+      }
+      if (eval.isConstruct()) {
+        if (eval.LowerAsUnstructured()) {
+          createEmptyBlocks(*eval.evaluationList);
+        } else {
+          // A structured construct that is a target starts a new block.
+          Fortran::lower::pft::Evaluation &constructStmt{
+              eval.evaluationList->front()};
+          if (constructStmt.isNewBlock) {
+            constructStmt.block = Fortran::lower::createBlock(builder);
+          }
+        }
+      }
+    }
+  }
+
+  /// Return the predicate: "current block does not have a terminator branch".
+  bool blockIsUnterminated() {
+    mlir::Block *currentBlock{builder->getBlock()};
+    return currentBlock->empty() || currentBlock->back().isKnownNonTerminator();
+  }
+
+  /// Unconditionally switch code insertion to a new block.
+  void startBlock(mlir::Block *newBlock) {
+    assert(newBlock && "missing block");
+    // If the current block does not have a terminator branch,
+    // append a fallthrough branch.
+    if (blockIsUnterminated()) {
+      genFIRUnconditionalBranch(newBlock);
+    }
+    builder->setInsertionPointToStart(newBlock);
+  }
+
+  /// Conditionally switch code insertion to a new block.
+  void maybeStartBlock(mlir::Block *newBlock) {
+    if (newBlock) {
+      startBlock(newBlock);
+    }
   }
 
   /// Cleanup after the function has been translated
   void endNewFunction() {
-    finalizeQueuedEdges();
     delete builder;
     builder = nullptr;
     localSymbols.clear();
@@ -1060,10 +1318,9 @@ class FirConverter : public Fortran::lower::AbstractConverter {
                  llvm::ArrayRef<llvm::StringRef> modules,
                  llvm::Optional<llvm::StringRef> host = {}) {
     std::string name;
-    const Fortran::semantics::Symbol *symbol = nullptr;
+    const Fortran::semantics::Symbol *symbol{nullptr};
 
     if (func.beginStmt) {
-      currentEvaluation = nullptr;
       std::visit([&](auto *p) { genFIR(*p, name, symbol); }, *func.beginStmt);
     } else {
       name = uniquer.doProgramEntry();
@@ -1072,17 +1329,18 @@ class FirConverter : public Fortran::lower::AbstractConverter {
     startNewFunction(func, name, symbol);
 
     // lower this procedure
-    for (auto &e : func.evals)
-      lowerEval(e);
-    currentEvaluation = nullptr;
+    for (auto &eval : func.evaluationList) {
+      genFIR(eval);
+    }
     std::visit([&](auto *p) { genFIR(*p, name, symbol); }, func.endStmt);
 
     endNewFunction();
 
     // recursively lower internal procedures
     llvm::Optional<llvm::StringRef> optName{name};
-    for (auto &f : func.funcs)
+    for (auto &f : func.containedFunctions) {
       lowerFunc(f, modules, optName);
+    }
   }
 
   void lowerMod(Fortran::lower::pft::ModuleLikeUnit &mod) {
@@ -1090,49 +1348,15 @@ class FirConverter : public Fortran::lower::AbstractConverter {
     std::vector<llvm::StringRef> moduleName;
 
     // FIXME: do we need to visit the module statements?
-    for (auto &f : mod.funcs)
+    for (auto &f : mod.containedFunctions) {
       lowerFunc(f, moduleName);
+    }
   }
 
-  //
-  // Finalization of the CFG structure
-  //
-
-  /// Lookup the set of sinks for this source. There must be at least one.
-  llvm::ArrayRef<Fortran::lower::pft::Evaluation *>
-  findTargetsOf(Fortran::lower::pft::Evaluation &eval) {
-    auto iter = cfgMap.find(&eval);
-    assert(iter != cfgMap.end());
-    return *iter->second;
-  }
-
-  /// Lookup the sink for this source. There must be exactly one.
-  Fortran::lower::pft::Evaluation *
-  findSinkOf(Fortran::lower::pft::Evaluation &eval) {
-    auto iter = cfgMap.find(&eval);
-    assert((iter != cfgMap.end()) && (iter->second->size() == 1));
-    return iter->second->front();
-  }
-
-  /// prune the CFG for `f`
-  void pruneFunc(Fortran::lower::pft::FunctionLikeUnit &func) {
-    // find and cache arcs, etc.
-    if (!func.evals.empty())
-      CfgBuilder{cfgMap, cfgEdgeSetPool}.run(func);
-
-    // do any internal procedures
-    for (auto &f : func.funcs)
-      pruneFunc(f);
-  }
-
-  void pruneMod(Fortran::lower::pft::ModuleLikeUnit &mod) {
-    for (auto &f : mod.funcs)
-      pruneFunc(f);
-  }
-
-  void setCurrentPosition(const Fortran::parser::CharBlock &pos) {
-    if (pos != Fortran::parser::CharBlock{})
-      currentPosition = pos;
+  void setCurrentPosition(const Fortran::parser::CharBlock &position) {
+    if (position != Fortran::parser::CharBlock{}) {
+      currentPosition = position;
+    }
   }
 
   //
@@ -1149,7 +1373,7 @@ class FirConverter : public Fortran::lower::AbstractConverter {
   // TODO: should these be moved to convert-expr?
   template <mlir::CmpIPredicate ICMPOPC>
   mlir::Value genCompare(mlir::Value lhs, mlir::Value rhs) {
-    auto lty = lhs.getType();
+    auto lty{lhs.getType()};
     assert(lty == rhs.getType());
     if (lty.isSignlessIntOrIndex())
       return builder->create<mlir::CmpIOp>(lhs.getLoc(), ICMPOPC, lhs, rhs);
@@ -1182,16 +1406,10 @@ private:
   mlir::ModuleOp &module;
   const Fortran::common::IntrinsicTypeDefaultKinds &defaults;
   Fortran::lower::IntrinsicLibrary intrinsics;
-  mlir::OpBuilder *builder = nullptr;
+  mlir::OpBuilder *builder{nullptr};
   fir::NameUniquer &uniquer;
   Fortran::lower::SymMap localSymbols;
-  std::list<Closure> localEdgeQ;
-  LabelMapType localBlockMap;
   Fortran::parser::CharBlock currentPosition;
-  CFGMapType cfgMap;
-  std::list<CFGSinkListType> cfgEdgeSetPool;
-  Fortran::lower::pft::Evaluation *currentEvaluation =
-      nullptr; // FIXME: this is a hack
 
 public:
   FirConverter() = delete;
@@ -1210,17 +1428,6 @@ public:
 
   /// Convert the PFT to FIR
   void run(Fortran::lower::pft::Program &pft) {
-    // build pruned control
-    for (auto &u : pft.getUnits()) {
-      std::visit(
-          Fortran::common::visitors{
-              [&](Fortran::lower::pft::FunctionLikeUnit &f) { pruneFunc(f); },
-              [&](Fortran::lower::pft::ModuleLikeUnit &m) { pruneMod(m); },
-              [](Fortran::lower::pft::BlockDataUnit &) { /* do nothing */ },
-          },
-          u);
-    }
-
     // do translation
     for (auto &u : pft.getUnits()) {
       std::visit(
@@ -1273,18 +1480,16 @@ public:
   }
 
   mlir::Location getCurrentLocation() override final { return toLocation(); }
-
   mlir::Location genLocation() override final {
     return mlir::UnknownLoc::get(&mlirContext);
   }
-
   mlir::Location
   genLocation(const Fortran::parser::CharBlock &block) override final {
     if (cooked) {
-      auto loc = cooked->GetSourcePositionRange(block);
+      auto loc{cooked->GetSourcePositionRange(block)};
       if (loc.has_value()) {
         // loc is a pair (begin, end); use the beginning position
-        auto &filePos = loc->first;
+        auto &filePos{loc->first};
         return mlir::FileLineColLoc::get(filePos.file.path(), filePos.line,
                                          filePos.column, &mlirContext);
       }
@@ -1293,7 +1498,6 @@ public:
   }
 
   mlir::OpBuilder &getOpBuilder() override final { return *builder; }
-
   mlir::ModuleOp &getModuleOp() override final { return module; }
 
   std::string mangleName(Fortran::lower::SymbolRef symbol) override final {
@@ -1306,7 +1510,6 @@ public:
 void Fortran::lower::LoweringBridge::lower(const Fortran::parser::Program &prg,
                                            fir::NameUniquer &uniquer) {
   auto pft = Fortran::lower::createPFT(prg);
-  Fortran::lower::annotateControl(*pft);
   if (dumpBeforeFir)
     Fortran::lower::dumpPFT(llvm::errs(), *pft);
   FirConverter converter{*this, uniquer};
