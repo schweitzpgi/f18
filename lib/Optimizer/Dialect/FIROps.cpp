@@ -334,7 +334,7 @@ void fir::GlobalOp::appendInitialValue(mlir::Operation *op) {
 
 /// Get the element type of a reference like type; otherwise null
 static mlir::Type elementTypeOf(mlir::Type ref) {
-  mlir::TypeSwitch<mlir::Type>(ref)
+  return mlir::TypeSwitch<mlir::Type, mlir::Type>(ref)
       .Case<ReferenceType, PointerType, HeapType>(
           [](auto type) { return type.getEleTy(); })
       .Default([](mlir::Type) { return mlir::Type{}; });
