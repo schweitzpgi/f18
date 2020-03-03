@@ -20,7 +20,6 @@
 #include "mlir/Conversion/LoopToStandard/ConvertLoopToStandard.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/Module.h"
-#include "mlir/InitAllDialects.h"
 #include "mlir/Parser.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
@@ -121,7 +120,6 @@ static int compileFIR() {
 }
 
 int main(int argc, char **argv) {
-  mlir::registerAllDialects();
   fir::registerFIR();
   fir::registerFIRPasses();
   [[maybe_unused]] InitLLVM y(argc, argv);
