@@ -195,8 +195,6 @@ private:
     assignSymbolLabelMap = nullptr;
     parentTypeStack.pop_back();
     ResetFunctionList();
-    labelEvaluationMap = nullptr;
-    assignSymbolLabelMap = nullptr;
   }
 
   /// Initialize a new construct and make it the builder's focus.
@@ -531,8 +529,9 @@ private:
                 }
                 auto iter = assignSymbolLabelMap->find(sym);
                 if (iter == assignSymbolLabelMap->end()) {
-                  assignSymbolLabelMap->try_emplace(
-                      sym, std::set<parser::Label>{label});
+                  pft::LabelSet ls{};
+                  ls.insert(label);
+                  assignSymbolLabelMap->try_emplace(sym, ls);
                 } else {
                   iter->second.insert(label);
                 }
@@ -587,7 +586,7 @@ private:
                 pft::Evaluation &doEval{evaluationList.front()};
                 eval.controlSuccessor = &doEval;
                 doConstructStack.pop_back();
-                if (parentConstruct->LowerAsStructured()) {
+                if (parentConstruct->lowerAsStructured()) {
                   return;
                 }
                 parentConstruct->constructExit->isNewBlock = true;
@@ -639,7 +638,7 @@ private:
                 lastIfConstructEvaluation = &eval;
               },
               [&](const parser::EndIfStmt *) {
-                if (parentConstruct->LowerAsUnstructured()) {
+                if (parentConstruct->lowerAsUnstructured()) {
                   parentConstruct->constructExit->isNewBlock = true;
                 }
                 lastIfConstructEvaluation->controlSuccessor =
@@ -695,7 +694,7 @@ private:
       // Insert branch links for an unstructured IF statement.
       if (lastIfStmtEvaluation && lastIfStmtEvaluation != &eval) {
         // eval is the action substatement of an IfStmt.
-        if (eval.LowerAsUnstructured()) {
+        if (eval.lowerAsUnstructured()) {
           eval.isNewBlock = true;
           markSuccessorNewBlock(eval);
           lastIfStmtEvaluation->isUnstructured = true;
@@ -743,8 +742,7 @@ private:
   /// evaluationListStack is the current nested construct evaluationList state.
   std::vector<pft::EvaluationList *> evaluationListStack{};
   llvm::DenseMap<parser::Label, pft::Evaluation *> *labelEvaluationMap{nullptr};
-  std::map<semantics::Symbol *, std::set<parser::Label>> *assignSymbolLabelMap{
-      nullptr};
+  pft::SymbolLabelMap *assignSymbolLabelMap{nullptr};
   std::map<std::string, pft::Evaluation *> constructNameMap{};
   pft::Evaluation *lastLexicalEvaluation{nullptr};
 };
@@ -940,11 +938,11 @@ llvm::cl::opt<bool> ClDisableStructuredFir(
     "no-structured-fir", llvm::cl::desc("disable generation of structured FIR"),
     llvm::cl::init(false), llvm::cl::Hidden);
 
-bool pft::Evaluation::LowerAsStructured() const {
-  return !LowerAsUnstructured();
+bool pft::Evaluation::lowerAsStructured() const {
+  return !lowerAsUnstructured();
 }
 
-bool pft::Evaluation::LowerAsUnstructured() const {
+bool pft::Evaluation::lowerAsUnstructured() const {
   return isUnstructured || ClDisableStructuredFir;
 }
 
