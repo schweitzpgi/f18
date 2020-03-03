@@ -16,8 +16,6 @@
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/StringRef.h"
 
-using namespace mlir;
-
 namespace fir {
 
 class FirEndOp;
@@ -55,7 +53,8 @@ void buildCmpFOp(mlir::Builder *builder, mlir::OperationState &result,
                  CmpFPredicate predicate, mlir::Value lhs, mlir::Value rhs);
 void buildCmpCOp(mlir::Builder *builder, mlir::OperationState &result,
                  CmpFPredicate predicate, mlir::Value lhs, mlir::Value rhs);
-unsigned getCaseArgumentOffset(ArrayRef<mlir::Attribute> cases, unsigned dest);
+unsigned getCaseArgumentOffset(llvm::ArrayRef<mlir::Attribute> cases,
+                               unsigned dest);
 LoopOp getForInductionVarOwner(mlir::Value val);
 bool isReferenceLike(mlir::Type type);
 mlir::ParseResult isValidCaseAttr(mlir::Attribute attr);
@@ -68,6 +67,8 @@ mlir::ParseResult parseSelector(mlir::OpAsmParser &parser,
                                 mlir::OpAsmParser::OperandType &selector,
                                 mlir::Type &type);
 
+// Sources generated with tablegen require mlir namespace to be accessible.
+using namespace mlir;
 #define GET_OP_CLASSES
 #include "flang/Optimizer/Dialect/FIROps.h.inc"
 
