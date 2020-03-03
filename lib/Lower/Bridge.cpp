@@ -49,11 +49,6 @@ llvm::cl::opt<bool>
                           llvm::cl::desc("disable burnside bridge asserts"),
                           llvm::cl::init(false), llvm::cl::Hidden);
 
-static constexpr bool isStopStmt(const Fortran::parser::StopStmt &stmt) {
-  return std::get<Fortran::parser::StopStmt::Kind>(stmt.t) ==
-         Fortran::parser::StopStmt::Kind::Stop;
-}
-
 /// Converter from PFT to FIR
 ///
 /// After building the PFT, the FirConverter processes that representation
@@ -387,7 +382,7 @@ class FirConverter : public Fortran::lower::AbstractConverter {
 
   void genFIR(Fortran::lower::pft::Evaluation &eval,
               const Fortran::parser::IfStmt &stmt) {
-    if (eval.LowerAsUnstructured()) {
+    if (eval.lowerAsUnstructured()) {
       genFIRConditionalBranch(
           std::get<Fortran::parser::ScalarLogicalExpr>(stmt.t),
           eval.lexicalSuccessor, eval.controlSuccessor);
@@ -492,7 +487,7 @@ class FirConverter : public Fortran::lower::AbstractConverter {
   ///  - structured and unstructured concurrent loops
   void genFIR(Fortran::lower::pft::Evaluation &eval,
               const Fortran::parser::DoConstruct &) {
-    bool unstructuredContext{eval.LowerAsUnstructured()};
+    bool unstructuredContext{eval.lowerAsUnstructured()};
     Fortran::lower::pft::Evaluation &doStmtEval{eval.evaluationList->front()};
     auto *doStmt{doStmtEval.getIf<Fortran::parser::NonLabelDoStmt>()};
     assert(doStmt && "missing DO statement");
@@ -644,7 +639,7 @@ class FirConverter : public Fortran::lower::AbstractConverter {
   /// Generate structured or unstructured FIR for an IF construct.
   void genFIR(Fortran::lower::pft::Evaluation &eval,
               const Fortran::parser::IfConstruct &) {
-    if (eval.LowerAsStructured()) {
+    if (eval.lowerAsStructured()) {
       // Structured fir.where nest.
       fir::WhereOp where;
       mlir::OpBuilder::InsertPoint insertionPoint{
@@ -725,24 +720,24 @@ class FirConverter : public Fortran::lower::AbstractConverter {
               [&](const Fortran::parser::Statement<
                   Fortran::parser::ForallAssignmentStmt> &b) {
                 setCurrentPosition(b.source);
-                // genFIR(eval, b.statement);
+                genFIR(eval, b.statement);
               },
               [&](const Fortran::parser::Statement<Fortran::parser::WhereStmt>
                       &b) {
                 setCurrentPosition(b.source);
-                // genFIR(eval, b.statement);
+                genFIR(eval, b.statement);
               },
               [&](const Fortran::parser::WhereConstruct &b) {
-                // genFIR(eval, b);
+                genFIR(eval, b);
               },
               [&](const Fortran::common::Indirection<
                   Fortran::parser::ForallConstruct> &b) {
-                // genFIR(eval, b.value());
+                genFIR(eval, b.value());
               },
               [&](const Fortran::parser::Statement<Fortran::parser::ForallStmt>
                       &b) {
                 setCurrentPosition(b.source);
-                // genFIR(eval, b.statement);
+                genFIR(eval, b.statement);
               },
           },
           s.u);
@@ -1149,8 +1144,6 @@ class FirConverter : public Fortran::lower::AbstractConverter {
               const Fortran::parser::StopStmt &stmt) {
     auto callee{genRuntimeFunction(
         Fortran::lower::RuntimeEntryCode::StopStatement, *builder)};
-    // TODO: 3 args: stop-code-opt, ierror, quiet-opt
-    // auto isError{genFIRLo!isStopStmt(stmt)}
     llvm::SmallVector<mlir::Value, 8> operands;
     builder->create<mlir::CallOp>(toLocation(), callee, operands);
   }
@@ -1195,12 +1188,12 @@ class FirConverter : public Fortran::lower::AbstractConverter {
     if (unstructuredContext) {
       // When transitioning from unstructured to structured code,
       // the structured code might be a target that starts a new block.
-      maybeStartBlock(eval.isConstruct() && eval.LowerAsStructured()
+      maybeStartBlock(eval.isConstruct() && eval.lowerAsStructured()
                           ? eval.evaluationList->front().block
                           : eval.block);
     }
     std::visit([&](const auto *p) { genFIR(eval, *p); }, eval.u);
-    if (unstructuredContext && eval.LowerAsUnstructured() &&
+    if (unstructuredContext && eval.lowerAsUnstructured() &&
         eval.controlSuccessor && eval.isActionStmt() && blockIsUnterminated()) {
       // Exit from an unstructured IF or SELECT construct block.
       genFIRUnconditionalBranch(eval.controlSuccessor);
@@ -1264,11 +1257,11 @@ class FirConverter : public Fortran::lower::AbstractConverter {
       if (eval.isNewBlock) {
         eval.block = Fortran::lower::createBlock(builder);
       }
-      for (size_t i{0}; i < eval.localBlocks.size(); ++i) {
+      for (size_t i{0}, n{eval.localBlocks.size()}; i < n; ++i) {
         eval.localBlocks[i] = Fortran::lower::createBlock(builder);
       }
       if (eval.isConstruct()) {
-        if (eval.LowerAsUnstructured()) {
+        if (eval.lowerAsUnstructured()) {
           createEmptyBlocks(*eval.evaluationList);
         } else {
           // A structured construct that is a target starts a new block.
