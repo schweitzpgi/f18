@@ -54,10 +54,9 @@ static LLVMTypeID defaultRealKind(KindTy kind) {
 
 // lookup the kind-value given the defaults, the mappings, and a KIND key
 template <typename RT, char KEY>
-static RT
-doLookup(std::function<RT(KindTy)> def,
-         const std::unordered_map<char, std::unordered_map<KindTy, RT>> &map,
-         KindTy kind) {
+static RT doLookup(std::function<RT(KindTy)> def,
+                   const llvm::DenseMap<char, llvm::DenseMap<KindTy, RT>> &map,
+                   KindTy kind) {
   auto iter = map.find(KEY);
   if (iter != map.end()) {
     auto iter2 = iter->second.find(kind);
