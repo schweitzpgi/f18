@@ -8,13 +8,6 @@
 //
 // PFT (Pre-FIR Tree) interface.
 //
-// A PFT is a light weight tree over the parse tree that is used to create FIR.
-// The PFT captures pointers back into the parse tree, so the parse tree must
-// not be changed between the construction of the PFT and its last use.
-// The PFT captures a structured view of a program.  A program is a list of
-// units.  A function like unit contains a list of evaluations.  An evaluation
-// is either a statement, or a construct with a nested list of evaluations.
-//
 //===----------------------------------------------------------------------===//
 
 #ifndef FORTRAN_LOWER_PFTBUILDER_H_
@@ -23,9 +16,9 @@
 #include "flang/Common/template.h"
 #include "flang/Parser/parse-tree.h"
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/SmallSet.h"
 #include "llvm/Support/raw_ostream.h"
 #include <memory>
-#include <set>
 
 namespace mlir {
 class Block;
@@ -109,6 +102,9 @@ static constexpr bool isFunctionLike{common::HasMember<
                   parser::SubroutineSubprogram,
                   parser::SeparateModuleSubprogram>>};
 
+using LabelSet = llvm::SmallSet<parser::Label, 5>;
+using SymbolLabelMap = std::map<semantics::Symbol *, LabelSet>;
+
 /// Function-like units can contain lists of evaluations.  These can be
 /// (simple) statements or constructs, where a construct contains its own
 /// evaluations.
@@ -177,8 +173,8 @@ struct Evaluation {
         [](auto &r) { return pft::isConstruct<std::decay_t<decltype(r)>>; }});
   }
 
-  bool LowerAsStructured() const;
-  bool LowerAsUnstructured() const;
+  bool lowerAsStructured() const;
+  bool lowerAsUnstructured() const;
 
   // FIR generation looks primarily at PFT statement (leaf) nodes.  So members
   // such as lexicalSuccessor and the various block fields are only applicable
@@ -277,6 +273,7 @@ struct FunctionLikeUnit : public ProgramUnit {
     return std::holds_alternative<
         const parser::Statement<parser::EndProgramStmt> *>(endStmt);
   }
+
   const parser::FunctionStmt *getFunction() {
     return getA<parser::FunctionStmt>();
   }
@@ -292,7 +289,7 @@ struct FunctionLikeUnit : public ProgramUnit {
   FunctionStatement endStmt;
   EvaluationList evaluationList;
   llvm::DenseMap<parser::Label, Evaluation *> labelEvaluationMap;
-  std::map<semantics::Symbol *, std::set<parser::Label>> assignSymbolLabelMap;
+  SymbolLabelMap assignSymbolLabelMap;
   std::list<FunctionLikeUnit> containedFunctions;
 
 private:
@@ -353,6 +350,14 @@ private:
 } // namespace pft
 
 /// Create a PFT (Pre-FIR Tree) from the parse tree.
+///
+/// A PFT (Pre-FIR Tree) is a light weight tree over the parse tree that is
+/// used to create FIR.  The PFT captures pointers back into the parse tree,
+/// so the parse tree must not be changed between the construction of the
+/// PFT and its last use.  The PFT captures a structured view of a program.
+/// A program is a list of units.  A function like unit contains a list of
+/// evaluations.  An evaluation is either a statement, or a construct with a
+/// nested list of evaluations.
 std::unique_ptr<pft::Program> createPFT(const parser::Program &root);
 
 /// Dumper for displaying a PFT.
