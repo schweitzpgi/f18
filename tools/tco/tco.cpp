@@ -49,8 +49,7 @@ static cl::opt<bool> emitFir("emit-fir",
 
 static void printModuleBody(mlir::ModuleOp mod, raw_ostream &output) {
   for (auto &op : mod.getBody()->without_terminator())
-    output << op;
-  output << "\n";
+    output << op << '\n';
 }
 
 // compile a .fir file
