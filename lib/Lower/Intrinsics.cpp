@@ -670,8 +670,8 @@ static mlir::Value createExtremumCompare(mlir::Location loc,
                                              ? mlir::CmpIPredicate::sgt
                                              : mlir::CmpIPredicate::slt};
   static constexpr auto orderedCmp{extremum == Extremum::Max
-                                       ? fir::CmpFPredicate::OGT
-                                       : fir::CmpFPredicate::OLT};
+                                       ? mlir::CmpFPredicate::OGT
+                                       : mlir::CmpFPredicate::OLT};
   auto type = left.getType();
   mlir::Value result;
   if (type.isa<mlir::FloatType>() || type.isa<fir::RealType>()) {
@@ -683,14 +683,14 @@ static mlir::Value createExtremumCompare(mlir::Location loc,
       auto leftIsResult =
           builder.create<fir::CmpfOp>(loc, orderedCmp, left, right);
       auto rightIsNan = builder.create<fir::CmpfOp>(
-          loc, fir::CmpFPredicate::UNE, right, right);
+          loc, mlir::CmpFPredicate::UNE, right, right);
       result = builder.create<mlir::OrOp>(loc, leftIsResult, rightIsNan);
     } else if constexpr (behavior == ExtremumBehavior::IeeeMinMaximum) {
       // Always return NaNs if one the input is NaNs
       auto leftIsResult =
           builder.create<fir::CmpfOp>(loc, orderedCmp, left, right);
-      auto leftIsNan =
-          builder.create<fir::CmpfOp>(loc, fir::CmpFPredicate::UNE, left, left);
+      auto leftIsNan = builder.create<fir::CmpfOp>(
+          loc, mlir::CmpFPredicate::UNE, left, left);
       result = builder.create<mlir::OrOp>(loc, leftIsResult, leftIsNan);
     } else if constexpr (behavior == ExtremumBehavior::MinMaxss) {
       // If the left is a NaN, return the right whatever it is.
@@ -698,8 +698,8 @@ static mlir::Value createExtremumCompare(mlir::Location loc,
     } else if constexpr (behavior == ExtremumBehavior::PgfortranLlvm) {
       // If one of the operand is a NaN, return left whatever it is.
       static constexpr auto unorderedCmp{extremum == Extremum::Max
-                                             ? fir::CmpFPredicate::UGT
-                                             : fir::CmpFPredicate::ULT};
+                                             ? mlir::CmpFPredicate::UGT
+                                             : mlir::CmpFPredicate::ULT};
       result = builder.create<fir::CmpfOp>(loc, unorderedCmp, left, right);
     } else {
       // TODO: ieeMinNum/ieeeMaxNum
