@@ -448,7 +448,7 @@ class FirConverter : public Fortran::lower::AbstractConverter {
         const Fortran::parser::ScalarExpr &lowerExpr,
         const Fortran::parser::ScalarExpr &upperExpr,
         const std::optional<Fortran::parser::ScalarExpr> &stepExpr,
-        mlir::Type type, mlir::Block *preheader)
+        mlir::Type type)
         : loopVariableSym{sym}, lowerExpr{lowerExpr}, upperExpr{upperExpr},
           stepExpr{stepExpr}, loopVariableType{type} {}
 
@@ -503,9 +503,9 @@ class FirConverter : public Fortran::lower::AbstractConverter {
                    std::get_if<Fortran::parser::LoopControl::Bounds>(
                        &loopControl->u)) {
       // "Normal" increment loop.
-      incrementLoopInfo.emplace_back(
-          bounds->name.thing.symbol, bounds->lower, bounds->upper, bounds->step,
-          genType(*bounds->name.thing.symbol), builder->getInsertionBlock());
+      incrementLoopInfo.emplace_back(bounds->name.thing.symbol, bounds->lower,
+                                     bounds->upper, bounds->step,
+                                     genType(*bounds->name.thing.symbol));
       if (unstructuredContext) {
         maybeStartBlock(doStmtEval.block); // preheader block
         incrementLoopInfo[0].headerBlock = doStmtEval.localBlocks[0];
@@ -912,7 +912,7 @@ class FirConverter : public Fortran::lower::AbstractConverter {
     // Helper to get address and length from an Expr that is a character
     // variable designator
     auto getAddrAndLength =
-        [&](const Fortran::semantics::SomeExpr &charDesignatorExpr)
+        [&](const Fortran::lower::SomeExpr &charDesignatorExpr)
         -> Fortran::lower::CharacterOpsBuilder::CharValue {
       mlir::Value addr = genExprAddr(charDesignatorExpr);
       const auto &charExpr =
@@ -1222,8 +1222,7 @@ class FirConverter : public Fortran::lower::AbstractConverter {
       auto *entryBlock = &func.front();
       auto *details =
           symbol->detailsIf<Fortran::semantics::SubprogramDetails>();
-      assert(details &&
-             "details for Fortran::semantics symbol must be subprogram");
+      assert(details && "details for semantics symbol must be subprogram");
       for (const auto &v :
            llvm::zip(details->dummyArgs(), entryBlock->getArguments())) {
         if (std::get<0>(v)) {
