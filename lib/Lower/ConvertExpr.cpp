@@ -84,21 +84,21 @@ class ExprLowering {
   /// FIXME: The signaling/quiet aspect of the table 17.1 requirement is not
   /// fully enforced. FIR and LLVM `fcmp` instructions do not give any guarantee
   /// whether the comparison will signal or not in case of quiet NaN argument.
-  static fir::CmpFPredicate
+  static mlir::CmpFPredicate
   translateFloatRelational(Fortran::common::RelationalOperator rop) {
     switch (rop) {
     case Fortran::common::RelationalOperator::LT:
-      return fir::CmpFPredicate::OLT;
+      return mlir::CmpFPredicate::OLT;
     case Fortran::common::RelationalOperator::LE:
-      return fir::CmpFPredicate::OLE;
+      return mlir::CmpFPredicate::OLE;
     case Fortran::common::RelationalOperator::EQ:
-      return fir::CmpFPredicate::OEQ;
+      return mlir::CmpFPredicate::OEQ;
     case Fortran::common::RelationalOperator::NE:
-      return fir::CmpFPredicate::UNE;
+      return mlir::CmpFPredicate::UNE;
     case Fortran::common::RelationalOperator::GT:
-      return fir::CmpFPredicate::OGT;
+      return mlir::CmpFPredicate::OGT;
     case Fortran::common::RelationalOperator::GE:
-      return fir::CmpFPredicate::OGE;
+      return mlir::CmpFPredicate::OGE;
     }
     assert(false && "unhandled REAL relational operator");
     return {};
@@ -193,14 +193,14 @@ class ExprLowering {
                                  genval(ex.right()));
   }
   template <typename OpTy, typename A>
-  mlir::Value createFltCmpOp(const A &ex, fir::CmpFPredicate pred,
+  mlir::Value createFltCmpOp(const A &ex, mlir::CmpFPredicate pred,
                              mlir::Value lhs, mlir::Value rhs) {
     assert(lhs && rhs && "argument did not lower");
     auto x = builder.create<OpTy>(getLoc(), pred, lhs, rhs);
     return x.getResult();
   }
   template <typename OpTy, typename A>
-  mlir::Value createFltCmpOp(const A &ex, fir::CmpFPredicate pred) {
+  mlir::Value createFltCmpOp(const A &ex, mlir::CmpFPredicate pred) {
     return createFltCmpOp<OpTy>(ex, pred, genval(ex.left()),
                                 genval(ex.right()));
   }
