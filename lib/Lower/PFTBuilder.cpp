@@ -68,7 +68,7 @@ struct UnwrapStmt<parser::UnlabeledStatement<A>> {
 /// limit the bridge to one such instantiation.
 class PFTBuilder {
 public:
-  PFTBuilder() : pgm{new pft::Program}, parentTypeStack{*pgm.get()} {}
+  PFTBuilder() : pgm{new pft::Program}, parentVariantStack{*pgm.get()} {}
 
   /// Get the result
   std::unique_ptr<pft::Program> result() { return std::move(pgm); }
@@ -86,7 +86,7 @@ public:
       // or UnlabeledStatement<Indirection<T>>
       auto stmt{UnwrapStmt<A>(a)};
       if constexpr (pft::isConstructStmt<T> || pft::isOtherStmt<T>) {
-        addEvaluation(pft::Evaluation{stmt.unwrapped, parentTypeStack.back(),
+        addEvaluation(pft::Evaluation{stmt.unwrapped, parentVariantStack.back(),
                                       stmt.position, stmt.label});
         return false;
       } else if constexpr (std::is_same_v<T, parser::ActionStmt>) {
@@ -116,7 +116,7 @@ public:
 
   // Block data
   bool Pre(const parser::BlockData &node) {
-    addUnit(pft::BlockDataUnit{node, parentTypeStack.back()});
+    addUnit(pft::BlockDataUnit{node, parentVariantStack.back()});
     return false;
   }
 
@@ -126,7 +126,7 @@ public:
     addEvaluation(std::visit(
         [&](const auto &x) {
           return pft::Evaluation{
-              x, parentTypeStack.back(), statement.source, {}};
+              x, parentVariantStack.back(), statement.source, {}};
         },
         statement.statement.u));
     return false;
@@ -134,7 +134,7 @@ public:
   bool Pre(const parser::Statement<parser::ForallAssignmentStmt> &statement) {
     addEvaluation(std::visit(
         [&](const auto &x) {
-          return pft::Evaluation{x, parentTypeStack.back(), statement.source,
+          return pft::Evaluation{x, parentVariantStack.back(), statement.source,
                                  statement.label};
         },
         statement.statement.u));
@@ -147,8 +147,8 @@ public:
               // Not caught as other AssignmentStmt because it is not
               // wrapped in a parser::ActionStmt.
               addEvaluation(pft::Evaluation{stmt.statement,
-                                            parentTypeStack.back(), stmt.source,
-                                            stmt.label});
+                                            parentVariantStack.back(),
+                                            stmt.source, stmt.label});
               return false;
             },
             [&](const auto &) { return true; },
@@ -160,14 +160,14 @@ private:
   /// Initialize a new module-like unit and make it the builder's focus.
   template <typename A>
   bool enterModule(const A &func) {
-    auto &unit = addUnit(pft::ModuleLikeUnit{func, parentTypeStack.back()});
-    functionList = &unit.containedFunctions;
-    parentTypeStack.emplace_back(unit);
+    auto &unit = addUnit(pft::ModuleLikeUnit{func, parentVariantStack.back()});
+    functionList = &unit.nestedFunctions;
+    parentVariantStack.emplace_back(unit);
     return true;
   }
 
   void exitModule() {
-    parentTypeStack.pop_back();
+    parentVariantStack.pop_back();
     ResetFunctionList();
   }
 
@@ -175,25 +175,26 @@ private:
   template <typename A>
   bool enterFunction(const A &func) {
     auto &unit =
-        addFunction(pft::FunctionLikeUnit{func, parentTypeStack.back()});
+        addFunction(pft::FunctionLikeUnit{func, parentVariantStack.back()});
     labelEvaluationMap = &unit.labelEvaluationMap;
     assignSymbolLabelMap = &unit.assignSymbolLabelMap;
-    functionList = &unit.containedFunctions;
+    functionList = &unit.nestedFunctions;
     pushEvaluationList(&unit.evaluationList);
-    parentTypeStack.emplace_back(unit);
+    parentVariantStack.emplace_back(unit);
     return true;
   }
 
   void exitFunction() {
     // Guarantee that there is a branch target after the last user statement.
     static const parser::ContinueStmt endTarget{};
-    addEvaluation(pft::Evaluation{endTarget, parentTypeStack.back(), {}, {}});
+    addEvaluation(
+        pft::Evaluation{endTarget, parentVariantStack.back(), {}, {}});
     lastLexicalEvaluation = nullptr;
     analyzeBranches(nullptr, *evaluationListStack.back()); // add branch links
     popEvaluationList();
     labelEvaluationMap = nullptr;
     assignSymbolLabelMap = nullptr;
-    parentTypeStack.pop_back();
+    parentVariantStack.pop_back();
     ResetFunctionList();
   }
 
@@ -201,33 +202,33 @@ private:
   template <typename A>
   bool enterConstruct(const A &construct) {
     auto &eval =
-        addEvaluation(pft::Evaluation{construct, parentTypeStack.back()});
+        addEvaluation(pft::Evaluation{construct, parentVariantStack.back()});
     eval.evaluationList.reset(new pft::EvaluationList);
     pushEvaluationList(eval.evaluationList.get());
-    parentTypeStack.emplace_back(eval);
+    parentVariantStack.emplace_back(eval);
     constructStack.emplace_back(&eval);
     return true;
   }
 
   void exitConstruct() {
     popEvaluationList();
-    parentTypeStack.pop_back();
+    parentVariantStack.pop_back();
     constructStack.pop_back();
   }
 
   /// Reset functionList to an enclosing function's functionList.
   void ResetFunctionList() {
-    if (!parentTypeStack.empty()) {
+    if (!parentVariantStack.empty()) {
       std::visit(common::visitors{
                      [&](pft::FunctionLikeUnit *p) {
-                       functionList = &p->containedFunctions;
+                       functionList = &p->nestedFunctions;
                      },
                      [&](pft::ModuleLikeUnit *p) {
-                       functionList = &p->containedFunctions;
+                       functionList = &p->nestedFunctions;
                      },
                      [&](auto *) { functionList = nullptr; },
                  },
-                 parentTypeStack.back().p);
+                 parentVariantStack.back().p);
     }
   }
 
@@ -255,7 +256,8 @@ private:
         common::visitors{
             [&](const auto &x) {
               return pft::Evaluation{removeIndirection(x),
-                                     parentTypeStack.back(), position, label};
+                                     parentVariantStack.back(), position,
+                                     label};
             },
         },
         statement.u);
@@ -529,9 +531,9 @@ private:
                 }
                 auto iter = assignSymbolLabelMap->find(sym);
                 if (iter == assignSymbolLabelMap->end()) {
-                  pft::LabelSet ls{};
-                  ls.insert(label);
-                  assignSymbolLabelMap->try_emplace(sym, ls);
+                  pft::LabelSet labelSet{};
+                  labelSet.insert(label);
+                  assignSymbolLabelMap->try_emplace(sym, labelSet);
                 } else {
                   iter->second.insert(label);
                 }
@@ -736,7 +738,7 @@ private:
   /// functionList points to the internal or module procedure function list
   /// of a FunctionLikeUnit or a ModuleLikeUnit.  It may be null.
   std::list<pft::FunctionLikeUnit> *functionList{nullptr};
-  std::vector<pft::ParentType> parentTypeStack;
+  std::vector<pft::ParentVariant> parentVariantStack;
   std::vector<pft::Evaluation *> constructStack{};
   std::vector<pft::Evaluation *> doConstructStack{};
   /// evaluationListStack is the current nested construct evaluationList state.
@@ -885,9 +887,9 @@ public:
       outputStream << ": " << header;
     outputStream << '\n';
     dumpEvaluationList(outputStream, functionLikeUnit.evaluationList);
-    if (!functionLikeUnit.containedFunctions.empty()) {
+    if (!functionLikeUnit.nestedFunctions.empty()) {
       outputStream << "\nContains\n";
-      for (auto &func : functionLikeUnit.containedFunctions)
+      for (auto &func : functionLikeUnit.nestedFunctions)
         dumpFunctionLikeUnit(outputStream, func);
       outputStream << "EndContains\n";
     }
@@ -899,7 +901,7 @@ public:
     outputStream << getNodeIndex(moduleLikeUnit) << " ";
     outputStream << "ModuleLike: ";
     outputStream << "\nContains\n";
-    for (auto &func : moduleLikeUnit.containedFunctions)
+    for (auto &func : moduleLikeUnit.nestedFunctions)
       dumpFunctionLikeUnit(outputStream, func);
     outputStream << "EndContains\nEndModuleLike\n\n";
   }
@@ -934,7 +936,7 @@ pft::ModuleLikeUnit::ModuleStatement getModuleStmt(const T &mod) {
 
 } // namespace
 
-llvm::cl::opt<bool> ClDisableStructuredFir(
+llvm::cl::opt<bool> clDisableStructuredFir(
     "no-structured-fir", llvm::cl::desc("disable generation of structured FIR"),
     llvm::cl::init(false), llvm::cl::Hidden);
 
@@ -943,11 +945,11 @@ bool pft::Evaluation::lowerAsStructured() const {
 }
 
 bool pft::Evaluation::lowerAsUnstructured() const {
-  return isUnstructured || ClDisableStructuredFir;
+  return isUnstructured || clDisableStructuredFir;
 }
 
 pft::FunctionLikeUnit::FunctionLikeUnit(const parser::MainProgram &func,
-                                        const pft::ParentType &parent)
+                                        const pft::ParentVariant &parent)
     : ProgramUnit{func, parent} {
   auto &ps{
       std::get<std::optional<parser::Statement<parser::ProgramStmt>>>(func.t)};
@@ -959,36 +961,37 @@ pft::FunctionLikeUnit::FunctionLikeUnit(const parser::MainProgram &func,
 }
 
 pft::FunctionLikeUnit::FunctionLikeUnit(const parser::FunctionSubprogram &func,
-                                        const pft::ParentType &parent)
+                                        const pft::ParentVariant &parent)
     : ProgramUnit{func, parent},
       beginStmt{getFunctionStmt<parser::FunctionStmt>(func)},
       endStmt{getFunctionStmt<parser::EndFunctionStmt>(func)} {}
 
 pft::FunctionLikeUnit::FunctionLikeUnit(
-    const parser::SubroutineSubprogram &func, const pft::ParentType &parent)
+    const parser::SubroutineSubprogram &func, const pft::ParentVariant &parent)
     : ProgramUnit{func, parent},
       beginStmt{getFunctionStmt<parser::SubroutineStmt>(func)},
       endStmt{getFunctionStmt<parser::EndSubroutineStmt>(func)} {}
 
 pft::FunctionLikeUnit::FunctionLikeUnit(
-    const parser::SeparateModuleSubprogram &func, const pft::ParentType &parent)
+    const parser::SeparateModuleSubprogram &func,
+    const pft::ParentVariant &parent)
     : ProgramUnit{func, parent},
       beginStmt{getFunctionStmt<parser::MpSubprogramStmt>(func)},
       endStmt{getFunctionStmt<parser::EndMpSubprogramStmt>(func)} {}
 
 pft::ModuleLikeUnit::ModuleLikeUnit(const parser::Module &m,
-                                    const pft::ParentType &parent)
+                                    const pft::ParentVariant &parent)
     : ProgramUnit{m, parent}, beginStmt{getModuleStmt<parser::ModuleStmt>(m)},
       endStmt{getModuleStmt<parser::EndModuleStmt>(m)} {}
 
 pft::ModuleLikeUnit::ModuleLikeUnit(const parser::Submodule &m,
-                                    const pft::ParentType &parent)
+                                    const pft::ParentVariant &parent)
     : ProgramUnit{m, parent}, beginStmt{getModuleStmt<parser::SubmoduleStmt>(
                                   m)},
       endStmt{getModuleStmt<parser::EndSubmoduleStmt>(m)} {}
 
 pft::BlockDataUnit::BlockDataUnit(const parser::BlockData &bd,
-                                  const pft::ParentType &parent)
+                                  const pft::ParentVariant &parent)
     : ProgramUnit{bd, parent} {}
 
 std::unique_ptr<pft::Program> createPFT(const parser::Program &root) {
