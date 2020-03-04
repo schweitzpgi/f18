@@ -36,9 +36,9 @@ struct FunctionLikeUnit;
 // O(1) time insertions anywhere.
 using EvaluationList = std::list<Evaluation>;
 
-struct ParentType {
+struct ParentVariant {
   template <typename A>
-  ParentType(A &parentType) : p{&parentType} {}
+  ParentVariant(A &parentVariant) : p{&parentVariant} {}
   const std::variant<Program *, ModuleLikeUnit *, FunctionLikeUnit *,
                      Evaluation *>
       p;
@@ -143,14 +143,15 @@ struct Evaluation {
 
   /// General ctor
   template <typename A>
-  Evaluation(const A &a, const ParentType &p, const parser::CharBlock &position,
+  Evaluation(const A &a, const ParentVariant &parentVariant,
+             const parser::CharBlock &position,
              const std::optional<parser::Label> &label)
-      : u{&a}, parentType{p}, position{position}, label{label} {}
+      : u{&a}, parentVariant{parentVariant}, position{position}, label{label} {}
 
   /// Construct ctor
   template <typename A>
-  Evaluation(const A &a, const ParentType &parentType)
-      : u{&a}, parentType{parentType} {
+  Evaluation(const A &a, const ParentVariant &parentVariant)
+      : u{&a}, parentVariant{parentVariant} {
     static_assert(pft::isConstruct<A>, "must be a construct");
   }
 
@@ -211,7 +212,7 @@ struct Evaluation {
   // and does not affect FIR generation.  It may also be helpful for debugging.
 
   EvaluationVariant u;
-  ParentType parentType;
+  ParentVariant parentVariant;
   parser::CharBlock position{};
   std::optional<parser::Label> label{};
   std::unique_ptr<EvaluationList> evaluationList; // nested evaluations
@@ -231,8 +232,8 @@ struct Evaluation {
 /// These units can be function like, module like, or block data.
 struct ProgramUnit {
   template <typename A>
-  ProgramUnit(const A &ptr, const ParentType &parentType)
-      : p{&ptr}, parentType{parentType} {}
+  ProgramUnit(const A &ptr, const ParentVariant &parentVariant)
+      : p{&ptr}, parentVariant{parentVariant} {}
   ProgramUnit(ProgramUnit &&) = default;
   ProgramUnit(const ProgramUnit &) = delete;
 
@@ -242,7 +243,7 @@ struct ProgramUnit {
       const parser::Submodule *, const parser::SeparateModuleSubprogram *,
       const parser::BlockData *>
       p;
-  ParentType parentType;
+  ParentVariant parentVariant;
 };
 
 /// Function-like units may contain evaluations (executable statements) and
@@ -259,13 +260,14 @@ struct FunctionLikeUnit : public ProgramUnit {
                    const parser::Statement<parser::MpSubprogramStmt> *,
                    const parser::Statement<parser::EndMpSubprogramStmt> *>;
 
-  FunctionLikeUnit(const parser::MainProgram &f, const ParentType &parentType);
+  FunctionLikeUnit(const parser::MainProgram &f,
+                   const ParentVariant &parentVariant);
   FunctionLikeUnit(const parser::FunctionSubprogram &f,
-                   const ParentType &parentType);
+                   const ParentVariant &parentVariant);
   FunctionLikeUnit(const parser::SubroutineSubprogram &f,
-                   const ParentType &parentType);
+                   const ParentVariant &parentVariant);
   FunctionLikeUnit(const parser::SeparateModuleSubprogram &f,
-                   const ParentType &parentType);
+                   const ParentVariant &parentVariant);
   FunctionLikeUnit(FunctionLikeUnit &&) = default;
   FunctionLikeUnit(const FunctionLikeUnit &) = delete;
 
@@ -290,7 +292,7 @@ struct FunctionLikeUnit : public ProgramUnit {
   EvaluationList evaluationList;
   llvm::DenseMap<parser::Label, Evaluation *> labelEvaluationMap;
   SymbolLabelMap assignSymbolLabelMap;
-  std::list<FunctionLikeUnit> containedFunctions;
+  std::list<FunctionLikeUnit> nestedFunctions;
 
 private:
   template <typename A>
@@ -313,19 +315,21 @@ struct ModuleLikeUnit : public ProgramUnit {
                    const parser::Statement<parser::SubmoduleStmt> *,
                    const parser::Statement<parser::EndSubmoduleStmt> *>;
 
-  ModuleLikeUnit(const parser::Module &m, const ParentType &parentType);
-  ModuleLikeUnit(const parser::Submodule &m, const ParentType &parentType);
+  ModuleLikeUnit(const parser::Module &m, const ParentVariant &parentVariant);
+  ModuleLikeUnit(const parser::Submodule &m,
+                 const ParentVariant &parentVariant);
   ~ModuleLikeUnit() = default;
   ModuleLikeUnit(ModuleLikeUnit &&) = default;
   ModuleLikeUnit(const ModuleLikeUnit &) = delete;
 
   ModuleStatement beginStmt;
   ModuleStatement endStmt;
-  std::list<FunctionLikeUnit> containedFunctions;
+  std::list<FunctionLikeUnit> nestedFunctions;
 };
 
 struct BlockDataUnit : public ProgramUnit {
-  BlockDataUnit(const parser::BlockData &bd, const ParentType &parentType);
+  BlockDataUnit(const parser::BlockData &bd,
+                const ParentVariant &parentVariant);
   BlockDataUnit(BlockDataUnit &&) = default;
   BlockDataUnit(const BlockDataUnit &) = delete;
 };
