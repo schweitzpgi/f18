@@ -97,7 +97,7 @@ class FirConverter : public Fortran::lower::AbstractConverter {
                           },
                           [](auto *) { return false; },
                       },
-                      cstr->parentType.p);
+                      cstr->parentVariant.p);
   }
   static const Fortran::parser::SubroutineStmt *
   inSubroutine(Fortran::lower::pft::Evaluation *cstr) {
@@ -111,7 +111,7 @@ class FirConverter : public Fortran::lower::AbstractConverter {
               return nullptr;
             },
         },
-        cstr->parentType.p);
+        cstr->parentVariant.p);
   }
   static const Fortran::parser::FunctionStmt *
   inFunction(Fortran::lower::pft::Evaluation *cstr) {
@@ -125,7 +125,7 @@ class FirConverter : public Fortran::lower::AbstractConverter {
               return nullptr;
             },
         },
-        cstr->parentType.p);
+        cstr->parentVariant.p);
   }
   static const Fortran::parser::MpSubprogramStmt *
   inMpSubprogram(Fortran::lower::pft::Evaluation *cstr) {
@@ -141,7 +141,7 @@ class FirConverter : public Fortran::lower::AbstractConverter {
               return nullptr;
             },
         },
-        cstr->parentType.p);
+        cstr->parentVariant.p);
   }
 
   void genFIRUnconditionalBranch(mlir::Block *targetBlock) {
@@ -156,22 +156,15 @@ class FirConverter : public Fortran::lower::AbstractConverter {
 
   void genFIRConditionalBranch(mlir::Value &cond, mlir::Block *trueTarget,
                                mlir::Block *falseTarget) {
-    assert(trueTarget && "missing conditional branch true block");
-    assert(falseTarget && "missing conditional branch false block");
-    llvm::SmallVector<mlir::Value, 2> blk;
-    builder->create<mlir::CondBranchOp>(toLocation(), cond, trueTarget, blk,
-                                        falseTarget, blk);
-  }
-
-  void genFIRConditionalBranch(mlir::Value &cond,
-                               Fortran::lower::pft::Evaluation *trueTarget,
-                               Fortran::lower::pft::Evaluation *falseTarget) {
-    genFIRConditionalBranch(cond, trueTarget->block, falseTarget->block);
+    builder->create<mlir::CondBranchOp>(toLocation(), cond, trueTarget,
+                                        llvm::None, falseTarget, llvm::None);
   }
 
   void genFIRConditionalBranch(const Fortran::parser::ScalarLogicalExpr &expr,
                                Fortran::lower::pft::Evaluation *trueTarget,
                                Fortran::lower::pft::Evaluation *falseTarget) {
+    assert(trueTarget && "missing conditional branch true block");
+    assert(falseTarget && "missing conditional branch true block");
     mlir::Value cond =
         createLogicalExprAsI1(toLocation(), Fortran::semantics::GetExpr(expr));
     genFIRConditionalBranch(cond, trueTarget->block, falseTarget->block);
@@ -393,7 +386,7 @@ class FirConverter : public Fortran::lower::AbstractConverter {
     mlir::Block *ifStmtBlock = builder->getInsertionBlock();
     fir::WhereOp where;
     genWhereCondition(where, &stmt);
-    genFIR(*eval.lexicalSuccessor, false);
+    genFIR(*eval.lexicalSuccessor, /*unstructuredContext*/ false);
     eval.lexicalSuccessor->skip = true;
     builder->setInsertionPointToEnd(ifStmtBlock);
   }
@@ -467,15 +460,15 @@ class FirConverter : public Fortran::lower::AbstractConverter {
     const Fortran::parser::ScalarExpr &upperExpr;
     const std::optional<Fortran::parser::ScalarExpr> &stepExpr;
     mlir::Type loopVariableType;
-    mlir::Value loopVariable{mlir::Value{}};
-    mlir::Value stepValue{mlir::Value{}}; // possible uses in multiple blocks
+    mlir::Value loopVariable{};
+    mlir::Value stepValue{}; // possible uses in multiple blocks
 
     // Data members for structured loops.
     fir::LoopOp doLoop{};
     mlir::OpBuilder::InsertPoint insertionPoint{};
 
     // Data members for unstructured loops.
-    mlir::Value tripVariable{mlir::Value{}};
+    mlir::Value tripVariable{};
     mlir::Block *headerBlock{nullptr};    // loop entry and test block
     mlir::Block *bodyBlock{nullptr};      // first loop body block
     mlir::Block *successorBlock{nullptr}; // loop exit target block
@@ -510,9 +503,9 @@ class FirConverter : public Fortran::lower::AbstractConverter {
                    std::get_if<Fortran::parser::LoopControl::Bounds>(
                        &loopControl->u)) {
       // "Normal" increment loop.
-      incrementLoopInfo.emplace_back(IncrementLoopInfo(
+      incrementLoopInfo.emplace_back(
           bounds->name.thing.symbol, bounds->lower, bounds->upper, bounds->step,
-          genType(*bounds->name.thing.symbol), builder->getInsertionBlock()));
+          genType(*bounds->name.thing.symbol), builder->getInsertionBlock());
       if (unstructuredContext) {
         maybeStartBlock(doStmtEval.block); // preheader block
         incrementLoopInfo[0].headerBlock = doStmtEval.localBlocks[0];
@@ -581,8 +574,8 @@ class FirConverter : public Fortran::lower::AbstractConverter {
       info.stepValue = builder->create<mlir::ConstantOp>(
           location, builder->getIntegerAttr(info.loopVariableType, 1));
     }
-    mlir::Value tripCount;
-    tripCount = builder->create<mlir::SubIOp>(location, upperValue, lowerValue);
+    mlir::Value tripCount =
+        builder->create<mlir::SubIOp>(location, upperValue, lowerValue);
     tripCount =
         builder->create<mlir::AddIOp>(location, tripCount, info.stepValue);
     if (info.stepExpr.has_value()) {
@@ -656,7 +649,7 @@ class FirConverter : public Fortran::lower::AbstractConverter {
           // otherwise block
           switchInsertionPointToOtherwise(where);
         } else {
-          genFIR(e, false);
+          genFIR(e, /*unstructuredContext*/ false);
         }
       }
       builder->restoreInsertionPoint(insertionPoint);
@@ -746,7 +739,7 @@ class FirConverter : public Fortran::lower::AbstractConverter {
   }
   void genFIR(Fortran::lower::pft::Evaluation &eval,
               const Fortran::parser::ForallAssignmentStmt &s) {
-    // std::visit([&](auto &b) { genFIR(b); }, s.u);  // ...
+    std::visit([&](auto &b) { genFIR(eval, b); }, s.u);
   }
 
   void genFIR(Fortran::lower::pft::Evaluation &eval,
@@ -1182,7 +1175,7 @@ class FirConverter : public Fortran::lower::AbstractConverter {
   void genFIR(Fortran::lower::pft::Evaluation &eval,
               bool unstructuredContext = true) {
     if (eval.skip) {
-      return; // rhs of {Forall, If, Where}Stmt has already been processed
+      return; // rhs of {Forall,If,Where}Stmt has already been processed
     }
     setCurrentPosition(eval.position);
     if (unstructuredContext) {
@@ -1332,7 +1325,7 @@ class FirConverter : public Fortran::lower::AbstractConverter {
 
     // recursively lower internal procedures
     llvm::Optional<llvm::StringRef> optName{name};
-    for (auto &f : func.containedFunctions) {
+    for (auto &f : func.nestedFunctions) {
       lowerFunc(f, modules, optName);
     }
   }
@@ -1342,7 +1335,7 @@ class FirConverter : public Fortran::lower::AbstractConverter {
     std::vector<llvm::StringRef> moduleName;
 
     // FIXME: do we need to visit the module statements?
-    for (auto &f : mod.containedFunctions) {
+    for (auto &f : mod.nestedFunctions) {
       lowerFunc(f, moduleName);
     }
   }
