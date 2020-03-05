@@ -59,6 +59,7 @@ void Fortran::lower::SymMap::pushShadowSymbol(semantics::SymbolRef symbol,
 }
 
 void Fortran::lower::SymMap::popShadowSymbol() {
+  assert(!shadowStack.empty() && "shadow stack underflow");
   auto &pair{shadowStack.back()};
   assert(pair.first && "missing pop symbol");
   if (pair.second) {
