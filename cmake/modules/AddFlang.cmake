@@ -1,5 +1,13 @@
+#===-- cmake/modules/AddFlang.cmake ----------------------------------------===#
+#
+# Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+#
+#===------------------------------------------------------------------------===#
+
 macro(set_flang_windows_version_resource_properties name)
-  if(DEFINED windows_resource_file)
+  if (DEFINED windows_resource_file)
     set_windows_version_resource_properties(${name} ${windows_resource_file}
       VERSION_MAJOR ${FLANG_VERSION_MAJOR}
       VERSION_MINOR ${FLANG_VERSION_MINOR}
@@ -20,51 +28,52 @@ macro(add_flang_library name)
     "ADDITIONAL_HEADERS"
     ${ARGN})
   set(srcs)
-  if(MSVC_IDE OR XCODE)
+  if (MSVC_IDE OR XCODE)
     # Add public headers
     file(RELATIVE_PATH lib_path
       ${FLANG_SOURCE_DIR}/lib/
-      ${CMAKE_CURRENT_SOURCE_DIR}
-    )
+      ${CMAKE_CURRENT_SOURCE_DIR})
     if(NOT lib_path MATCHES "^[.][.]")
       file( GLOB_RECURSE headers
         ${FLANG_SOURCE_DIR}/include/flang/${lib_path}/*.h
-        ${FLANG_SOURCE_DIR}/include/flang/${lib_path}/*.def
-      )
+        ${FLANG_SOURCE_DIR}/include/flang/${lib_path}/*.def)
       set_source_files_properties(${headers} PROPERTIES HEADER_FILE_ONLY ON)
 
-      if(headers)
+      if (headers)
         set(srcs ${headers})
       endif()
     endif()
   endif(MSVC_IDE OR XCODE)
-  if(srcs OR ARG_ADDITIONAL_HEADERS)
+
+  if (srcs OR ARG_ADDITIONAL_HEADERS)
     set(srcs
       ADDITIONAL_HEADERS
       ${srcs}
-      ${ARG_ADDITIONAL_HEADERS} # It may contain unparsed unknown args.
-      )
+      ${ARG_ADDITIONAL_HEADERS}) # It may contain unparsed unknown args.
+      
   endif()
-  if(ARG_SHARED)
+
+  if (ARG_SHARED)
     set(LIBTYPE SHARED)
   else()
     # llvm_add_library ignores BUILD_SHARED_LIBS if STATIC is explicitly set,
     # so we need to handle it here.
-    if(BUILD_SHARED_LIBS)
+    if (BUILD_SHARED_LIBS)
       set(LIBTYPE SHARED OBJECT)
     else()
       set(LIBTYPE STATIC OBJECT)
     endif()
     set_property(GLOBAL APPEND PROPERTY FLANG_STATIC_LIBS ${name})
   endif()
+
   llvm_add_library(${name} ${LIBTYPE} ${ARG_UNPARSED_ARGUMENTS} ${srcs})
 
-  if(TARGET ${name})
+  if (TARGET ${name})
     target_link_libraries(${name} INTERFACE ${LLVM_COMMON_LIBS})
 
     if (NOT LLVM_INSTALL_TOOLCHAIN_ONLY OR ${name} STREQUAL "libflang")
       set(export_to_flangtargets)
-      if(${name} IN_LIST LLVM_DISTRIBUTION_COMPONENTS OR
+      if (${name} IN_LIST LLVM_DISTRIBUTION_COMPONENTS OR
           "flang-libraries" IN_LIST LLVM_DISTRIBUTION_COMPONENTS OR
           NOT LLVM_DISTRIBUTION_COMPONENTS)
         set(export_to_flangtargets EXPORT FlangTargets)
@@ -97,7 +106,7 @@ macro(add_flang_library name)
 endmacro(add_flang_library)
 
 macro(add_flang_executable name)
-  add_llvm_executable( ${name} ${ARGN} )
+  add_llvm_executable(${name} ${ARGN})
   set_target_properties(${name} PROPERTIES FOLDER "Flang executables")
   set_flang_windows_version_resource_properties(${name})
 endmacro(add_flang_executable)
@@ -112,7 +121,7 @@ macro(add_flang_tool name)
 
   if (FLANG_BUILD_TOOLS)
     set(export_to_flangtargets)
-    if(${name} IN_LIST LLVM_DISTRIBUTION_COMPONENTS OR
+    if (${name} IN_LIST LLVM_DISTRIBUTION_COMPONENTS OR
         NOT LLVM_DISTRIBUTION_COMPONENTS)
       set(export_to_flangtargets EXPORT FlangTargets)
       set_property(GLOBAL PROPERTY FLANG_HAS_EXPORTS True)
