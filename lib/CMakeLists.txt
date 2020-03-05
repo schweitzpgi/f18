@@ -11,7 +11,3 @@ add_subdirectory(Lower)
 add_subdirectory(Optimizer)
 add_subdirectory(Parser)
 add_subdirectory(Semantics)
-
-if(LINK_WITH_FIR)
-  add_subdirectory(Optimizer)
-endif()

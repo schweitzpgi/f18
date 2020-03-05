@@ -1,1 +1,1 @@
-add_subdirectory(flang/Optimizer)
+add_subdirectory(flang)
