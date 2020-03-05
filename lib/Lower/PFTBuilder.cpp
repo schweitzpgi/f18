@@ -345,14 +345,11 @@ private:
 
   void markBranchTarget(pft::Evaluation &sourceEvaluation,
                         pft::Evaluation &targetEvaluation) {
-    targetEvaluation.isNewBlock = true;
     sourceEvaluation.isUnstructured = true;
-    if (sourceEvaluation.parentConstruct) {
-      sourceEvaluation.parentConstruct->isUnstructured = true;
-    }
     if (!sourceEvaluation.controlSuccessor) {
       sourceEvaluation.controlSuccessor = &targetEvaluation;
     }
+    targetEvaluation.isNewBlock = true;
   }
   void markBranchTarget(pft::Evaluation &sourceEvaluation,
                         parser::Label label) {
@@ -361,46 +358,20 @@ private:
     markBranchTarget(sourceEvaluation, *targetEvaluation);
   }
 
-  /// Set the exit of a construct, possibly from multiple enclosing constructs.
-  void setConstructExit(pft::Evaluation &eval) {
-    pft::Evaluation *constructExit{
-        eval.evaluationList->back().lexicalSuccessor};
-    // Exit from enclosing constructs with nop end statements.
-    if (eval.parentConstruct &&
-        std::visit(common::visitors{
-                       [](const parser::EndAssociateStmt *) { return true; },
-                       [](const parser::CaseStmt *) { return true; },
-                       [](const parser::EndSelectStmt *) { return true; },
-                       [](const parser::EndChangeTeamStmt *) { return true; },
-                       [](const parser::EndCriticalStmt *) { return true; },
-                       [](const parser::ElseIfStmt *) { return true; },
-                       [](const parser::ElseStmt *) { return true; },
-                       [](const parser::EndIfStmt *) { return true; },
-                       [](const parser::SelectRankCaseStmt *) { return true; },
-                       [](const parser::TypeGuardStmt *) { return true; },
-                       [](const auto *) { return false; },
-                   },
-                   constructExit->u)) {
-      constructExit = eval.parentConstruct->constructExit;
-    }
-    assert(constructExit && "missing construct exit");
-    eval.constructExit = constructExit;
-  }
-
-  /// Return the lexical successor of an Evaluation, accounting for (some) nops.
-  pft::Evaluation *effectiveLexicalSuccessor(pft::Evaluation &eval) {
+  /// Return the first successor of an evaluation that isn't a nop,
+  /// possibly exiting from one or more enclosing constructs.
+  pft::Evaluation *exitSuccessor(pft::Evaluation &eval) {
     pft::Evaluation *successor{eval.lexicalSuccessor};
-    if (!successor->isNewBlock && eval.parentConstruct &&
-        &eval.parentConstruct->evaluationList->back() == successor) {
-      successor = eval.parentConstruct->constructExit;
+    if (successor->isNopConstructStmt()) {
+      successor = successor->parentConstruct->constructExit;
     }
-    assert(successor && "missing effective lexical successor");
+    assert(successor && "missing exit successor");
     return successor;
   }
 
-  /// Mark the effective lexical successor of an Evaluation as a new block.
-  void markSuccessorNewBlock(pft::Evaluation &eval) {
-    effectiveLexicalSuccessor(eval)->isNewBlock = true;
+  /// Mark the exit successor of an Evaluation as a new block.
+  void markExitSuccessorAsNewBlock(pft::Evaluation &eval) {
+    exitSuccessor(eval)->isNewBlock = true;
   }
 
   template <typename A>
@@ -464,232 +435,203 @@ private:
     pft::Evaluation *lastIfConstructEvaluation{nullptr};
     pft::Evaluation *lastIfStmtEvaluation{nullptr};
     for (auto &eval : evaluationList) {
-      std::visit(
-          common::visitors{
-              // Action statements
-              [&](const parser::BackspaceStmt *s) {
-                analyzeIoBranches(eval, s);
-              },
-              [&](const parser::CallStmt *s) {
-                // Look for alternate return specifiers.
-                const auto &args{
-                    std::get<std::list<parser::ActualArgSpec>>(s->v.t)};
-                for (const auto &arg : args) {
-                  const auto &actual{std::get<parser::ActualArg>(arg.t)};
-                  if (const auto *altReturn{
-                          std::get_if<parser::AltReturnSpec>(&actual.u)}) {
-                    markBranchTarget(eval, altReturn->v);
-                  }
-                }
-              },
-              [&](const parser::CloseStmt *s) { analyzeIoBranches(eval, s); },
-              [&](const parser::CycleStmt *s) {
-                std::string name{getConstructName(s)};
-                pft::Evaluation *construct{name.empty()
-                                               ? doConstructStack.back()
-                                               : constructNameMap[name]};
-                assert(construct && "missing CYCLE construct");
-                markBranchTarget(eval, construct->evaluationList->back());
-              },
-              [&](const parser::EndfileStmt *s) { analyzeIoBranches(eval, s); },
-              [&](const parser::ExitStmt *s) {
-                std::string name{getConstructName(s)};
-                pft::Evaluation *construct{name.empty()
-                                               ? doConstructStack.back()
-                                               : constructNameMap[name]};
-                assert(construct && "missing EXIT construct");
-                markBranchTarget(eval, *construct->constructExit);
-              },
-              [&](const parser::FlushStmt *s) { analyzeIoBranches(eval, s); },
-              [&](const parser::GotoStmt *s) { markBranchTarget(eval, s->v); },
-              [&](const parser::IfStmt *) { lastIfStmtEvaluation = &eval; },
-              [&](const parser::InquireStmt *s) { analyzeIoBranches(eval, s); },
-              [&](const parser::OpenStmt *s) { analyzeIoBranches(eval, s); },
-              [&](const parser::ReadStmt *s) { analyzeIoBranches(eval, s); },
-              [&](const parser::ReturnStmt *) { eval.isUnstructured = true; },
-              [&](const parser::RewindStmt *s) { analyzeIoBranches(eval, s); },
-              [&](const parser::StopStmt *) { eval.isUnstructured = true; },
-              [&](const parser::WaitStmt *s) { analyzeIoBranches(eval, s); },
-              [&](const parser::WriteStmt *s) { analyzeIoBranches(eval, s); },
-              [&](const parser::ComputedGotoStmt *s) {
-                for (auto &label : std::get<std::list<parser::Label>>(s->t)) {
-                  markBranchTarget(eval, label);
-                }
-              },
-              [&](const parser::ArithmeticIfStmt *s) {
-                markBranchTarget(eval, std::get<1>(s->t));
-                markBranchTarget(eval, std::get<2>(s->t));
-                markBranchTarget(eval, std::get<3>(s->t));
-              },
-              [&](const parser::AssignStmt *s) { // legacy label assignment
-                auto &label = std::get<parser::Label>(s->t);
-                auto sym = std::get<parser::Name>(s->t).symbol;
-                assert(sym && "missing AssignStmt symbol");
-                pft::Evaluation *t{labelEvaluationMap->find(label)->second};
-                if (!std::get_if<const parser::FormatStmt *const>(&t->u)) {
-                  markBranchTarget(eval, label);
-                }
-                auto iter = assignSymbolLabelMap->find(sym);
-                if (iter == assignSymbolLabelMap->end()) {
-                  pft::LabelSet labelSet{};
-                  labelSet.insert(label);
-                  assignSymbolLabelMap->try_emplace(sym, labelSet);
-                } else {
-                  iter->second.insert(label);
-                }
-              },
-              [&](const parser::AssignedGotoStmt *) {
-                // Specific control successors are not in general known.
-                // Compensate by directly marking the successor new block.
-                markSuccessorNewBlock(eval);
-              },
-
-              // Construct statements
-              [&](const parser::AssociateStmt *s) {
-                insertConstructName(&*s, parentConstruct);
-              },
-              [&](const parser::BlockStmt *s) {
-                insertConstructName(&*s, parentConstruct);
-              },
-              [&](const parser::SelectCaseStmt *s) {
-                insertConstructName(&*s, parentConstruct);
-                eval.lexicalSuccessor->isNewBlock = true;
-              },
-              [&](const parser::CaseStmt *) { eval.isNewBlock = true; },
-              [&](const parser::ChangeTeamStmt *s) {
-                insertConstructName(&*s, parentConstruct);
-              },
-              [&](const parser::CriticalStmt *s) {
-                insertConstructName(&*s, parentConstruct);
-              },
-              [&](const parser::NonLabelDoStmt *s) {
-                insertConstructName(&*s, parentConstruct);
-                doConstructStack.push_back(parentConstruct);
-                auto &control{
-                    std::get<std::optional<parser::LoopControl>>(s->t)};
-                // eval.block is the loop preheader block, which will be set
-                // elsewhere if the NonLabelDoStmt is itself a target.
-                // eval.localBlocks[0] is the loop header block.
-                eval.localBlocks.emplace_back(nullptr);
-                if (!control.has_value()) {
-                  eval.isUnstructured = true; // infinite loop
-                  return;
-                }
-                eval.lexicalSuccessor->isNewBlock = true;
-                eval.controlSuccessor = &evaluationList.back();
-                if (std::holds_alternative<parser::ScalarLogicalExpr>(
-                        control->u)) {
-                  eval.isUnstructured = true; // while loop
-                }
-                // Defer additional processing for a concurrent loop to the
-                // EndDoStmt, when it is known if the loop is structured or not.
-              },
-              [&](const parser::EndDoStmt *) {
-                pft::Evaluation &doEval{evaluationList.front()};
-                eval.controlSuccessor = &doEval;
-                doConstructStack.pop_back();
-                if (parentConstruct->lowerAsStructured()) {
-                  return;
-                }
-                parentConstruct->constructExit->isNewBlock = true;
-                const auto &doStmt{doEval.getIf<parser::NonLabelDoStmt>()};
-                assert(doStmt && "missing NonLabelDoStmt");
-                auto &control{
-                    std::get<std::optional<parser::LoopControl>>(doStmt->t)};
-                if (!control.has_value()) {
-                  return; // infinite loop
-                }
-                const auto *concurrent{
-                    std::get_if<parser::LoopControl::Concurrent>(&control->u)};
-                if (!concurrent) {
-                  return;
-                }
-                // Unstructured concurrent loop.  NonLabelDoStmt code accounts
-                // for one concurrent loop dimension.  Reserve preheader,
-                // header, and latch blocks for the remaining dimensions, and
-                // one block for a mask expression.
-                const auto &header{
-                    std::get<parser::ConcurrentHeader>(concurrent->t)};
-                auto dims{
-                    std::get<std::list<parser::ConcurrentControl>>(header.t)
-                        .size()};
-                for (; dims > 1; --dims) {
-                  doEval.localBlocks.emplace_back(nullptr); // preheader
-                  doEval.localBlocks.emplace_back(nullptr); // header
-                  eval.localBlocks.emplace_back(nullptr);   // latch
-                }
-                if (std::get<std::optional<parser::ScalarLogicalExpr>>(
-                        header.t)) {
-                  doEval.localBlocks.emplace_back(nullptr); // mask
-                }
-              },
-              [&](const parser::IfThenStmt *s) {
-                insertConstructName(&*s, parentConstruct);
-                eval.lexicalSuccessor->isNewBlock = true;
-                lastIfConstructEvaluation = &eval;
-              },
-              [&](const parser::ElseIfStmt *s) {
-                eval.isNewBlock = true;
-                eval.lexicalSuccessor->isNewBlock = true;
-                lastIfConstructEvaluation->controlSuccessor = &eval;
-                lastIfConstructEvaluation = &eval;
-              },
-              [&](const parser::ElseStmt *s) {
-                eval.isNewBlock = true;
-                lastIfConstructEvaluation->controlSuccessor = &eval;
-                lastIfConstructEvaluation = &eval;
-              },
-              [&](const parser::EndIfStmt *) {
-                if (parentConstruct->lowerAsUnstructured()) {
-                  parentConstruct->constructExit->isNewBlock = true;
-                }
-                lastIfConstructEvaluation->controlSuccessor =
-                    parentConstruct->constructExit;
-                lastIfConstructEvaluation = nullptr;
-              },
-              [&](const parser::SelectRankStmt *s) {
-                insertConstructName(&*s, parentConstruct);
-                eval.lexicalSuccessor->isNewBlock = true;
-              },
-              [&](const parser::SelectRankCaseStmt *) {
-                eval.isNewBlock = true;
-              },
-              [&](const parser::SelectTypeStmt *s) {
-                insertConstructName(&*s, parentConstruct);
-                eval.lexicalSuccessor->isNewBlock = true;
-              },
-              [&](const parser::TypeGuardStmt *) { eval.isNewBlock = true; },
-
-              // Constructs - set (unstructured construct) exit targets
-              [&](const parser::AssociateConstruct *) {
-                setConstructExit(eval);
-              },
-              [&](const parser::BlockConstruct *) {
-                // EndBlockStmt may have exit code.
-                eval.constructExit = &eval.evaluationList->back();
-              },
-              [&](const parser::CaseConstruct *) { setConstructExit(eval); },
-              [&](const parser::ChangeTeamConstruct *) {
-                setConstructExit(eval);
-              },
-              [&](const parser::CriticalConstruct *) {
-                setConstructExit(eval);
-              },
-              [&](const parser::DoConstruct *) { setConstructExit(eval); },
-              [&](const parser::IfConstruct *) { setConstructExit(eval); },
-              [&](const parser::SelectRankConstruct *) {
-                setConstructExit(eval);
-              },
-              [&](const parser::SelectTypeConstruct *) {
-                setConstructExit(eval);
-              },
-
-              [](const auto *) { /* do nothing */ },
+      eval.visit(common::visitors{
+          // Action statements
+          [&](const parser::BackspaceStmt &s) { analyzeIoBranches(eval, &s); },
+          [&](const parser::CallStmt &s) {
+            // Look for alternate return specifiers.
+            const auto &args{std::get<std::list<parser::ActualArgSpec>>(s.v.t)};
+            for (const auto &arg : args) {
+              const auto &actual{std::get<parser::ActualArg>(arg.t)};
+              if (const auto *altReturn{
+                      std::get_if<parser::AltReturnSpec>(&actual.u)}) {
+                markBranchTarget(eval, altReturn->v);
+              }
+            }
           },
-          eval.u);
+          [&](const parser::CloseStmt &s) { analyzeIoBranches(eval, &s); },
+          [&](const parser::CycleStmt &s) {
+            std::string name{getConstructName(&s)};
+            pft::Evaluation *construct{name.empty() ? doConstructStack.back()
+                                                    : constructNameMap[name]};
+            assert(construct && "missing CYCLE construct");
+            markBranchTarget(eval, construct->evaluationList->back());
+          },
+          [&](const parser::EndfileStmt &s) { analyzeIoBranches(eval, &s); },
+          [&](const parser::ExitStmt &s) {
+            std::string name{getConstructName(&s)};
+            pft::Evaluation *construct{name.empty() ? doConstructStack.back()
+                                                    : constructNameMap[name]};
+            assert(construct && "missing EXIT construct");
+            markBranchTarget(eval, *construct->constructExit);
+          },
+          [&](const parser::FlushStmt &s) { analyzeIoBranches(eval, &s); },
+          [&](const parser::GotoStmt &s) { markBranchTarget(eval, s.v); },
+          [&](const parser::IfStmt &) { lastIfStmtEvaluation = &eval; },
+          [&](const parser::InquireStmt &s) { analyzeIoBranches(eval, &s); },
+          [&](const parser::OpenStmt &s) { analyzeIoBranches(eval, &s); },
+          [&](const parser::ReadStmt &s) { analyzeIoBranches(eval, &s); },
+          [&](const parser::ReturnStmt &) { eval.isUnstructured = true; },
+          [&](const parser::RewindStmt &s) { analyzeIoBranches(eval, &s); },
+          [&](const parser::StopStmt &) { eval.isUnstructured = true; },
+          [&](const parser::WaitStmt &s) { analyzeIoBranches(eval, &s); },
+          [&](const parser::WriteStmt &s) { analyzeIoBranches(eval, &s); },
+          [&](const parser::ComputedGotoStmt &s) {
+            for (auto &label : std::get<std::list<parser::Label>>(s.t)) {
+              markBranchTarget(eval, label);
+            }
+          },
+          [&](const parser::ArithmeticIfStmt &s) {
+            markBranchTarget(eval, std::get<1>(s.t));
+            markBranchTarget(eval, std::get<2>(s.t));
+            markBranchTarget(eval, std::get<3>(s.t));
+          },
+          [&](const parser::AssignStmt &s) { // legacy label assignment
+            auto &label = std::get<parser::Label>(s.t);
+            auto sym = std::get<parser::Name>(s.t).symbol;
+            assert(sym && "missing AssignStmt symbol");
+            pft::Evaluation *t{labelEvaluationMap->find(label)->second};
+            if (!std::get_if<const parser::FormatStmt *const>(&t->u)) {
+              markBranchTarget(eval, label);
+            }
+            auto iter = assignSymbolLabelMap->find(sym);
+            if (iter == assignSymbolLabelMap->end()) {
+              pft::LabelSet labelSet{};
+              labelSet.insert(label);
+              assignSymbolLabelMap->try_emplace(sym, labelSet);
+            } else {
+              iter->second.insert(label);
+            }
+          },
+          [&](const parser::AssignedGotoStmt &) {
+            // Although this statement is a branch, it doesn't have any
+            // explicit control successors.  So the code at the end of the
+            // loop won't mark the exit successor.  Do that here.
+            markExitSuccessorAsNewBlock(eval);
+          },
 
-      // Analyze branches in a nested construct.
-      if (eval.evaluationList) {
+          // Construct statements
+          [&](const parser::AssociateStmt &s) {
+            insertConstructName(&s, parentConstruct);
+          },
+          [&](const parser::BlockStmt &s) {
+            insertConstructName(&s, parentConstruct);
+          },
+          [&](const parser::SelectCaseStmt &s) {
+            insertConstructName(&s, parentConstruct);
+            eval.lexicalSuccessor->isNewBlock = true;
+          },
+          [&](const parser::CaseStmt &) { eval.isNewBlock = true; },
+          [&](const parser::ChangeTeamStmt &s) {
+            insertConstructName(&s, parentConstruct);
+          },
+          [&](const parser::CriticalStmt &s) {
+            insertConstructName(&s, parentConstruct);
+          },
+          [&](const parser::NonLabelDoStmt &s) {
+            insertConstructName(&s, parentConstruct);
+            doConstructStack.push_back(parentConstruct);
+            auto &control{std::get<std::optional<parser::LoopControl>>(s.t)};
+            // eval.block is the loop preheader block, which will be set
+            // elsewhere if the NonLabelDoStmt is itself a target.
+            // eval.localBlocks[0] is the loop header block.
+            eval.localBlocks.emplace_back(nullptr);
+            if (!control.has_value()) {
+              eval.isUnstructured = true; // infinite loop
+              return;
+            }
+            eval.lexicalSuccessor->isNewBlock = true;
+            eval.controlSuccessor = &evaluationList.back();
+            if (std::holds_alternative<parser::ScalarLogicalExpr>(control->u)) {
+              eval.isUnstructured = true; // while loop
+            }
+            // Defer additional processing for a concurrent loop to the
+            // EndDoStmt, when it is known if the loop is structured or not.
+          },
+          [&](const parser::EndDoStmt &) {
+            pft::Evaluation &doEval{evaluationList.front()};
+            eval.controlSuccessor = &doEval;
+            doConstructStack.pop_back();
+            if (parentConstruct->lowerAsStructured()) {
+              return;
+            }
+            parentConstruct->constructExit->isNewBlock = true;
+            const auto &doStmt{doEval.getIf<parser::NonLabelDoStmt>()};
+            assert(doStmt && "missing NonLabelDoStmt");
+            auto &control{
+                std::get<std::optional<parser::LoopControl>>(doStmt->t)};
+            if (!control.has_value()) {
+              return; // infinite loop
+            }
+            const auto *concurrent{
+                std::get_if<parser::LoopControl::Concurrent>(&control->u)};
+            if (!concurrent) {
+              return;
+            }
+            // Unstructured concurrent loop.  NonLabelDoStmt code accounts
+            // for one concurrent loop dimension.  Reserve preheader,
+            // header, and latch blocks for the remaining dimensions, and
+            // one block for a mask expression.
+            const auto &header{
+                std::get<parser::ConcurrentHeader>(concurrent->t)};
+            auto dims{std::get<std::list<parser::ConcurrentControl>>(header.t)
+                          .size()};
+            for (; dims > 1; --dims) {
+              doEval.localBlocks.emplace_back(nullptr); // preheader
+              doEval.localBlocks.emplace_back(nullptr); // header
+              eval.localBlocks.emplace_back(nullptr);   // latch
+            }
+            if (std::get<std::optional<parser::ScalarLogicalExpr>>(header.t)) {
+              doEval.localBlocks.emplace_back(nullptr); // mask
+            }
+          },
+          [&](const parser::IfThenStmt &s) {
+            insertConstructName(&s, parentConstruct);
+            eval.lexicalSuccessor->isNewBlock = true;
+            lastIfConstructEvaluation = &eval;
+          },
+          [&](const parser::ElseIfStmt &) {
+            eval.isNewBlock = true;
+            eval.lexicalSuccessor->isNewBlock = true;
+            lastIfConstructEvaluation->controlSuccessor = &eval;
+            lastIfConstructEvaluation = &eval;
+          },
+          [&](const parser::ElseStmt &) {
+            eval.isNewBlock = true;
+            lastIfConstructEvaluation->controlSuccessor = &eval;
+            lastIfConstructEvaluation = &eval;
+          },
+          [&](const parser::EndIfStmt &) {
+            if (parentConstruct->lowerAsUnstructured()) {
+              parentConstruct->constructExit->isNewBlock = true;
+            }
+            lastIfConstructEvaluation->controlSuccessor =
+                parentConstruct->constructExit;
+            lastIfConstructEvaluation = nullptr;
+          },
+          [&](const parser::SelectRankStmt &s) {
+            insertConstructName(&s, parentConstruct);
+            eval.lexicalSuccessor->isNewBlock = true;
+          },
+          [&](const parser::SelectRankCaseStmt &) { eval.isNewBlock = true; },
+          [&](const parser::SelectTypeStmt &s) {
+            insertConstructName(&s, parentConstruct);
+            eval.lexicalSuccessor->isNewBlock = true;
+          },
+          [&](const parser::TypeGuardStmt &) { eval.isNewBlock = true; },
+
+          [](const auto &) { /* do nothing */ },
+      });
+
+      // Analyze construct evaluations.
+      if (eval.isConstruct()) {
+        if (eval.evaluationList) {
+          eval.constructExit = eval.evaluationList->back().lexicalSuccessor;
+          if (eval.constructExit->isNopConstructStmt()) {
+            eval.constructExit =
+                eval.constructExit->parentConstruct->constructExit;
+          }
+        }
         analyzeBranches(&eval, *eval.evaluationList);
       }
 
@@ -698,11 +640,10 @@ private:
         // eval is the action substatement of an IfStmt.
         if (eval.lowerAsUnstructured()) {
           eval.isNewBlock = true;
-          markSuccessorNewBlock(eval);
+          markExitSuccessorAsNewBlock(eval);
           lastIfStmtEvaluation->isUnstructured = true;
         }
-        lastIfStmtEvaluation->controlSuccessor =
-            effectiveLexicalSuccessor(eval);
+        lastIfStmtEvaluation->controlSuccessor = exitSuccessor(eval);
         lastIfStmtEvaluation = nullptr;
       }
 
@@ -722,14 +663,15 @@ private:
         eval.lexicalSuccessor->isNewBlock = true;
       }
 
-      // The lexical successor of a branch starts a new block.
-      if (eval.controlSuccessor && eval.isActionStmt()) {
-        markSuccessorNewBlock(eval);
-      }
-
       // Propagate isUnstructured flag to enclosing construct.
       if (parentConstruct && eval.isUnstructured) {
         parentConstruct->isUnstructured = true;
+      }
+
+      // The lexical successor of a branch starts a new block.
+      if (eval.controlSuccessor && eval.isActionStmt() &&
+          eval.lowerAsUnstructured()) {
+        markExitSuccessorAsNewBlock(eval);
       }
     }
   }
