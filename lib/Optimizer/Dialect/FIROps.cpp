@@ -191,7 +191,7 @@ static void printCmpOp(OpAsmPrinter &p, OPTY op) {
       op.template getAttrOfType<mlir::IntegerAttr>(OPTY::getPredicateAttrName())
           .getInt());
   assert(predSym.hasValue() && "invalid symbol value for predicate");
-  p << mlir::stringifyCmpFPredicate(predSym.getValue()) << ", ";
+  p << '"' << mlir::stringifyCmpFPredicate(predSym.getValue()) << '"' << ", ";
   p.printOperand(op.lhs());
   p << ", ";
   p.printOperand(op.rhs());
