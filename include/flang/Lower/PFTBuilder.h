@@ -96,6 +96,16 @@ static constexpr bool isConstructStmt{common::HasMember<A, ConstructStmts>};
 template <typename A>
 static constexpr bool isConstruct{common::HasMember<A, Constructs>};
 
+using NopConstructStmts =
+    std::tuple<parser::EndAssociateStmt, parser::CaseStmt,
+               parser::EndSelectStmt, parser::ElseIfStmt, parser::ElseStmt,
+               parser::EndIfStmt, parser::SelectRankStmt,
+               parser::TypeGuardStmt>;
+
+template <typename A>
+static constexpr bool isNopConstructStmt{
+    common::HasMember<A, NopConstructStmts>};
+
 template <typename A>
 static constexpr bool isFunctionLike{common::HasMember<
     A, std::tuple<parser::MainProgram, parser::FunctionSubprogram,
@@ -105,14 +115,15 @@ static constexpr bool isFunctionLike{common::HasMember<
 using LabelSet = llvm::SmallSet<parser::Label, 5>;
 using SymbolLabelMap = std::map<semantics::Symbol *, LabelSet>;
 
-/// Function-like units can contain lists of evaluations.  These can be
-/// (simple) statements or constructs, where a construct contains its own
-/// evaluations.
+/// Function-like units contain lists of evaluations.  These can be simple
+/// statements or constructs, where a construct contains its own evaluations.
 struct Evaluation {
   using EvaluationTuple = common::CombineTuples<ActionStmts, OtherStmts,
                                                 ConstructStmts, Constructs>;
 
   /// Hide non-nullable pointers to the parse-tree node.
+  /// Build type std::variant<const A* const, const B* const, ...>
+  /// from EvaluationTuple type (std::tuple<A, B, ...>).
   template <typename A>
   using MakeRefType = const A *const;
   using EvaluationVariant = common::CombineVariants<
@@ -127,10 +138,8 @@ struct Evaluation {
   }
   template <typename A>
   constexpr const A *getIf() const {
-    if (auto *ptr{std::get_if<MakeRefType<A>>(&u)}) {
-      return *ptr;
-    }
-    return nullptr;
+    auto *ptr = std::get_if<MakeRefType<A>>(&u);
+    return ptr ? *ptr : nullptr;
   }
   template <typename A>
   constexpr bool isA() const {
@@ -172,6 +181,11 @@ struct Evaluation {
   constexpr bool isConstruct() const {
     return visit(common::visitors{
         [](auto &r) { return pft::isConstruct<std::decay_t<decltype(r)>>; }});
+  }
+  constexpr bool isNopConstructStmt() const {
+    return visit(common::visitors{[](auto &r) {
+      return pft::isNopConstructStmt<std::decay_t<decltype(r)>>;
+    }});
   }
 
   bool lowerAsStructured() const;
