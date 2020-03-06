@@ -49,7 +49,17 @@ This is quite similar to the old way, but with a few subtle differences.
 One can, for example, do this with make as follows.
 
 ```
-  make <make-arguments>
+cd where/you/want/to/build/llvm
+git clone --depth=1 -b f18 https://github.com/flang-compiler/f18-llvm-project.git
+mkdir build
+mkdir install
+cd build
+cmake ../f18-llvm-project/llvm -DCMAKE_BUILD_TYPE=Release \
+    -DLLVM_ENABLE_PROJECTS=mlir -DCMAKE_CXX_STANDARD=17 \
+    -DLLVM_INSTALL_UTILS=On \
+    -DCMAKE_INSTALL_PREFIX=../install
+make
+make install
 ```
 
 Or, of course, use their favorite build tool (such as ninja).
