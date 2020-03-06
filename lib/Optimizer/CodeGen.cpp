@@ -901,7 +901,7 @@ struct ConstfOpConversion : public FIROpConversion<fir::ConstfOp> {
                   mlir::ConversionPatternRewriter &rewriter) const override {
     auto conf = mlir::cast<fir::ConstfOp>(op);
     auto ty = convertType(conf.getType());
-    auto val = conf.getValue();
+    auto val = conf.constantAttr();
     rewriter.replaceOpWithNewOp<mlir::LLVM::ConstantOp>(conf, ty, val);
     return matchSuccess();
   }
