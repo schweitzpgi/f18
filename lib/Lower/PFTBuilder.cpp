@@ -309,8 +309,7 @@ private:
         if (std::holds_alternative<parser::ErrLabel>(control.u) ||
             std::holds_alternative<parser::EorLabel>(control.u) ||
             std::holds_alternative<parser::EndLabel>(control.u)) {
-          pft::Evaluation *t{labelEvaluationMap->find(stmt->v)->second};
-          markBranchTarget(eval, *t);
+          markBranchTarget(eval, stmt->v);
         }
       }
     }
@@ -325,8 +324,7 @@ private:
         if (std::holds_alternative<parser::ErrLabel>(spec.u) ||
             std::holds_alternative<parser::EorLabel>(spec.u) ||
             std::holds_alternative<parser::EndLabel>(spec.u)) {
-          pft::Evaluation *t{labelEvaluationMap->find(stmt->v)->second};
-          markBranchTarget(eval, *t);
+          markBranchTarget(eval, stmt->v);
         }
       }
     }
@@ -336,11 +334,19 @@ private:
         if (std::holds_alternative<parser::ErrLabel>(spec.u) ||
             std::holds_alternative<parser::EorLabel>(spec.u) ||
             std::holds_alternative<parser::EndLabel>(spec.u)) {
-          pft::Evaluation *t{labelEvaluationMap->find(stmt->v)->second};
-          markBranchTarget(eval, *t);
+          markBranchTarget(eval, stmt->v);
         }
       }
     }
+  }
+
+  /// Set the exit of a construct, possibly from multiple enclosing constructs.
+  void setConstructExit(pft::Evaluation &eval) {
+    eval.constructExit = eval.evaluationList->back().lexicalSuccessor;
+    if (eval.constructExit->isNopConstructStmt()) {
+      eval.constructExit = eval.constructExit->parentConstruct->constructExit;
+    }
+    assert(eval.constructExit && "missing construct exit");
   }
 
   void markBranchTarget(pft::Evaluation &sourceEvaluation,
@@ -353,13 +359,14 @@ private:
   }
   void markBranchTarget(pft::Evaluation &sourceEvaluation,
                         parser::Label label) {
+    assert(label && "missing branch target label");
     pft::Evaluation *targetEvaluation{labelEvaluationMap->find(label)->second};
-    assert(targetEvaluation && "missing branch target");
+    assert(targetEvaluation && "missing branch target evaluation");
     markBranchTarget(sourceEvaluation, *targetEvaluation);
   }
 
-  /// Return the first successor of an evaluation that isn't a nop,
-  /// possibly exiting from one or more enclosing constructs.
+  /// Return the first non-nop successor of an evaluation, possibly exiting
+  /// from one or more enclosing constructs.
   pft::Evaluation *exitSuccessor(pft::Evaluation &eval) {
     pft::Evaluation *successor{eval.lexicalSuccessor};
     if (successor->isNopConstructStmt()) {
@@ -545,8 +552,8 @@ private:
             if (std::holds_alternative<parser::ScalarLogicalExpr>(control->u)) {
               eval.isUnstructured = true; // while loop
             }
-            // Defer additional processing for a concurrent loop to the
-            // EndDoStmt, when it is known if the loop is structured or not.
+            // Defer additional processing for an unstructured concurrent loop
+            // to the EndDoStmt, when the loop is known to be unstructured.
           },
           [&](const parser::EndDoStmt &) {
             pft::Evaluation &doEval{evaluationList.front()};
@@ -555,6 +562,8 @@ private:
             if (parentConstruct->lowerAsStructured()) {
               return;
             }
+            // Now that the loop is known to be unstructured, finish concurrent
+            // loop processing, using NonLabelDoStmt information.
             parentConstruct->constructExit->isNewBlock = true;
             const auto &doStmt{doEval.getIf<parser::NonLabelDoStmt>()};
             assert(doStmt && "missing NonLabelDoStmt");
@@ -620,18 +629,31 @@ private:
           },
           [&](const parser::TypeGuardStmt &) { eval.isNewBlock = true; },
 
+          // Constructs - set (unstructured) construct exit targets
+          [&](const parser::AssociateConstruct &) { setConstructExit(eval); },
+          [&](const parser::BlockConstruct &) {
+            // EndBlockStmt may have code.
+            eval.constructExit = &eval.evaluationList->back();
+          },
+          [&](const parser::CaseConstruct &) { setConstructExit(eval); },
+          [&](const parser::ChangeTeamConstruct &) {
+            // EndChangeTeamStmt may have code.
+            eval.constructExit = &eval.evaluationList->back();
+          },
+          [&](const parser::CriticalConstruct &) {
+            // EndCriticalStmt may have code.
+            eval.constructExit = &eval.evaluationList->back();
+          },
+          [&](const parser::DoConstruct &) { setConstructExit(eval); },
+          [&](const parser::IfConstruct &) { setConstructExit(eval); },
+          [&](const parser::SelectRankConstruct &) { setConstructExit(eval); },
+          [&](const parser::SelectTypeConstruct &) { setConstructExit(eval); },
+
           [](const auto &) { /* do nothing */ },
       });
 
       // Analyze construct evaluations.
-      if (eval.isConstruct()) {
-        if (eval.evaluationList) {
-          eval.constructExit = eval.evaluationList->back().lexicalSuccessor;
-          if (eval.constructExit->isNopConstructStmt()) {
-            eval.constructExit =
-                eval.constructExit->parentConstruct->constructExit;
-          }
-        }
+      if (eval.evaluationList) {
         analyzeBranches(&eval, *eval.evaluationList);
       }
 
@@ -649,16 +671,7 @@ private:
 
       // Set the successor of the last statement in an IF or SELECT block.
       if (!eval.controlSuccessor && eval.lexicalSuccessor &&
-          std::visit(
-              common::visitors{
-                  [](const parser::CaseStmt *) { return true; },
-                  [](const parser::ElseIfStmt *) { return true; },
-                  [](const parser::ElseStmt *) { return true; },
-                  [](const parser::SelectRankCaseStmt *) { return true; },
-                  [](const parser::TypeGuardStmt *) { return true; },
-                  [](const auto *) { return false; },
-              },
-              eval.lexicalSuccessor->u)) {
+          eval.lexicalSuccessor->isIntermediateConstructStmt()) {
         eval.controlSuccessor = parentConstruct->constructExit;
         eval.lexicalSuccessor->isNewBlock = true;
       }
