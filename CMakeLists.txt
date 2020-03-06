@@ -62,6 +62,7 @@ if (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
   include(AddLLVM)
   include(HandleLLVMOptions)  
   include(VersionFromVCS)
+  include(TableGen)
   include(AddMLIR) 
 
   option(LLVM_ENABLE_WARNINGS "Enable compiler warnings." ON)
