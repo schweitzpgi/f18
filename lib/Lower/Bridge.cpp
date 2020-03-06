@@ -658,16 +658,21 @@ class FirConverter : public Fortran::lower::AbstractConverter {
 
     // Unstructured branch sequence.
     for (auto &e : *eval.evaluationList) {
+      const Fortran::parser::ScalarLogicalExpr *cond = nullptr;
       if (auto *s = e.getIf<Fortran::parser::IfThenStmt>()) {
         maybeStartBlock(e.block);
-        genFIRConditionalBranch(
-            std::get<Fortran::parser::ScalarLogicalExpr>(s->t),
-            e.lexicalSuccessor, e.controlSuccessor);
+        cond = &std::get<Fortran::parser::ScalarLogicalExpr>(s->t);
       } else if (auto *s = e.getIf<Fortran::parser::ElseIfStmt>()) {
         startBlock(e.block);
+        cond = &std::get<Fortran::parser::ScalarLogicalExpr>(s->t);
+      }
+      if (cond) {
         genFIRConditionalBranch(
-            std::get<Fortran::parser::ScalarLogicalExpr>(s->t),
-            e.lexicalSuccessor, e.controlSuccessor);
+            *cond,
+            e.lexicalSuccessor == e.controlSuccessor
+                ? e.parentConstruct->constructExit // empty block --> exit
+                : e.lexicalSuccessor,              // nonempty block
+            e.controlSuccessor);
       } else {
         genFIR(e);
       }
