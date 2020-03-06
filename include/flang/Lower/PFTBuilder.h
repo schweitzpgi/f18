@@ -96,15 +96,17 @@ static constexpr bool isConstructStmt{common::HasMember<A, ConstructStmts>};
 template <typename A>
 static constexpr bool isConstruct{common::HasMember<A, Constructs>};
 
-using NopConstructStmts =
-    std::tuple<parser::EndAssociateStmt, parser::CaseStmt,
-               parser::EndSelectStmt, parser::ElseIfStmt, parser::ElseStmt,
-               parser::EndIfStmt, parser::SelectRankStmt,
-               parser::TypeGuardStmt>;
+template <typename A>
+static constexpr bool isIntermediateConstructStmt{common::HasMember<
+    A, std::tuple<parser::CaseStmt, parser::ElseIfStmt, parser::ElseStmt,
+                  parser::SelectRankCaseStmt, parser::TypeGuardStmt>>};
 
 template <typename A>
-static constexpr bool isNopConstructStmt{
-    common::HasMember<A, NopConstructStmts>};
+static constexpr bool isNopConstructStmt{common::HasMember<
+    A, std::tuple<parser::EndAssociateStmt, parser::CaseStmt,
+                  parser::EndSelectStmt, parser::ElseIfStmt, parser::ElseStmt,
+                  parser::EndIfStmt, parser::SelectRankCaseStmt,
+                  parser::TypeGuardStmt>>};
 
 template <typename A>
 static constexpr bool isFunctionLike{common::HasMember<
@@ -181,6 +183,11 @@ struct Evaluation {
   constexpr bool isConstruct() const {
     return visit(common::visitors{
         [](auto &r) { return pft::isConstruct<std::decay_t<decltype(r)>>; }});
+  }
+  constexpr bool isIntermediateConstructStmt() const {
+    return visit(common::visitors{[](auto &r) {
+      return pft::isIntermediateConstructStmt<std::decay_t<decltype(r)>>;
+    }});
   }
   constexpr bool isNopConstructStmt() const {
     return visit(common::visitors{[](auto &r) {
