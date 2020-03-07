@@ -44,7 +44,7 @@ public:
   /// mlir::FuncOp and to compare function types.
   struct RuntimeFunction {
     RuntimeFunction(llvm::StringRef n, mlir::FunctionType t)
-        : symbol{n}, type{t} {};
+        : symbol{n}, type{t} {}
     llvm::StringRef symbol;
     mlir::FunctionType type;
   };
@@ -549,8 +549,8 @@ mlir::Value IntrinsicLibrary::Implementation::outlineInWrapper(
     Generator generator, Context &context, MathRuntimeLibrary &runtime) {
   auto module = getModule(context.builder);
   auto *mlirContext = module.getContext();
-  std::string wrapperName{
-      getIntrinsicWrapperName(context.name, context.funcType)};
+  std::string wrapperName =
+      getIntrinsicWrapperName(context.name, context.funcType);
   auto function = getNamedFunction(module, wrapperName);
   if (!function) {
     // First time this wrapper is needed, build it.
@@ -635,10 +635,10 @@ IntrinsicLibrary::Implementation::genRuntimeCall(Context &context,
 mlir::Value IntrinsicLibrary::Implementation::genConjg(Context &genCtxt,
                                                        MathRuntimeLibrary &) {
   assert(genCtxt.arguments.size() == 1);
-  mlir::Type resType = genCtxt.getResultType();
+  [[maybe_unused]] mlir::Type resType = genCtxt.getResultType();
   assert(resType == genCtxt.arguments[0].getType());
-  mlir::OpBuilder &builder{*genCtxt.builder};
-  ComplexOpsBuilder cplxHandler{builder, genCtxt.loc};
+  mlir::OpBuilder &builder = *genCtxt.builder;
+  ComplexOpsBuilder cplxHandler(builder, genCtxt.loc);
 
   mlir::Value cplx = genCtxt.arguments[0];
   mlir::Value imag = cplxHandler.extract<ComplexOpsBuilder::Part::Imag>(cplx);
@@ -651,7 +651,7 @@ mlir::Value IntrinsicLibrary::Implementation::genMerge(Context &genCtxt,
                                                        MathRuntimeLibrary &) {
   assert(genCtxt.arguments.size() == 3);
   [[maybe_unused]] auto resType = genCtxt.getResultType();
-  mlir::OpBuilder &builder{*genCtxt.builder};
+  mlir::OpBuilder &builder = *genCtxt.builder;
 
   auto &trueVal = genCtxt.arguments[0];
   auto &falseVal = genCtxt.arguments[1];
@@ -666,12 +666,12 @@ template <Extremum extremum, ExtremumBehavior behavior>
 static mlir::Value createExtremumCompare(mlir::Location loc,
                                          mlir::OpBuilder &builder,
                                          mlir::Value left, mlir::Value right) {
-  static constexpr auto integerPredicate{extremum == Extremum::Max
-                                             ? mlir::CmpIPredicate::sgt
-                                             : mlir::CmpIPredicate::slt};
-  static constexpr auto orderedCmp{extremum == Extremum::Max
-                                       ? mlir::CmpFPredicate::OGT
-                                       : mlir::CmpFPredicate::OLT};
+  static constexpr auto integerPredicate = extremum == Extremum::Max
+                                               ? mlir::CmpIPredicate::sgt
+                                               : mlir::CmpIPredicate::slt;
+  static constexpr auto orderedCmp = extremum == Extremum::Max
+                                         ? mlir::CmpFPredicate::OGT
+                                         : mlir::CmpFPredicate::OLT;
   auto type = left.getType();
   mlir::Value result;
   if (type.isa<mlir::FloatType>() || type.isa<fir::RealType>()) {
@@ -697,9 +697,9 @@ static mlir::Value createExtremumCompare(mlir::Location loc,
       result = builder.create<fir::CmpfOp>(loc, orderedCmp, left, right);
     } else if constexpr (behavior == ExtremumBehavior::PgfortranLlvm) {
       // If one of the operand is a NaN, return left whatever it is.
-      static constexpr auto unorderedCmp{extremum == Extremum::Max
-                                             ? mlir::CmpFPredicate::UGT
-                                             : mlir::CmpFPredicate::ULT};
+      static constexpr auto unorderedCmp = extremum == Extremum::Max
+                                               ? mlir::CmpFPredicate::UGT
+                                               : mlir::CmpFPredicate::ULT;
       result = builder.create<fir::CmpfOp>(loc, unorderedCmp, left, right);
     } else {
       // TODO: ieeMinNum/ieeeMaxNum
@@ -722,7 +722,7 @@ template <Extremum extremum, ExtremumBehavior behavior>
 mlir::Value
 IntrinsicLibrary::Implementation::genExtremum(Context &genCtxt,
                                               MathRuntimeLibrary &) {
-  auto &builder{*genCtxt.builder};
+  auto &builder = *genCtxt.builder;
   auto loc = genCtxt.loc;
   assert(genCtxt.arguments.size() >= 2);
   mlir::Value result = genCtxt.arguments[0];
