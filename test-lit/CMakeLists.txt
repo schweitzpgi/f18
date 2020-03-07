@@ -2,7 +2,7 @@
 # for use by Lit, and delegates to LLVM's lit test handlers.
 
 # f18 modules directory
-set(FLANG_INTRINSIC_MODULES_DIR ${FLANG_BINARY_DIR}/tools/f18/include)
+set(FLANG_INTRINSIC_MODULES_DIR ${FLANG_BINARY_DIR}/include/flang)
 
 # f18/flang tools path for lit
 set(FLANG_TOOLS_DIR  ${FLANG_BINARY_DIR}/tools/f18/bin)
