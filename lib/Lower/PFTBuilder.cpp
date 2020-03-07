@@ -382,7 +382,7 @@ private:
   }
 
   template <typename A>
-  constexpr std::string getConstructName(const A &stmt) {
+  inline std::string getConstructName(const A &stmt) {
     if constexpr (std::is_same_v<A, parser::BlockStmt *> ||
                   std::is_same_v<A, const parser::CycleStmt *> ||
                   std::is_same_v<A, const parser::ElseStmt *> ||
