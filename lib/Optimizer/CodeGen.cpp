@@ -1332,11 +1332,11 @@ struct FieldIndexOpConversion : public FIROpConversion<fir::FieldIndexOp> {
 
   // constructing the name of the method
   inline static std::string methodName(fir::FieldIndexOp field) {
-    Twine fldName = field.field_id();
+    auto fldName = field.field_id();
+    auto type = field.on_type().cast<fir::RecordType>();
     // note: using std::string to dodge a bug in g++ 7.4.0
-    std::string tyName =
-        field.on_type().cast<fir::RecordType>().getName().str();
-    Twine methodName = "_QQOFFSETOF_" + tyName + "_" + fldName;
+    std::string tyName = type.getName().str();
+    llvm::Twine methodName = "_QQOFFSETOF_" + tyName + "_" + fldName;
     return methodName.str();
   }
 };
