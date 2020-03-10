@@ -14,7 +14,7 @@
 #ifndef FIR_DIALECT_FIR_OPS
 #define FIR_DIALECT_FIR_OPS
 
-include "mlir/Analysis/ControlFlowInterfaces.td"
+include "mlir/Interfaces/ControlFlowInterfaces.td"
 
 def fir_Dialect : Dialect {
   let name = "fir";
