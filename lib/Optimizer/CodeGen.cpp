@@ -342,7 +342,7 @@ StringMap<mlir::LLVM::LLVMType> FIRToLLVMTypeConverter::identStructCache;
 
 /// remove `omitNames` (by name) from the attribute dictionary
 SmallVector<mlir::NamedAttribute, 4>
-pruneNamedAttrDict(ArrayRef<mlir::NamedAttribute> attrs,
+pruneNamedAttrDict(AttributeTy attrs,
                    ArrayRef<StringRef> omitNames) {
   SmallVector<mlir::NamedAttribute, 4> result;
   for (auto x : attrs) {
@@ -1294,7 +1294,7 @@ struct CoordinateOpConversion : public FIROpConversion<fir::CoordinateOp> {
     return matchSuccess();
   }
 
-  SmallVector<mlir::Value, 8> arguments(ArrayRef<mlir::Value> vec, unsigned s,
+  SmallVector<mlir::Value, 8> arguments(OperandTy vec, unsigned s,
                                         unsigned e) const {
     return {vec.begin() + s, vec.begin() + e};
   }
@@ -1476,8 +1476,7 @@ struct HasValueOpConversion : public FIROpConversion<fir::HasValueOp> {
   mlir::PatternMatchResult
   matchAndRewrite(mlir::Operation *op, OperandTy operands,
                   ConversionPatternRewriter &rewriter) const override {
-    rewriter.replaceOpWithNewOp<LLVM::ReturnOp>(op, operands, llvm::None,
-                                                op->getAttrs());
+    rewriter.replaceOpWithNewOp<LLVM::ReturnOp>(op, operands);
     return matchSuccess();
   }
 };
@@ -1533,16 +1532,34 @@ struct NoReassocOpConversion : public FIROpConversion<fir::NoReassocOp> {
   }
 };
 
+void genCondBrOp(mlir::Location loc, mlir::Value cmp, mlir::Block *dest,
+                 llvm::Optional<OperandTy> destOps,
+                 mlir::ConversionPatternRewriter &rewriter,
+                 mlir::Block *newBlock) {
+  if (destOps.hasValue())
+    rewriter.create<mlir::LLVM::CondBrOp>(loc, cmp, dest, destOps.getValue(),
+                                          newBlock, mlir::ValueRange());
+  else
+    rewriter.create<mlir::LLVM::CondBrOp>(loc, cmp, dest, newBlock);
+}
+
+template <typename A, typename B>
+void genBrOp(A caseOp, mlir::Block *dest, llvm::Optional<B> destOps,
+             mlir::ConversionPatternRewriter &rewriter) {
+  if (destOps.hasValue())
+    rewriter.replaceOpWithNewOp<mlir::LLVM::BrOp>(caseOp, destOps.getValue(),
+                                                  dest);
+  else
+    rewriter.replaceOpWithNewOp<mlir::LLVM::BrOp>(caseOp, llvm::None, dest);
+}
+
 void genCaseLadderStep(mlir::Location loc, mlir::Value cmp, mlir::Block *dest,
-                       OperandTy destOps,
+                       llvm::Optional<OperandTy> destOps,
                        mlir::ConversionPatternRewriter &rewriter) {
   auto *thisBlock = rewriter.getInsertionBlock();
   auto *newBlock = rewriter.createBlock(dest);
   rewriter.setInsertionPointToEnd(thisBlock);
-  SmallVector<mlir::Block *, 2> dest_{dest, newBlock};
-  SmallVector<mlir::ValueRange, 2> destOps_{destOps, {}};
-  rewriter.create<mlir::LLVM::CondBrOp>(loc, mlir::ValueRange{cmp}, dest_,
-                                        destOps_);
+  genCondBrOp(loc, cmp, dest, destOps, rewriter, newBlock);
   rewriter.setInsertionPointToEnd(newBlock);
 }
 
@@ -1554,67 +1571,59 @@ struct SelectCaseOpConversion : public FIROpConversion<fir::SelectCaseOp> {
 
   mlir::PatternMatchResult
   matchAndRewrite(mlir::Operation *op, OperandTy operands,
-                  ArrayRef<mlir::Block *> destinations,
-                  ArrayRef<OperandTy> destOperands,
                   mlir::ConversionPatternRewriter &rewriter) const override {
-    auto selectcase = mlir::cast<fir::SelectCaseOp>(op);
-    auto conds = selectcase.getNumConditions();
-    auto attrName = fir::SelectCaseOp::AttrName;
-    auto caseAttr = selectcase.getAttrOfType<mlir::ArrayAttr>(attrName);
-    auto cases = caseAttr.getValue();
+    auto caseOp = mlir::cast<fir::SelectCaseOp>(op);
+    const auto conds = caseOp.getNumConditions();
+    auto attrName = fir::SelectCaseOp::getCasesAttr();
+    auto cases = caseOp.getAttrOfType<mlir::ArrayAttr>(attrName).getValue();
     // Type can be CHARACTER, INTEGER, or LOGICAL (C1145)
-    auto ty = selectcase.getSelector().getType();
-    (void)ty;
-    auto &selector = operands[0];
-    unsigned nextOp = 1;
-    auto loc = selectcase.getLoc();
-    assert(conds > 0 && "selectcase must have cases");
-    for (unsigned t = 0; t != conds; ++t) {
+    [[maybe_unused]] auto ty = caseOp.getSelector().getType();
+    auto selector = caseOp.getSelector(operands);
+    auto loc = caseOp.getLoc();
+    assert(conds > 0 && "fir.selectcase must have cases");
+    for (std::remove_const_t<decltype(conds)> t = 0; t != conds; ++t) {
+      mlir::Block *dest = caseOp.getSuccessor(t);
+      auto destOps = caseOp.getSuccessorOperands(operands, t);
+      auto cmpOps = *caseOp.getCompareOperands(operands, t);
+      auto caseArg = *cmpOps.begin();
       auto &attr = cases[t];
-      if (attr.dyn_cast_or_null<fir::PointIntervalAttr>()) {
+      if (attr.isa<fir::PointIntervalAttr>()) {
         auto cmp = rewriter.create<mlir::LLVM::ICmpOp>(
-            loc, mlir::LLVM::ICmpPredicate::eq, selector, operands[nextOp++]);
-        genCaseLadderStep(loc, cmp, destinations[t], destOperands[t], rewriter);
+            loc, mlir::LLVM::ICmpPredicate::eq, selector, caseArg);
+        genCaseLadderStep(loc, cmp, dest, destOps, rewriter);
         continue;
       }
-      if (attr.dyn_cast_or_null<fir::LowerBoundAttr>()) {
+      if (attr.isa<fir::LowerBoundAttr>()) {
         auto cmp = rewriter.create<mlir::LLVM::ICmpOp>(
-            loc, mlir::LLVM::ICmpPredicate::sle, operands[nextOp++], selector);
-        genCaseLadderStep(loc, cmp, destinations[t], destOperands[t], rewriter);
+            loc, mlir::LLVM::ICmpPredicate::sle, caseArg, selector);
+        genCaseLadderStep(loc, cmp, dest, destOps, rewriter);
         continue;
       }
-      if (attr.dyn_cast_or_null<fir::UpperBoundAttr>()) {
+      if (attr.isa<fir::UpperBoundAttr>()) {
         auto cmp = rewriter.create<mlir::LLVM::ICmpOp>(
-            loc, mlir::LLVM::ICmpPredicate::sle, selector, operands[nextOp++]);
-        genCaseLadderStep(loc, cmp, destinations[t], destOperands[t], rewriter);
+            loc, mlir::LLVM::ICmpPredicate::sle, selector, caseArg);
+        genCaseLadderStep(loc, cmp, dest, destOps, rewriter);
         continue;
       }
-      if (attr.dyn_cast_or_null<fir::ClosedIntervalAttr>()) {
+      if (attr.isa<fir::ClosedIntervalAttr>()) {
         auto cmp = rewriter.create<mlir::LLVM::ICmpOp>(
-            loc, mlir::LLVM::ICmpPredicate::sle, operands[nextOp++], selector);
+            loc, mlir::LLVM::ICmpPredicate::sle, caseArg, selector);
         auto *thisBlock = rewriter.getInsertionBlock();
-        auto *newBlock1 = rewriter.createBlock(destinations[t]);
-        auto *newBlock2 = rewriter.createBlock(destinations[t]);
+        auto *newBlock1 = rewriter.createBlock(dest);
+        auto *newBlock2 = rewriter.createBlock(dest);
         rewriter.setInsertionPointToEnd(thisBlock);
-        SmallVector<mlir::Block *, 2> dests{newBlock1, newBlock2};
-        SmallVector<mlir::ValueRange, 2> destOps{{}, {}};
-        rewriter.create<mlir::LLVM::CondBrOp>(loc, mlir::ValueRange{cmp}, dests,
-                                              destOps);
+        rewriter.create<mlir::LLVM::CondBrOp>(loc, cmp, newBlock1, newBlock2);
         rewriter.setInsertionPointToEnd(newBlock1);
+        auto caseArg_ = *(cmpOps.begin() + 1);
         auto cmp_ = rewriter.create<mlir::LLVM::ICmpOp>(
-            loc, mlir::LLVM::ICmpPredicate::sle, selector, operands[nextOp++]);
-        SmallVector<mlir::Block *, 2> dest2{destinations[t], newBlock2};
-        SmallVector<mlir::ValueRange, 2> destOp2{destOperands[t], {}};
-        rewriter.create<mlir::LLVM::CondBrOp>(loc, mlir::ValueRange{cmp_},
-                                              dest2, destOp2);
+            loc, mlir::LLVM::ICmpPredicate::sle, selector, caseArg_);
+        genCondBrOp(loc, cmp_, dest, destOps, rewriter, newBlock2);
         rewriter.setInsertionPointToEnd(newBlock2);
         continue;
       }
-      assert(attr.dyn_cast_or_null<mlir::UnitAttr>());
+      assert(attr.isa<mlir::UnitAttr>());
       assert((t + 1 == conds) && "unit must be last");
-      rewriter.replaceOpWithNewOp<mlir::LLVM::BrOp>(
-          selectcase, mlir::ValueRange{}, destinations[t],
-          mlir::ValueRange{destOperands[t]});
+      genBrOp(caseOp, dest, destOps, rewriter);
     }
     return matchSuccess();
   }
@@ -1623,37 +1632,35 @@ struct SelectCaseOpConversion : public FIROpConversion<fir::SelectCaseOp> {
 template <typename OP>
 void selectMatchAndRewrite(FIRToLLVMTypeConverter &lowering,
                            mlir::Operation *op, OperandTy operands,
-                           ArrayRef<mlir::Block *> destinations,
-                           ArrayRef<OperandTy> destOperands,
                            mlir::ConversionPatternRewriter &rewriter) {
   auto select = mlir::cast<OP>(op);
 
   // We could target the LLVM switch instruction, but it isn't part of the
   // LLVM IR dialect.  Create an if-then-else ladder instead.
   auto conds = select.getNumConditions();
-  auto attrName = OP::AttrName;
+  auto attrName = OP::getCasesAttr();
   auto caseAttr = select.template getAttrOfType<mlir::ArrayAttr>(attrName);
   auto cases = caseAttr.getValue();
   auto ty = select.getSelector().getType();
   auto ity = lowering.convertType(ty);
-  auto &selector = operands[0];
+  auto selector = select.getSelector(operands);
   auto loc = select.getLoc();
   assert(conds > 0 && "select must have cases");
-  for (unsigned t = 0, end{conds}; t != end; ++t) {
+  for (decltype(conds) t = 0; t != conds; ++t) {
+    mlir::Block *dest = select.getSuccessor(t);
+    auto destOps = select.getSuccessorOperands(operands, t);
     auto &attr = cases[t];
-    if (auto intAttr = attr.template dyn_cast_or_null<mlir::IntegerAttr>()) {
+    if (auto intAttr = attr.template dyn_cast<mlir::IntegerAttr>()) {
       auto ci = rewriter.create<mlir::LLVM::ConstantOp>(
           loc, ity, rewriter.getIntegerAttr(ty, intAttr.getInt()));
       auto cmp = rewriter.create<mlir::LLVM::ICmpOp>(
           loc, mlir::LLVM::ICmpPredicate::eq, selector, ci);
-      genCaseLadderStep(loc, cmp, destinations[t], destOperands[t], rewriter);
+      genCaseLadderStep(loc, cmp, dest, destOps, rewriter);
       continue;
     }
     assert(attr.template dyn_cast_or_null<mlir::UnitAttr>());
     assert((t + 1 == conds) && "unit must be last");
-    rewriter.replaceOpWithNewOp<mlir::LLVM::BrOp>(
-        select, mlir::ValueRange{}, destinations[t],
-        mlir::ValueRange{destOperands[t]});
+    genBrOp(select, dest, destOps, rewriter);
   }
 }
 
@@ -1663,11 +1670,8 @@ struct SelectOpConversion : public FIROpConversion<fir::SelectOp> {
 
   mlir::PatternMatchResult
   matchAndRewrite(mlir::Operation *op, OperandTy operands,
-                  ArrayRef<mlir::Block *> destinations,
-                  ArrayRef<OperandTy> destOperands,
                   mlir::ConversionPatternRewriter &rewriter) const override {
-    selectMatchAndRewrite<fir::SelectOp>(lowering, op, operands, destinations,
-                                         destOperands, rewriter);
+    selectMatchAndRewrite<fir::SelectOp>(lowering, op, operands, rewriter);
     return matchSuccess();
   }
 };
@@ -1678,11 +1682,8 @@ struct SelectRankOpConversion : public FIROpConversion<fir::SelectRankOp> {
 
   mlir::PatternMatchResult
   matchAndRewrite(mlir::Operation *op, OperandTy operands,
-                  ArrayRef<mlir::Block *> destinations,
-                  ArrayRef<OperandTy> destOperands,
                   mlir::ConversionPatternRewriter &rewriter) const override {
-    selectMatchAndRewrite<fir::SelectRankOp>(
-        lowering, op, operands, destinations, destOperands, rewriter);
+    selectMatchAndRewrite<fir::SelectRankOp>(lowering, op, operands, rewriter);
     return matchSuccess();
   }
 };
@@ -1693,8 +1694,6 @@ struct SelectTypeOpConversion : public FIROpConversion<fir::SelectTypeOp> {
 
   mlir::PatternMatchResult
   matchAndRewrite(mlir::Operation *op, OperandTy operands,
-                  ArrayRef<mlir::Block *> destinations,
-                  ArrayRef<OperandTy> destOperands,
                   mlir::ConversionPatternRewriter &rewriter) const override {
     auto selecttype = mlir::cast<fir::SelectTypeOp>(op);
     TODO(selecttype);
@@ -1835,8 +1834,7 @@ struct UnreachableOpConversion : public FIROpConversion<fir::UnreachableOp> {
   matchAndRewrite(mlir::Operation *op, OperandTy operands,
                   mlir::ConversionPatternRewriter &rewriter) const override {
     auto unreach = mlir::cast<fir::UnreachableOp>(op);
-    rewriter.replaceOpWithNewOp<mlir::LLVM::UnreachableOp>(
-        unreach, operands, None, None, unreach.getAttrs());
+    rewriter.replaceOpWithNewOp<mlir::LLVM::UnreachableOp>(unreach);
     return matchSuccess();
   }
 };
