@@ -107,41 +107,42 @@ struct SelectTypeOpConversion : public FIROpConversion<SelectTypeOp> {
 
   mlir::PatternMatchResult
   matchAndRewrite(mlir::Operation *op, OperandTy operands,
-                  llvm::ArrayRef<mlir::Block *> destinations,
-                  llvm::ArrayRef<OperandTy> destOperands,
                   mlir::ConversionPatternRewriter &rewriter) const override {
     auto selectType = mlir::cast<SelectTypeOp>(op);
     auto conds = selectType.getNumConditions();
-    auto attrName = SelectTypeOp::AttrName;
+    auto attrName = SelectTypeOp::getCasesAttr();
     auto caseAttr = selectType.getAttrOfType<mlir::ArrayAttr>(attrName);
     auto cases = caseAttr.getValue();
     // Selector must be of type !fir.box<T>
-    auto &selector = operands[0];
+    auto selector = selectType.getSelector(operands);
     auto loc = selectType.getLoc();
     auto mod = op->getParentOfType<mlir::ModuleOp>();
-    for (unsigned t = 0; t != conds; ++t) {
+    for (decltype(conds) t = 0; t != conds; ++t) {
+      auto *dest = selectType.getSuccessor(t);
+      auto destOps = selectType.getSuccessorOperands(operands, t);
       auto &attr = cases[t];
-      if (auto a = attr.dyn_cast_or_null<ExactTypeAttr>()) {
-        genTypeLadderStep(loc, true, selector, a.getType(), destinations[t],
-                          destOperands[t], mod, rewriter);
+      if (auto a = attr.dyn_cast<ExactTypeAttr>()) {
+        genTypeLadderStep(loc, /*exactTest=*/true, selector, a.getType(), dest,
+                          destOps, mod, rewriter);
         continue;
       }
-      if (auto a = attr.dyn_cast_or_null<SubclassAttr>()) {
-        genTypeLadderStep(loc, false, selector, a.getType(), destinations[t],
-                          destOperands[t], mod, rewriter);
+      if (auto a = attr.dyn_cast<SubclassAttr>()) {
+        genTypeLadderStep(loc, /*exactTest=*/false, selector, a.getType(), dest,
+                          destOps, mod, rewriter);
         continue;
       }
-      assert(attr.dyn_cast_or_null<mlir::UnitAttr>());
+      assert(attr.isa<mlir::UnitAttr>());
       assert((t + 1 == conds) && "unit must be last");
       rewriter.replaceOpWithNewOp<mlir::BranchOp>(
-          selectType, destinations[t], mlir::ValueRange{destOperands[t]});
+          selectType, dest, mlir::ValueRange{destOps.getValue()});
     }
     return matchSuccess();
   }
 
   static void genTypeLadderStep(mlir::Location loc, bool exactTest,
                                 mlir::Value selector, mlir::Type ty,
-                                mlir::Block *dest, OperandTy destOps,
+                                mlir::Block *dest,
+                                llvm::Optional<OperandTy> destOps,
                                 mlir::ModuleOp module,
                                 mlir::ConversionPatternRewriter &rewriter) {
     mlir::Type tydesc = TypeDescType::get(ty);
@@ -167,8 +168,13 @@ struct SelectTypeOpConversion : public FIROpConversion<SelectTypeOp> {
     auto *thisBlock = rewriter.getInsertionBlock();
     auto *newBlock = rewriter.createBlock(dest);
     rewriter.setInsertionPointToEnd(thisBlock);
-    rewriter.create<mlir::CondBranchOp>(loc, cmp.getResult(0), dest, destOps,
-                                        newBlock, OperandTy{});
+    if (destOps.hasValue())
+      rewriter.create<mlir::CondBranchOp>(loc, cmp.getResult(0), dest,
+                                          destOps.getValue(), newBlock,
+                                          llvm::None);
+    else
+      rewriter.create<mlir::CondBranchOp>(loc, cmp.getResult(0), dest,
+                                          newBlock);
     rewriter.setInsertionPointToEnd(newBlock);
   }
 };
