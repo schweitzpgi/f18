@@ -464,8 +464,7 @@ struct MemToReg
                        cond.getTrueOperands());
           auto c = cond.getCondition();
           auto *othDest = cond.getFalseDest();
-          std::vector<mlir::Value> othOpers(cond.false_operand_begin(),
-                                            cond.false_operand_end());
+          auto othOpers = cond.falseDestOperands();
           builder->create<mlir::CondBranchOp>(cond.getLoc(), c, dest, opers,
                                               othDest, othOpers);
           cond.erase();
@@ -484,8 +483,7 @@ struct MemToReg
                        cond.getFalseOperands());
           auto c = cond.getCondition();
           auto *othDest = cond.getTrueDest();
-          std::vector<mlir::Value> othOpers(cond.true_operand_begin(),
-                                            cond.true_operand_end());
+          auto othOpers = cond.trueDestOperands();
           builder->create<mlir::CondBranchOp>(cond.getLoc(), c, othDest,
                                               othOpers, dest, opers);
           cond.erase();
