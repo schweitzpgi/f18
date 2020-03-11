@@ -10,7 +10,7 @@
 #include "../../runtime/io-api.h"
 #include "RTBuilder.h"
 #include "flang/Lower/Bridge.h"
-#include "flang/Lower/OpBuilder.h"
+#include "flang/Lower/FIRBuilder.h"
 #include "flang/Lower/Runtime.h"
 #include "flang/Optimizer/Dialect/FIROps.h"
 #include "flang/Parser/parse-tree.h"
@@ -93,21 +93,20 @@ inline int64_t getLength(mlir::Type argTy) {
 
 /// Get (or generate) the MLIR FuncOp for a given IO runtime function.
 template <typename E>
-mlir::FuncOp getIORuntimeFunc(mlir::OpBuilder &builder) {
-  mlir::ModuleOp module = getModule(&builder);
+mlir::FuncOp getIORuntimeFunc(Fortran::lower::FirOpBuilder &builder) {
   auto name = getName<E>();
-  auto func = getNamedFunction(module, name);
+  auto func = builder.getNamedFunction(name);
   if (func)
     return func;
   auto funTy = getTypeModel<E>()(builder.getContext());
-  func = createFunction(module, name, funTy);
+  func = builder.createFunction(name, funTy);
   func.setAttr("fir.runtime", builder.getUnitAttr());
   func.setAttr("fir.io", builder.getUnitAttr());
   return func;
 }
 
 /// Generate a call to end an IO statement
-mlir::Value genEndIO(mlir::OpBuilder &builder, mlir::Location loc,
+mlir::Value genEndIO(Fortran::lower::FirOpBuilder &builder, mlir::Location loc,
                      mlir::Value cookie) {
   // Terminate IO
   auto endIOFunc = getIORuntimeFunc<mkIOKey(EndIoStatement)>(builder);
@@ -133,7 +132,7 @@ FormatItems lowerFormat(AbstractConverter &converter,
   return formatItems;
 }
 
-mlir::FuncOp getOutputRuntimeFunc(mlir::OpBuilder &builder, mlir::Type type) {
+mlir::FuncOp getOutputRuntimeFunc(Fortran::lower::FirOpBuilder &builder, mlir::Type type) {
   if (auto ty = type.dyn_cast<mlir::IntegerType>()) {
     if (ty.getWidth() == 1)
       return getIORuntimeFunc<mkIOKey(OutputLogical)>(builder);
@@ -158,7 +157,7 @@ mlir::FuncOp getOutputRuntimeFunc(mlir::OpBuilder &builder, mlir::Type type) {
 /// The I/O library interface requires that COMPLEX and CHARACTER typed values
 /// be extracted and passed as separate values.
 llvm::SmallVector<mlir::Value, 4>
-splitArguments(mlir::OpBuilder &builder, mlir::Location loc, mlir::Value arg) {
+splitArguments(Fortran::lower::FirOpBuilder &builder, mlir::Location loc, mlir::Value arg) {
   mlir::Value zero;
   mlir::Value one;
   mlir::Type argTy = arg.getType();
@@ -203,7 +202,7 @@ splitArguments(mlir::OpBuilder &builder, mlir::Location loc, mlir::Value arg) {
 
 /// Generate a call to an Output I/O function.
 /// The specific call is determined dynamically by the argument type.
-void genOutputRuntimeFunc(mlir::OpBuilder &builder, mlir::Location loc,
+void genOutputRuntimeFunc(Fortran::lower::FirOpBuilder &builder, mlir::Location loc,
                           mlir::Type argType, mlir::Value cookie,
                           llvm::SmallVector<mlir::Value, 4> &operands) {
   int i = 1;
@@ -221,7 +220,7 @@ void lowerPrintStatement(AbstractConverter &converter, mlir::Location loc,
                          mlir::ValueRange args,
                          const Fortran::parser::Format &format) {
   mlir::FuncOp beginFunc;
-  mlir::OpBuilder &builder = converter.getOpBuilder();
+  Fortran::lower::FirOpBuilder &builder = converter.getFirOpBuilder();
   auto formatItems = lowerFormat(converter, format);
   if (formatItems.has_value()) {
     // has a format
@@ -274,7 +273,7 @@ mlir::Value lowerErrorHandlingPositionOrFlush(
     AbstractConverter &converter, mlir::Value endRes,
     const std::list<Fortran::parser::PositionOrFlushSpec> &specs) {
   mlir::Value result;
-  auto builder = converter.getOpBuilder();
+  auto builder = converter.getFirOpBuilder();
   auto loc = converter.getCurrentLocation();
   for (auto &sp : specs) {
     std::visit(
@@ -317,7 +316,7 @@ mlir::Value lowerErrorHandlingPositionOrFlush(
 /// This is templatized with a statement type `S` and a key `K` for genericity.
 template <typename K, typename S>
 mlir::Value genPosOrFlushLikeStmt(AbstractConverter &converter, const S &stmt) {
-  auto builder = converter.getOpBuilder();
+  auto builder = converter.getFirOpBuilder();
   auto loc = converter.getCurrentLocation();
   auto beginFunc = getIORuntimeFunc<K>(builder);
   auto args = lowerBeginArgsPositionOrFlush(converter, loc, stmt.v);
@@ -351,7 +350,7 @@ mlir::Value genRewindStatement(AbstractConverter &converter,
 
 mlir::Value genOpenStatement(AbstractConverter &converter,
                              const Fortran::parser::OpenStmt &) {
-  auto builder = converter.getOpBuilder();
+  auto builder = converter.getFirOpBuilder();
   mlir::FuncOp beginFunc;
   // if (...
   beginFunc = getIORuntimeFunc<mkIOKey(BeginOpenUnit)>(builder);
@@ -363,7 +362,7 @@ mlir::Value genOpenStatement(AbstractConverter &converter,
 
 mlir::Value genCloseStatement(AbstractConverter &converter,
                               const Fortran::parser::CloseStmt &) {
-  auto builder = converter.getOpBuilder();
+  auto builder = converter.getFirOpBuilder();
   mlir::FuncOp beginFunc = getIORuntimeFunc<mkIOKey(BeginClose)>(builder);
   (void)beginFunc;
   TODO();
@@ -388,7 +387,7 @@ void genPrintStatement(AbstractConverter &converter,
 
 mlir::Value genReadStatement(AbstractConverter &converter,
                              const Fortran::parser::ReadStmt &) {
-  auto builder = converter.getOpBuilder();
+  auto builder = converter.getFirOpBuilder();
   mlir::FuncOp beginFunc;
   // if (...
   beginFunc = getIORuntimeFunc<mkIOKey(BeginExternalListInput)>(builder);
@@ -399,7 +398,7 @@ mlir::Value genReadStatement(AbstractConverter &converter,
 
 mlir::Value genWriteStatement(AbstractConverter &converter,
                               const Fortran::parser::WriteStmt &) {
-  auto builder = converter.getOpBuilder();
+  auto builder = converter.getFirOpBuilder();
   mlir::FuncOp beginFunc;
   // if (...
   beginFunc = getIORuntimeFunc<mkIOKey(BeginExternalListOutput)>(builder);
@@ -410,7 +409,7 @@ mlir::Value genWriteStatement(AbstractConverter &converter,
 
 mlir::Value genInquireStatement(AbstractConverter &converter,
                                 const Fortran::parser::InquireStmt &) {
-  auto builder = converter.getOpBuilder();
+  auto builder = converter.getFirOpBuilder();
   mlir::FuncOp beginFunc;
   // if (...
   beginFunc = getIORuntimeFunc<mkIOKey(BeginInquireUnit)>(builder);
