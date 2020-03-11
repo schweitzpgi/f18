@@ -394,6 +394,10 @@ mlir::Type parseFirType(FIROpsDialect *, mlir::DialectAsmParser &parser);
 
 void printFirType(FIROpsDialect *, mlir::Type ty, mlir::DialectAsmPrinter &p);
 
+/// Guarantee `type` is a scalar integral type (standard Integer, standard
+/// Index, or FIR Int). Aborts execution if condition is false.
+void verifyIntegralType(mlir::Type type);
+
 } // namespace fir
 
 #endif // OPTIMIZER_DIALECT_FIRTYPE_H
