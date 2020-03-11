@@ -5,6 +5,13 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
+//
+// Builder routines for constructing the FIR dialect of MLIR. As FIR is a
+// dialect of MLIR, it makes extensive use of MLIR interfaces and MLIR's coding
+// style (https://mlir.llvm.org/getting_started/DeveloperGuide/) is used in this
+// module.
+//
+//===----------------------------------------------------------------------===//
 
 #ifndef FORTRAN_LOWER_INTRINSICS_H_
 #define FORTRAN_LOWER_INTRINSICS_H_
@@ -12,11 +19,10 @@
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "llvm/ADT/StringRef.h"
 #include <memory>
-#include <optional>
-
-/// [Coding style](https://llvm.org/docs/CodingStandards.html)
 
 namespace Fortran::lower {
+
+class FirOpBuilder;
 
 /// IntrinsicLibrary generates FIR+MLIR operations that implement Fortran
 /// generic intrinsic function calls. It operates purely on FIR+MLIR types so
@@ -45,7 +51,7 @@ public:
   /// Generate the FIR+MLIR operations for the generic intrinsic "name".
   /// On failure, returns a nullptr, else the returned mlir::Value is
   /// the returned Fortran intrinsic value.
-  mlir::Value genval(mlir::Location loc, mlir::OpBuilder &builder,
+  mlir::Value genval(mlir::Location loc, Fortran::lower::FirOpBuilder &builder,
                      llvm::StringRef name, mlir::Type resultType,
                      llvm::ArrayRef<mlir::Value> args) const;
 

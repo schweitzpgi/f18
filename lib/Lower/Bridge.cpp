@@ -9,10 +9,10 @@
 #include "flang/Lower/Bridge.h"
 #include "flang/Lower/ConvertExpr.h"
 #include "flang/Lower/ConvertType.h"
+#include "flang/Lower/FIRBuilder.h"
 #include "flang/Lower/IO.h"
 #include "flang/Lower/Intrinsics.h"
 #include "flang/Lower/Mangler.h"
-#include "flang/Lower/OpBuilder.h"
 #include "flang/Lower/PFTBuilder.h"
 #include "flang/Lower/Runtime.h"
 #include "flang/Optimizer/Dialect/FIRDialect.h"
@@ -38,26 +38,160 @@
       assert(false && "not yet implemented");                                  \
   }
 
-namespace {
-
-llvm::cl::opt<bool>
+static llvm::cl::opt<bool>
     dumpBeforeFir("fdebug-dump-pre-fir", llvm::cl::init(false),
                   llvm::cl::desc("dump the IR tree prior to FIR"));
 
-llvm::cl::opt<bool>
+static llvm::cl::opt<bool>
     disableToDoAssertions("disable-burnside-todo",
                           llvm::cl::desc("disable burnside bridge asserts"),
                           llvm::cl::init(false), llvm::cl::Hidden);
 
-/// Converter from PFT to FIR
+namespace {
+/// Information for generating a structured or unstructured increment loop.
+struct IncrementLoopInfo {
+  explicit IncrementLoopInfo(
+      Fortran::semantics::Symbol *sym,
+      const Fortran::parser::ScalarExpr &lowerExpr,
+      const Fortran::parser::ScalarExpr &upperExpr,
+      const std::optional<Fortran::parser::ScalarExpr> &stepExpr,
+      mlir::Type type)
+      : loopVariableSym{sym}, lowerExpr{lowerExpr}, upperExpr{upperExpr},
+        stepExpr{stepExpr}, loopVariableType{type} {}
+
+  bool isStructured() const { return headerBlock == nullptr; }
+
+  // Data members for both structured and unstructured loops.
+  Fortran::semantics::Symbol *loopVariableSym;
+  const Fortran::parser::ScalarExpr &lowerExpr;
+  const Fortran::parser::ScalarExpr &upperExpr;
+  const std::optional<Fortran::parser::ScalarExpr> &stepExpr;
+  mlir::Type loopVariableType;
+  mlir::Value loopVariable{};
+  mlir::Value stepValue{}; // possible uses in multiple blocks
+
+  // Data members for structured loops.
+  fir::LoopOp doLoop{};
+  mlir::OpBuilder::InsertPoint insertionPoint{};
+
+  // Data members for unstructured loops.
+  mlir::Value tripVariable{};
+  mlir::Block *headerBlock{nullptr};    // loop entry and test block
+  mlir::Block *bodyBlock{nullptr};      // first loop body block
+  mlir::Block *successorBlock{nullptr}; // loop exit target block
+};
+} // namespace
+
+//===----------------------------------------------------------------------===//
+// FirConverter
+//===----------------------------------------------------------------------===//
+
+namespace {
+/// Walk over the pre-FIR tree (PFT) and lower it to the FIR dialect of MLIR.
 ///
 /// After building the PFT, the FirConverter processes that representation
 /// and lowers it to the FIR executable representation.
 class FirConverter : public Fortran::lower::AbstractConverter {
+public:
+  explicit FirConverter(Fortran::lower::LoweringBridge &bridge,
+                        fir::NameUniquer &uniquer)
+      : mlirContext{bridge.getMLIRContext()}, cooked{bridge.getCookedSource()},
+        module{bridge.getModule()}, defaults{bridge.getDefaultKinds()},
+        intrinsics{Fortran::lower::IntrinsicLibrary(
+            Fortran::lower::IntrinsicLibrary::Version::LLVM,
+            bridge.getMLIRContext())},
+        uniquer{uniquer} {}
+  virtual ~FirConverter() = default;
 
-  //
-  // Helper function members
-  //
+  /// Convert the PFT to FIR
+  void run(Fortran::lower::pft::Program &pft) {
+    // do translation
+    for (auto &u : pft.getUnits()) {
+      std::visit(
+          Fortran::common::visitors{
+              [&](Fortran::lower::pft::FunctionLikeUnit &f) {
+                lowerFunc(f, {});
+              },
+              [&](Fortran::lower::pft::ModuleLikeUnit &m) { lowerMod(m); },
+              [&](Fortran::lower::pft::BlockDataUnit &) { TODO(); },
+          },
+          u);
+    }
+  }
+
+  mlir::FunctionType genFunctionType(Fortran::lower::SymbolRef sym) {
+    return Fortran::lower::translateSymbolToFIRFunctionType(&mlirContext,
+                                                            defaults, sym);
+  }
+
+  //===--------------------------------------------------------------------===//
+  // AbstractConverter overrides
+  //===--------------------------------------------------------------------===//
+
+  mlir::Value genExprAddr(const Fortran::lower::SomeExpr &expr,
+                          mlir::Location *loc = nullptr) override final {
+    return createFIRAddr(loc ? *loc : toLocation(), &expr);
+  }
+  mlir::Value genExprValue(const Fortran::lower::SomeExpr &expr,
+                           mlir::Location *loc = nullptr) override final {
+    return createFIRExpr(loc ? *loc : toLocation(), &expr);
+  }
+
+  mlir::Type genType(const Fortran::evaluate::DataRef &data) override final {
+    return Fortran::lower::translateDataRefToFIRType(&mlirContext, defaults,
+                                                     data);
+  }
+  mlir::Type genType(const Fortran::lower::SomeExpr &expr) override final {
+    return Fortran::lower::translateSomeExprToFIRType(&mlirContext, defaults,
+                                                      &expr);
+  }
+  mlir::Type genType(Fortran::lower::SymbolRef sym) override final {
+    return Fortran::lower::translateSymbolToFIRType(&mlirContext, defaults,
+                                                    sym);
+  }
+  mlir::Type genType(Fortran::common::TypeCategory tc,
+                     int kind) override final {
+    return Fortran::lower::getFIRType(&mlirContext, defaults, tc, kind);
+  }
+  mlir::Type genType(Fortran::common::TypeCategory tc) override final {
+    return Fortran::lower::getFIRType(&mlirContext, defaults, tc);
+  }
+
+  mlir::Location getCurrentLocation() override final { return toLocation(); }
+  mlir::Location genLocation() override final {
+    return builder->getUnknownLoc();
+  }
+  mlir::Location
+  genLocation(const Fortran::parser::CharBlock &block) override final {
+    if (cooked) {
+      auto loc = cooked->GetSourcePositionRange(block);
+      if (loc.has_value()) {
+        // loc is a pair (begin, end); use the beginning position
+        auto &filePos = loc->first;
+        return mlir::FileLineColLoc::get(filePos.file.path(), filePos.line,
+                                         filePos.column, &mlirContext);
+      }
+    }
+    return genLocation();
+  }
+
+  Fortran::lower::FirOpBuilder &getFirOpBuilder() override final {
+    return *builder;
+  }
+  mlir::ModuleOp &getModuleOp() override final { return module; }
+
+  std::string mangleName(Fortran::lower::SymbolRef symbol) override final {
+    return Fortran::lower::mangle::mangleName(uniquer, symbol);
+  }
+
+private:
+  FirConverter() = delete;
+  FirConverter(const FirConverter &) = delete;
+  FirConverter &operator=(const FirConverter &) = delete;
+
+  //===--------------------------------------------------------------------===//
+  // Helper member functions
+  //===--------------------------------------------------------------------===//
 
   mlir::Value createFIRAddr(mlir::Location loc,
                             const Fortran::semantics::SomeExpr *expr) {
@@ -75,16 +209,15 @@ class FirConverter : public Fortran::lower::AbstractConverter {
   }
   mlir::Value createTemporary(mlir::Location loc,
                               const Fortran::semantics::Symbol &sym) {
-    return Fortran::lower::createTemporary(loc, *builder, localSymbols,
-                                           genType(sym), &sym);
+    return builder->createTemporary(loc, localSymbols, genType(sym), llvm::None,
+                                    &sym);
   }
 
   mlir::FuncOp genFunctionFIR(llvm::StringRef callee,
                               mlir::FunctionType funcTy) {
-    if (auto func = Fortran::lower::getNamedFunction(module, callee)) {
+    if (auto func = builder->getNamedFunction(callee))
       return func;
-    }
-    return createFunction(*this, callee, funcTy);
+    return builder->createFunction(callee, funcTy);
   }
 
   static bool inMainProgram(Fortran::lower::pft::Evaluation *cstr) {
@@ -186,6 +319,7 @@ class FirConverter : public Fortran::lower::AbstractConverter {
     setCurrentPosition(stmt.source);
     genFIRProgramExit();
   }
+
   void
   genFIR(const Fortran::parser::Statement<Fortran::parser::FunctionStmt> &stmt,
          std::string &name, const Fortran::semantics::Symbol *&symbol) {
@@ -292,9 +426,7 @@ class FirConverter : public Fortran::lower::AbstractConverter {
   mlir::Value genFIRLoopIndex(const Fortran::parser::ScalarExpr &x,
                               mlir::Type t) {
     mlir::Value v = genExprValue(*Fortran::semantics::GetExpr(x));
-    return v.getType() == t
-               ? v
-               : builder->create<fir::ConvertOp>(toLocation(), t, v);
+    return builder->create<fir::ConvertOp>(toLocation(), t, v);
   }
 
   mlir::Value genFIRLoopIndex(const Fortran::parser::ScalarExpr &x) {
@@ -302,11 +434,11 @@ class FirConverter : public Fortran::lower::AbstractConverter {
   }
 
   mlir::FuncOp getFunc(llvm::StringRef name, mlir::FunctionType ty) {
-    if (auto func = Fortran::lower::getNamedFunction(module, name)) {
+    if (auto func = builder->getNamedFunction(name)) {
       assert(func.getType() == ty);
       return func;
     }
-    return createFunction(*this, name, ty);
+    return builder->createFunction(name, ty);
   }
 
   /// Lowering of CALL statement
@@ -441,46 +573,13 @@ class FirConverter : public Fortran::lower::AbstractConverter {
     TODO();
   }
 
-  // Information for generating a structured or unstructured increment loop.
-  struct IncrementLoopInfo {
-    IncrementLoopInfo(
-        Fortran::semantics::Symbol *sym,
-        const Fortran::parser::ScalarExpr &lowerExpr,
-        const Fortran::parser::ScalarExpr &upperExpr,
-        const std::optional<Fortran::parser::ScalarExpr> &stepExpr,
-        mlir::Type type)
-        : loopVariableSym{sym}, lowerExpr{lowerExpr}, upperExpr{upperExpr},
-          stepExpr{stepExpr}, loopVariableType{type} {}
-
-    bool isStructured() const { return headerBlock == nullptr; }
-
-    // Data members for both structured and unstructured loops.
-    Fortran::semantics::Symbol *loopVariableSym;
-    const Fortran::parser::ScalarExpr &lowerExpr;
-    const Fortran::parser::ScalarExpr &upperExpr;
-    const std::optional<Fortran::parser::ScalarExpr> &stepExpr;
-    mlir::Type loopVariableType;
-    mlir::Value loopVariable{};
-    mlir::Value stepValue{}; // possible uses in multiple blocks
-
-    // Data members for structured loops.
-    fir::LoopOp doLoop{};
-    mlir::OpBuilder::InsertPoint insertionPoint{};
-
-    // Data members for unstructured loops.
-    mlir::Value tripVariable{};
-    mlir::Block *headerBlock{nullptr};    // loop entry and test block
-    mlir::Block *bodyBlock{nullptr};      // first loop body block
-    mlir::Block *successorBlock{nullptr}; // loop exit target block
-  };
-
   /// Generate FIR for a DO construct.  There are six variants:
   ///  - unstructured infinite and while loops
   ///  - structured and unstructured increment loops
   ///  - structured and unstructured concurrent loops
   void genFIR(Fortran::lower::pft::Evaluation &eval,
               const Fortran::parser::DoConstruct &) {
-    bool unstructuredContext = eval.lowerAsUnstructured();
+    bool unstructuredContext{eval.lowerAsUnstructured()};
     Fortran::lower::pft::Evaluation &doStmtEval = eval.evaluationList->front();
     auto *doStmt = doStmtEval.getIf<Fortran::parser::NonLabelDoStmt>();
     assert(doStmt && "missing DO statement");
@@ -521,7 +620,8 @@ class FirConverter : public Fortran::lower::AbstractConverter {
       TODO();
       // Add entries to incrementLoopInfo.  (Define extra members for a mask.)
     }
-    for (size_t i = 0, n = incrementLoopInfo.size(); i < n; ++i) {
+    auto n = incrementLoopInfo.size();
+    for (decltype(n) i = 0; i < n; ++i) {
       genFIRIncrementLoopBegin(incrementLoopInfo[i]);
     }
 
@@ -534,56 +634,51 @@ class FirConverter : public Fortran::lower::AbstractConverter {
     if (infiniteLoop || whileCondition) {
       genFIRUnconditionalBranch(doStmtEval.localBlocks[0]);
     } else {
-      for (size_t i = incrementLoopInfo.size(); i > 0;) {
+      for (auto i = incrementLoopInfo.size(); i > 0;)
         genFIRIncrementLoopEnd(incrementLoopInfo[--i]);
-      }
     }
   }
 
   /// Generate FIR to begin a structured or unstructured increment loop.
   void genFIRIncrementLoopBegin(IncrementLoopInfo &info) {
-    mlir::Location location = toLocation();
+    auto location = toLocation();
     mlir::Type type = info.isStructured()
                           ? mlir::IndexType::get(builder->getContext())
                           : info.loopVariableType;
-    mlir::Value lowerValue = genFIRLoopIndex(info.lowerExpr, type);
-    mlir::Value upperValue = genFIRLoopIndex(info.upperExpr, type);
-    if (info.stepExpr.has_value()) {
-      info.stepValue = genFIRLoopIndex(*info.stepExpr, type);
-    }
+    auto lowerValue = genFIRLoopIndex(info.lowerExpr, type);
+    auto upperValue = genFIRLoopIndex(info.upperExpr, type);
+    info.stepValue =
+        info.stepExpr.has_value()
+            ? genFIRLoopIndex(*info.stepExpr, type)
+            : (info.isStructured()
+                   ? builder->create<mlir::ConstantIndexOp>(location, 1)
+                   : builder->createIntegerConstant(info.loopVariableType, 1));
+    assert(info.stepValue && "step value must be set");
     info.loopVariable = createTemporary(location, *info.loopVariableSym);
 
     // Structured loop - generate fir.loop.
     if (info.isStructured()) {
       info.insertionPoint = builder->saveInsertionPoint();
-      llvm::SmallVector<mlir::Value, 1> stepVector;
-      if (info.stepValue) {
-        stepVector.push_back(info.stepValue);
-      }
       info.doLoop = builder->create<fir::LoopOp>(location, lowerValue,
-                                                 upperValue, stepVector);
+                                                 upperValue, info.stepValue);
       builder->setInsertionPointToStart(info.doLoop.getBody());
-      mlir::Value shadow = builder->create<fir::ConvertOp>(
+      // Always store iteration ssa-value to the LCV to avoid missing any
+      // aliasing of the LCV.
+      auto lcv = builder->create<fir::ConvertOp>(
           location, info.loopVariableType, info.doLoop.getInductionVar());
-      localSymbols.pushShadowSymbol(*info.loopVariableSym, shadow);
+      builder->create<fir::StoreOp>(location, lcv, info.loopVariable);
       return;
     }
 
     // Unstructured loop preheader code - initialize tripVariable, loopVariable.
-    if (!info.stepValue) {
-      info.stepValue = builder->create<mlir::ConstantOp>(
-          location, builder->getIntegerAttr(info.loopVariableType, 1));
-    }
-    mlir::Value tripCount =
+    auto distance =
         builder->create<mlir::SubIOp>(location, upperValue, lowerValue);
-    tripCount =
-        builder->create<mlir::AddIOp>(location, tripCount, info.stepValue);
-    if (info.stepExpr.has_value()) {
-      tripCount = builder->create<mlir::SignedDivIOp>(location, tripCount,
-                                                      info.stepValue);
-    }
-    info.tripVariable = Fortran::lower::createTemporary(
-        location, *builder, localSymbols, info.loopVariableType, nullptr);
+    auto adjusted =
+        builder->create<mlir::AddIOp>(location, distance, info.stepValue);
+    auto tripCount =
+        builder->create<mlir::SignedDivIOp>(location, adjusted, info.stepValue);
+    info.tripVariable =
+        builder->createTemporary(location, localSymbols, info.loopVariableType);
     builder->create<fir::StoreOp>(location, tripCount, info.tripVariable);
     builder->create<fir::StoreOp>(location, lowerValue, info.loopVariable);
 
@@ -591,8 +686,7 @@ class FirConverter : public Fortran::lower::AbstractConverter {
     startBlock(info.headerBlock);
     mlir::Value tripVariable =
         builder->create<fir::LoadOp>(location, info.tripVariable);
-    mlir::Value zero = builder->create<mlir::ConstantOp>(
-        location, builder->getIntegerAttr(info.loopVariableType, 0));
+    mlir::Value zero = builder->createIntegerConstant(info.loopVariableType, 0);
     mlir::Value cond = builder->create<mlir::CmpIOp>(
         location, mlir::CmpIPredicate::sgt, tripVariable, zero);
     genFIRConditionalBranch(cond, info.bodyBlock, info.successorBlock);
@@ -603,12 +697,7 @@ class FirConverter : public Fortran::lower::AbstractConverter {
     mlir::Location location = toLocation();
     if (info.isStructured()) {
       // End fir.loop.
-      localSymbols.popShadowSymbol();
       builder->restoreInsertionPoint(info.insertionPoint);
-      assert(info.doLoop.hasLastValue() && "loop must have a result");
-      mlir::Value result = builder->create<fir::ConvertOp>(
-          location, info.loopVariableType, info.doLoop.lastVal()[0]);
-      builder->create<fir::StoreOp>(location, result, info.loopVariable);
       return;
     }
 
@@ -742,6 +831,7 @@ class FirConverter : public Fortran::lower::AbstractConverter {
     }
     TODO();
   }
+
   void genFIR(Fortran::lower::pft::Evaluation &eval,
               const Fortran::parser::ForallAssignmentStmt &s) {
     std::visit([&](auto &b) { genFIR(eval, b); }, s.u);
@@ -918,21 +1008,20 @@ class FirConverter : public Fortran::lower::AbstractConverter {
     // variable designator
     auto getAddrAndLength =
         [&](const Fortran::lower::SomeExpr &charDesignatorExpr)
-        -> Fortran::lower::CharacterOpsBuilder::CharValue {
-      mlir::Value addr = genExprAddr(charDesignatorExpr);
+        -> Fortran::lower::CharValue {
+      auto addr = genExprAddr(charDesignatorExpr);
       const auto &charExpr =
           std::get<Fortran::evaluate::Expr<Fortran::evaluate::SomeCharacter>>(
               charDesignatorExpr.u);
-      std::optional<
-          Fortran::evaluate::Expr<Fortran::evaluate::SubscriptInteger>>
-          lenExpr = charExpr.LEN();
-      assert(lenExpr && "could not get expression to compute character length");
-      mlir::Value len =
+      auto lenExpr = charExpr.LEN();
+      assert(lenExpr.has_value() &&
+             "could not get expression to compute character length");
+      auto len =
           genExprValue(Fortran::evaluate::AsGenericExpr(std::move(*lenExpr)));
-      return Fortran::lower::CharacterOpsBuilder::CharValue{addr, len};
+      return {addr, len};
     };
 
-    Fortran::lower::CharacterOpsBuilder charBuilder{*builder, toLocation()};
+    builder->setLocation(toLocation());
 
     // RHS evaluation.
     // FIXME:  Only works with rhs that are variable reference.
@@ -940,17 +1029,17 @@ class FirConverter : public Fortran::lower::AbstractConverter {
     auto rhs = getAddrAndLength(assignment.rhs);
     // A temp is needed to evaluate rhs until proven it does not depend on lhs.
     auto tempToEvalRhs =
-        charBuilder.createTemp(rhs.getCharacterType(), rhs.len);
-    charBuilder.createCopy(tempToEvalRhs, rhs, rhs.len);
+        builder->createCharacterTemp(builder->getCharacterType(rhs), rhs.len);
+    builder->createCopy(tempToEvalRhs, rhs, rhs.len);
 
     // Copy the minimum of the lhs and rhs lengths and pad the lhs remainder
     auto lhs = getAddrAndLength(assignment.lhs);
-    auto cmpLen = charBuilder.create<mlir::CmpIOp>(mlir::CmpIPredicate::slt,
-                                                   lhs.len, rhs.len);
+    auto cmpLen = builder->createHere<mlir::CmpIOp>(mlir::CmpIPredicate::slt,
+                                                    lhs.len, rhs.len);
     auto copyCount =
-        charBuilder.create<mlir::SelectOp>(cmpLen, lhs.len, rhs.len);
-    charBuilder.createCopy(lhs, tempToEvalRhs, copyCount);
-    charBuilder.createPadding(lhs, copyCount, lhs.len);
+        builder->createHere<mlir::SelectOp>(cmpLen, lhs.len, rhs.len);
+    builder->createCopy(lhs, tempToEvalRhs, copyCount);
+    builder->createPadding(lhs, copyCount, lhs.len);
   }
 
   void genFIR(Fortran::lower::pft::Evaluation &eval,
@@ -1200,26 +1289,25 @@ class FirConverter : public Fortran::lower::AbstractConverter {
 
   mlir::FuncOp createNewFunction(llvm::StringRef name,
                                  const Fortran::semantics::Symbol *symbol) {
-    // get arguments and return type if any, otherwise just use empty vectors
-    llvm::SmallVector<mlir::Type, 8> args;
-    llvm::SmallVector<mlir::Type, 2> results;
-    auto funcTy = symbol ? genFunctionType(*symbol)
-                         : mlir::FunctionType::get(args, results, &mlirContext);
-    return createFunction(*this, name, funcTy);
+    mlir::FunctionType ty =
+        symbol ? genFunctionType(*symbol)
+               : mlir::FunctionType::get(llvm::None, llvm::None, &mlirContext);
+    return Fortran::lower::FirOpBuilder::createFunction(toLocation(), module,
+                                                        name, ty);
   }
 
   /// Prepare to translate a new function
   void startNewFunction(Fortran::lower::pft::FunctionLikeUnit &funit,
                         llvm::StringRef name,
                         const Fortran::semantics::Symbol *symbol) {
-    mlir::FuncOp func = Fortran::lower::getNamedFunction(module, name);
-    if (!func) {
-      func = createNewFunction(name, symbol);
-    }
-    func.addEntryBlock();
     assert(!builder && "expected nullptr");
-    builder = new mlir::OpBuilder(func);
-    assert(builder && "OpBuilder did not instantiate");
+    mlir::FuncOp func =
+        Fortran::lower::FirOpBuilder::getNamedFunction(module, name);
+    if (!func)
+      func = createNewFunction(name, symbol);
+    builder = new Fortran::lower::FirOpBuilder(func);
+    assert(builder && "FirOpBuilder did not instantiate");
+    func.addEntryBlock();
     builder->setInsertionPointToStart(&func.front());
 
     // plumb function's arguments
@@ -1236,9 +1324,8 @@ class FirConverter : public Fortran::lower::AbstractConverter {
           TODO(); // handle alternate return
         }
       }
-      if (details->isFunction()) {
+      if (details->isFunction())
         createTemporary(toLocation(), details->result());
-      }
     }
 
     // Create most function blocks in advance.
@@ -1252,12 +1339,10 @@ class FirConverter : public Fortran::lower::AbstractConverter {
   void createEmptyBlocks(
       std::list<Fortran::lower::pft::Evaluation> &evaluationList) {
     for (auto &eval : evaluationList) {
-      if (eval.isNewBlock) {
-        eval.block = Fortran::lower::createBlock(builder);
-      }
-      for (size_t i = 0, n = eval.localBlocks.size(); i < n; ++i) {
-        eval.localBlocks[i] = Fortran::lower::createBlock(builder);
-      }
+      if (eval.isNewBlock)
+        eval.block = builder->createBlock();
+      for (size_t i = 0, n = eval.localBlocks.size(); i < n; ++i)
+        eval.localBlocks[i] = builder->createBlock();
       if (eval.isConstruct()) {
         if (eval.lowerAsUnstructured()) {
           createEmptyBlocks(*eval.evaluationList);
@@ -1265,9 +1350,8 @@ class FirConverter : public Fortran::lower::AbstractConverter {
           // A structured construct that is a target starts a new block.
           Fortran::lower::pft::Evaluation &constructStmt =
               eval.evaluationList->front();
-          if (constructStmt.isNewBlock) {
-            constructStmt.block = Fortran::lower::createBlock(builder);
-          }
+          if (constructStmt.isNewBlock)
+            constructStmt.block = builder->createBlock();
         }
       }
     }
@@ -1391,109 +1475,15 @@ class FirConverter : public Fortran::lower::AbstractConverter {
     return builder->create<mlir::AndOp>(lhs.getLoc(), lhs, rhs);
   }
 
-private:
   mlir::MLIRContext &mlirContext;
   const Fortran::parser::CookedSource *cooked;
   mlir::ModuleOp &module;
   const Fortran::common::IntrinsicTypeDefaultKinds &defaults;
   Fortran::lower::IntrinsicLibrary intrinsics;
-  mlir::OpBuilder *builder = nullptr;
+  Fortran::lower::FirOpBuilder *builder = nullptr;
   fir::NameUniquer &uniquer;
   Fortran::lower::SymMap localSymbols;
   Fortran::parser::CharBlock currentPosition;
-
-public:
-  FirConverter() = delete;
-  FirConverter(const FirConverter &) = delete;
-  FirConverter &operator=(const FirConverter &) = delete;
-  virtual ~FirConverter() = default;
-
-  explicit FirConverter(Fortran::lower::LoweringBridge &bridge,
-                        fir::NameUniquer &uniquer)
-      : mlirContext{bridge.getMLIRContext()}, cooked{bridge.getCookedSource()},
-        module{bridge.getModule()}, defaults{bridge.getDefaultKinds()},
-        intrinsics{Fortran::lower::IntrinsicLibrary(
-            Fortran::lower::IntrinsicLibrary::Version::LLVM,
-            bridge.getMLIRContext())},
-        uniquer{uniquer} {}
-
-  /// Convert the PFT to FIR
-  void run(Fortran::lower::pft::Program &pft) {
-    // do translation
-    for (auto &u : pft.getUnits()) {
-      std::visit(
-          Fortran::common::visitors{
-              [&](Fortran::lower::pft::FunctionLikeUnit &f) {
-                lowerFunc(f, {});
-              },
-              [&](Fortran::lower::pft::ModuleLikeUnit &m) { lowerMod(m); },
-              [&](Fortran::lower::pft::BlockDataUnit &) { TODO(); },
-          },
-          u);
-    }
-  }
-
-  mlir::FunctionType genFunctionType(Fortran::lower::SymbolRef sym) {
-    return Fortran::lower::translateSymbolToFIRFunctionType(&mlirContext,
-                                                            defaults, sym);
-  }
-
-  //
-  // AbstractConverter overrides
-
-  mlir::Value genExprAddr(const Fortran::lower::SomeExpr &expr,
-                          mlir::Location *loc = nullptr) override final {
-    return createFIRAddr(loc ? *loc : toLocation(), &expr);
-  }
-  mlir::Value genExprValue(const Fortran::lower::SomeExpr &expr,
-                           mlir::Location *loc = nullptr) override final {
-    return createFIRExpr(loc ? *loc : toLocation(), &expr);
-  }
-
-  mlir::Type genType(const Fortran::evaluate::DataRef &data) override final {
-    return Fortran::lower::translateDataRefToFIRType(&mlirContext, defaults,
-                                                     data);
-  }
-  mlir::Type genType(const Fortran::lower::SomeExpr &expr) override final {
-    return Fortran::lower::translateSomeExprToFIRType(&mlirContext, defaults,
-                                                      &expr);
-  }
-  mlir::Type genType(Fortran::lower::SymbolRef sym) override final {
-    return Fortran::lower::translateSymbolToFIRType(&mlirContext, defaults,
-                                                    sym);
-  }
-  mlir::Type genType(Fortran::common::TypeCategory tc,
-                     int kind) override final {
-    return Fortran::lower::getFIRType(&mlirContext, defaults, tc, kind);
-  }
-  mlir::Type genType(Fortran::common::TypeCategory tc) override final {
-    return Fortran::lower::getFIRType(&mlirContext, defaults, tc);
-  }
-
-  mlir::Location getCurrentLocation() override final { return toLocation(); }
-  mlir::Location genLocation() override final {
-    return mlir::UnknownLoc::get(&mlirContext);
-  }
-  mlir::Location
-  genLocation(const Fortran::parser::CharBlock &block) override final {
-    if (cooked) {
-      auto loc = cooked->GetSourcePositionRange(block);
-      if (loc.has_value()) {
-        // loc is a pair (begin, end); use the beginning position
-        auto &filePos = loc->first;
-        return mlir::FileLineColLoc::get(filePos.file.path(), filePos.line,
-                                         filePos.column, &mlirContext);
-      }
-    }
-    return genLocation();
-  }
-
-  mlir::OpBuilder &getOpBuilder() override final { return *builder; }
-  mlir::ModuleOp &getModuleOp() override final { return module; }
-
-  std::string mangleName(Fortran::lower::SymbolRef symbol) override final {
-    return Fortran::lower::mangle::mangleName(uniquer, symbol);
-  }
 };
 
 } // namespace

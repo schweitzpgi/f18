@@ -42,6 +42,7 @@ class Symbol;
 namespace lower {
 
 class AbstractConverter;
+class FirOpBuilder;
 class SymMap;
 
 /// Create an expression.
@@ -65,14 +66,6 @@ mlir::Value createSomeAddress(mlir::Location loc, AbstractConverter &converter,
                               const evaluate::Expr<evaluate::SomeType> &expr,
                               SymMap &symMap,
                               const IntrinsicLibrary &intrinsics);
-
-/// Create a temporary. A temp is allocated using `fir.alloca` and can be read
-/// and written using `fir.load` and `fir.store`, resp.  The temporary can be
-/// given a name via a front-end `Symbol` or a `StringRef`.
-mlir::Value createTemporary(mlir::Location loc, mlir::OpBuilder &builder,
-                            SymMap &symMap, mlir::Type type,
-                            const semantics::Symbol *symbol = nullptr,
-                            llvm::StringRef name = {});
 
 } // namespace lower
 } // namespace Fortran
