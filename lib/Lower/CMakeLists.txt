@@ -4,10 +4,10 @@ add_library(FortranLower
   Bridge.cpp
   ConvertExpr.cpp
   ConvertType.cpp
+  FIRBuilder.cpp
   Intrinsics.cpp
   IO.cpp
   Mangler.cpp
-  OpBuilder.cpp
   PFTBuilder.cpp
   Runtime.cpp
 )

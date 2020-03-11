@@ -5,10 +5,18 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
+//
+// Builder routines for constructing the FIR dialect of MLIR. As FIR is a
+// dialect of MLIR, it makes extensive use of MLIR interfaces and MLIR's coding
+// style (https://mlir.llvm.org/getting_started/DeveloperGuide/) is used in this
+// module.
+//
+//===----------------------------------------------------------------------===//
 
 #ifndef FORTRAN_LOWER_RUNTIME_H_
 #define FORTRAN_LOWER_RUNTIME_H_
 
+// use std::optional to effect constexpr evaluation
 #include <optional>
 
 namespace llvm {
@@ -18,27 +26,29 @@ namespace mlir {
 class Type;
 class FunctionType;
 class MLIRContext;
-class OpBuilder;
 class FuncOp;
 } // namespace mlir
 
 namespace Fortran::lower {
 
-/// [Coding style](https://llvm.org/docs/CodingStandards.html)
+class FirOpBuilder;
 
-/// C++ does not provide variable size constexpr container yet.
-/// StaticVector is a class that can be used to hold constexpr data as if it was
-/// a vector (i.e, the number of element is not reflected in the
-/// container type). This is useful to use in classes that need to be constexpr
-/// and where leaking the size as a template type would make it harder to
-/// manipulate. It can hold whatever data that can appear as non-type templates
-/// (integers, enums, pointer to objects, function pointers...).
-/// Example usage:
-///
-///  enum class Enum {A, B};
-///  constexpr StaticVector<Enum> vec{StaticVector::create<Enum::A, Enum::B>()};
-///  for (const Enum& code : vec) { /*...*/ }
-///
+//===----------------------------------------------------------------------===//
+// C++ does not provide variable size constexpr container yet.  StaticVector is
+// a class that can be used to hold constexpr data as if it was a vector (i.e,
+// the number of element is not reflected in the container type). This is
+// useful to use in classes that need to be constexpr and where leaking the
+// size as a template type would make it harder to manipulate. It can hold
+// whatever data that can appear as non-type templates (integers, enums,
+// pointer to objects, function pointers...).
+//
+// Example usage:
+//
+//  enum class Enum {A, B};
+//  constexpr StaticVector<Enum> vec{StaticVector::create<Enum::A, Enum::B>()};
+//  for (const Enum& code : vec) { /*...*/ }
+//
+//===----------------------------------------------------------------------===//
 
 /// This is the class where the constexpr data is "allocated". In fact
 /// the data is stored "in" the type. Objects of this type are not meant to
@@ -97,7 +107,7 @@ public:
   const char *getSymbol() const { return symbol; }
   /// Conversion between types of the static representation and MLIR types.
   mlir::FunctionType getMLIRFunctionType(mlir::MLIRContext *) const;
-  mlir::FuncOp getFuncOp(mlir::OpBuilder &) const;
+  mlir::FuncOp getFuncOp(Fortran::lower::FirOpBuilder &builder) const;
   static mlir::Type getMLIRType(TypeCode, mlir::MLIRContext *);
 
 private:
@@ -195,7 +205,8 @@ enum class RuntimeEntryCode {
   FailImageStatement
 };
 
-mlir::FuncOp genRuntimeFunction(RuntimeEntryCode code, mlir::OpBuilder &);
+mlir::FuncOp genRuntimeFunction(RuntimeEntryCode code,
+                                Fortran::lower::FirOpBuilder &builder);
 
 } // namespace Fortran::lower
 

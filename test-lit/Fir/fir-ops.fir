@@ -153,7 +153,7 @@ func @loop() {
   %c10 = constant 10 : index
   %ct = constant true
   // CHECK: fir.loop %{{.*}} = %{{.*}} to %{{.*}} {
-  %i = fir.loop %i = %c1 to %c10 {
+  fir.loop %i = %c1 to %c10 {
     // CHECK: fir.where %{{.*}} {
     fir.where %ct {
       fir.call @nop() : () -> ()

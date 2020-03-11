@@ -369,26 +369,57 @@ mlir::ParseResult fir::LoadOp::getElementOf(mlir::Type &ele, mlir::Type ref) {
 
 void fir::LoopOp::build(mlir::Builder *builder, mlir::OperationState &result,
                         int64_t lowerBound, int64_t upperBound, int64_t step,
+                        bool unordered,
                         llvm::ArrayRef<mlir::NamedAttribute> attributes) {
-  llvm_unreachable("not implemented");
-}
-
-void fir::LoopOp::build(mlir::Builder *builder, OperationState &result,
-                        mlir::Value lb, mlir::Value ub, ValueRange step,
-                        ArrayRef<NamedAttribute> attributes) {
-  if (step.empty())
-    result.addOperands({lb, ub});
-  else
-    result.addOperands({lb, ub, step[0]});
   mlir::Region *bodyRegion = result.addRegion();
   LoopOp::ensureTerminator(*bodyRegion, *builder, result.location);
   bodyRegion->front().addArgument(builder->getIndexType());
+  result.addAttribute(lowerAttrName(), builder->getI64IntegerAttr(lowerBound));
+  result.addAttribute(upperAttrName(), builder->getI64IntegerAttr(upperBound));
+  result.addAttribute(stepAttrName(), builder->getI64IntegerAttr(step));
+  if (unordered)
+    result.addAttribute(unorderedAttrName(), builder->getUnitAttr());
   result.addAttributes(attributes);
-  NamedAttributeList attrs(attributes);
-  if (!attrs.get(unorderedAttrName()))
-    result.addTypes(builder->getIndexType());
 }
 
+void fir::LoopOp::build(mlir::Builder *builder, OperationState &result,
+                        mlir::Value lb, mlir::Value ub, int64_t step,
+                        bool unordered, ArrayRef<NamedAttribute> attributes) {
+  result.addOperands({lb, ub});
+  mlir::Region *bodyRegion = result.addRegion();
+  LoopOp::ensureTerminator(*bodyRegion, *builder, result.location);
+  bodyRegion->front().addArgument(builder->getIndexType());
+  result.addAttribute(stepAttrName(), builder->getI64IntegerAttr(step));
+  if (unordered)
+    result.addAttribute(unorderedAttrName(), builder->getUnitAttr());
+  result.addAttributes(attributes);
+}
+
+void fir::LoopOp::build(mlir::Builder *builder, OperationState &result,
+                        mlir::Value lb, mlir::Value ub, bool unordered,
+                        ArrayRef<NamedAttribute> attributes) {
+  result.addOperands({lb, ub});
+  mlir::Region *bodyRegion = result.addRegion();
+  LoopOp::ensureTerminator(*bodyRegion, *builder, result.location);
+  bodyRegion->front().addArgument(builder->getIndexType());
+  if (unordered)
+    result.addAttribute(unorderedAttrName(), builder->getUnitAttr());
+  result.addAttributes(attributes);
+}
+
+void fir::LoopOp::build(mlir::Builder *builder, OperationState &result,
+                        mlir::Value lb, mlir::Value ub, mlir::Value step,
+                        bool unordered, ArrayRef<NamedAttribute> attributes) {
+  result.addOperands({lb, ub, step});
+  mlir::Region *bodyRegion = result.addRegion();
+  LoopOp::ensureTerminator(*bodyRegion, *builder, result.location);
+  bodyRegion->front().addArgument(builder->getIndexType());
+  if (unordered)
+    result.addAttribute(unorderedAttrName(), builder->getUnitAttr());
+  result.addAttributes(attributes);
+}
+
+/// Parse a `fir.loop` operation.
 static mlir::ParseResult parseLoopOp(mlir::OpAsmParser &parser,
                                      mlir::OperationState &result) {
   auto &builder = parser.getBuilder();
@@ -398,24 +429,53 @@ static mlir::ParseResult parseLoopOp(mlir::OpAsmParser &parser,
     return mlir::failure();
 
   // Parse loop bounds.
+  // There is a constant form and an operand form.
   mlir::Type indexType = builder.getIndexType();
-  if (parser.parseOperand(lb) ||
-      parser.resolveOperand(lb, indexType, result.operands) ||
-      parser.parseKeyword("to") || parser.parseOperand(ub) ||
-      parser.resolveOperand(ub, indexType, result.operands))
-    return mlir::failure();
-
-  if (parser.parseOptionalKeyword(fir::LoopOp::stepAttrName())) {
-    result.addAttribute(fir::LoopOp::stepAttrName(),
-                        builder.getIntegerAttr(builder.getIndexType(), 1));
-  } else if (parser.parseOperand(step) ||
-             parser.resolveOperand(step, indexType, result.operands)) {
-    return mlir::failure();
+  if (mlir::succeeded(parser.parseOptionalLParen())) {
+    // constant iteration space form (with optional constant step):
+    // `(` int `)` `to` `(` int `)` [`step` `(` int `)`]
+    mlir::IntegerAttr lvalue;
+    mlir::IntegerAttr uvalue;
+    if (parser.parseAttribute(lvalue, fir::LoopOp::lowerAttrName(),
+                              result.attributes) ||
+        parser.parseRParen() || parser.parseKeyword("to") ||
+        parser.parseLParen() ||
+        parser.parseAttribute(uvalue, fir::LoopOp::upperAttrName(),
+                              result.attributes) ||
+        parser.parseRParen())
+      return mlir::failure();
+    if (mlir::succeeded(parser.parseOptionalKeyword("step"))) {
+      mlir::IntegerAttr value;
+      if (parser.parseLParen() ||
+          parser.parseAttribute(value, fir::LoopOp::stepAttrName(),
+                                result.attributes) ||
+          parser.parseRParen())
+        return mlir::failure();
+    }
+  } else {
+    // value iteration space form (with optional value or constant step):
+    // %lb `to` %ub [`step` (%sv | `(` int `)`)]
+    if (parser.parseOperand(lb) || parser.parseKeyword("to") ||
+        parser.parseOperand(ub) ||
+        parser.resolveOperands({lb, ub}, indexType, result.operands))
+      return mlir::failure();
+    if (mlir::succeeded(parser.parseOptionalKeyword("step"))) {
+      if (mlir::succeeded(parser.parseOptionalLParen())) {
+        mlir::IntegerAttr value;
+        if (parser.parseAttribute(value, fir::LoopOp::stepAttrName(),
+                                  result.attributes) ||
+            parser.parseRParen())
+          return mlir::failure();
+      } else if (parser.parseOperand(step) ||
+                 parser.resolveOperand(step, indexType, result.operands)) {
+        return mlir::failure();
+      }
+    }
   }
-
   // Parse the optional `unordered` keyword
   bool isUnordered = false;
-  if (!parser.parseOptionalKeyword(LoopOp::unorderedAttrName())) {
+  if (mlir::succeeded(
+          parser.parseOptionalKeyword(LoopOp::unorderedAttrName()))) {
     result.addAttribute(LoopOp::unorderedAttrName(), builder.getUnitAttr());
     isUnordered = true;
   }
@@ -430,8 +490,6 @@ static mlir::ParseResult parseLoopOp(mlir::OpAsmParser &parser,
   // Parse the optional attribute list.
   if (parser.parseOptionalAttrDict(result.attributes))
     return mlir::failure();
-  if (!isUnordered)
-    result.addTypes(builder.getIndexType());
   return mlir::success();
 }
 

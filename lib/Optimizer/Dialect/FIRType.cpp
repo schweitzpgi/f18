@@ -17,6 +17,7 @@
 #include "mlir/Parser.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/StringSet.h"
+#include "llvm/Support/ErrorHandling.h"
 
 using namespace fir;
 
@@ -181,7 +182,7 @@ SequenceType parseSequence(mlir::DialectAsmParser &parser, mlir::Location) {
   return SequenceType::get(shape, eleTy, map);
 }
 
-bool verifyIntegerType(mlir::Type ty) {
+static bool verifyIntegerType(mlir::Type ty) {
   return ty.isa<mlir::IntegerType>() || ty.isa<IntType>();
 }
 
@@ -1177,6 +1178,12 @@ void printBounds(llvm::raw_ostream &os, const SequenceType::Shape &bounds) {
 llvm::SmallPtrSet<detail::RecordTypeStorage const *, 4> recordTypeVisited;
 
 } // namespace
+
+void fir::verifyIntegralType(mlir::Type type) {
+  if (verifyIntegerType(type) || type.isa<mlir::IndexType>())
+    return;
+  llvm_unreachable("expected integral type");
+}
 
 void fir::printFirType(FIROpsDialect *, mlir::Type ty,
                        mlir::DialectAsmPrinter &p) {
