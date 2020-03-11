@@ -59,9 +59,11 @@ namespace Fortran::lower {
 
 using SomeExpr = evaluate::Expr<evaluate::SomeType>;
 using SymbolRef = common::Reference<const semantics::Symbol>;
+class FirOpBuilder;
 
 /// The abstract interface for converter implementations to lower Fortran
-/// front-end fragments such as expressions, types, etc.
+/// front-end fragments such as expressions, types, etc. to the FIR dialect of
+/// MLIR.
 class AbstractConverter {
 public:
   //
@@ -109,7 +111,7 @@ public:
   // FIR/MLIR
 
   /// Get the OpBuilder
-  virtual mlir::OpBuilder &getOpBuilder() = 0;
+  virtual Fortran::lower::FirOpBuilder &getFirOpBuilder() = 0;
   /// Get the ModuleOp
   virtual mlir::ModuleOp &getModuleOp() = 0;
   /// Unique a symbol

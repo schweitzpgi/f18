@@ -588,6 +588,8 @@ class fir_SwitchTerminatorOp<string mnemonic, list<OpTrait> traits = []> :
       else
         p.printSuccessor(succ);
     }
+
+    unsigned targetOffsetSize();
   }];
 }
 
@@ -718,9 +720,7 @@ class fir_IntegralSwitchTerminatorOp<string mnemonic,
     return mlir::success();
   }];
 
-  let extraClassDeclaration = extraSwitchClassDeclaration#[{
-    unsigned targetOffsetSize();
-  }];
+  let extraClassDeclaration = extraSwitchClassDeclaration;
 }
 
 def fir_SelectOp : fir_IntegralSwitchTerminatorOp<"select"> {
@@ -892,7 +892,6 @@ def fir_SelectCaseOp : fir_SwitchTerminatorOp<"select_case"> {
   }];
 
   let extraClassDeclaration = extraSwitchClassDeclaration#[{
-    unsigned targetOffsetSize();
     unsigned compareOffsetSize();
   }];
 }
@@ -989,9 +988,7 @@ def fir_SelectTypeOp : fir_SwitchTerminatorOp<"select_type"> {
     return mlir::success();
   }];
 
-  let extraClassDeclaration = extraSwitchClassDeclaration#[{
-    unsigned targetOffsetSize();
-  }];
+  let extraClassDeclaration = extraSwitchClassDeclaration;
 }
 
 def fir_UnreachableOp : fir_Op<"unreachable", [Terminator]> {
@@ -1869,14 +1866,14 @@ def fir_LoopOp : fir_Op<"loop", [ImplicitFirTerminator]> {
   }];
 
   let arguments = (ins
-    Index:$lowerBound,
-    Index:$upperBound,
-    Variadic<Index>:$optStep,
+    Variadic<Index>:$indexArgs,
     OptionalAttr<I64Attr>:$constantStep,
+    OptionalAttr<I64Attr>:$constantLowerBound,
+    OptionalAttr<I64Attr>:$constantUpperBound,
     OptionalAttr<UnitAttr>:$unordered
   );
 
-  let results = (outs Variadic<Index>:$lastVal);
+  let results = (outs);
 
   let regions = (region SizedRegion<1>:$region);
 
@@ -1884,34 +1881,58 @@ def fir_LoopOp : fir_Op<"loop", [ImplicitFirTerminator]> {
   let builders = [
     OpBuilder<"mlir::Builder *builder, OperationState &result,"
               "int64_t lowerBound, int64_t upperBound, int64_t step = 1,"
+              "bool unordered = false,"
               "ArrayRef<NamedAttribute> attributes = {}">,
     OpBuilder<"mlir::Builder *builder, OperationState &result,"
               "mlir::Value lowerBound, mlir::Value upperBound,"
-              "ValueRange step = {}, ArrayRef<NamedAttribute> attributes = {}">
+              "mlir::Value step, bool unordered = false,"
+              "ArrayRef<NamedAttribute> attributes = {}">,
+    OpBuilder<"mlir::Builder *builder, OperationState &result,"
+              "mlir::Value lowerBound, mlir::Value upperBound,"
+              "bool unordered = false,"
+              "ArrayRef<NamedAttribute> attributes = {}">,
+    OpBuilder<"mlir::Builder *builder, OperationState &result,"
+              "mlir::Value lowerBound, mlir::Value upperBound,"
+              "int64_t step, bool unordered = false,"
+              "ArrayRef<NamedAttribute> attributes = {}">
   ];
 
   let parser = "return parseLoopOp(parser, result);";
 
   let printer = [{
-    p << getOperationName() << ' ' << getInductionVar() << " = "
-      << lowerBound() << " to " << upperBound();
-    auto s = optStep();
-    if (s.begin() != s.end()) {
-      p << " step ";
-      p.printOperand(*s.begin());
+    p << getOperationName() << ' ' << getInductionVar() << " = ";
+    if (constantLowerBound())
+      p << "(" << *constantLowerBound() << ")";
+    else
+      p.printOperand(getLowerBoundOperand());
+    p << " to ";
+    if (constantUpperBound())
+      p << "(" << *constantUpperBound() << ")";
+    else
+      p.printOperand(getUpperBoundOperand());
+    if (constantStep()) {
+      p << " step (" << *constantStep() << ")";
+    } else {
+      if (indexArgs().size() > 2) {
+        p << " step ";
+        p.printOperand(getStepOperand());
+      }
     }
     if (unordered())
       p << " unordered";
     p.printRegion(region(), /*printEntryBlockArgs=*/false,
                             /*printBlockTerminators=*/false);
-    p.printOptionalAttrDict(getAttrs(), {unorderedAttrName(), stepAttrName()});
+    p.printOptionalAttrDict(getAttrs(), {unorderedAttrName(), stepAttrName(),
+                            lowerAttrName(), upperAttrName()});
   }];
 
   let verifier = [{
-    auto step = optStep();
-    if (step.begin() != step.end()) {
+    const auto argSize = indexArgs().size();
+    if (!((argSize == 0) || (argSize == 2) || (argSize == 3)))
+      return emitOpError("wrong number of ssa arguments");
+    if (argSize > 2) {
       // FIXME: size of step must be 1
-      auto *s = (*step.begin()).getDefiningOp();
+      auto *s = (*(indexArgs().begin() + 2)).getDefiningOp();
       if (auto cst = dyn_cast_or_null<mlir::ConstantIndexOp>(s))
         if (cst.getValue() == 0)
           return emitOpError("constant step operand must be nonzero");
@@ -1924,20 +1945,18 @@ def fir_LoopOp : fir_Op<"loop", [ImplicitFirTerminator]> {
         !body->getArgument(0).getType().isIndex())
       return emitOpError("expected body to have a single index argument for "
                          "the induction variable");
-    if (lastVal().size() > 1)
-      return emitOpError("can only return one final value of iterator");
     return mlir::success();
   }];
 
   let extraClassDeclaration = [{
-    static constexpr const char *unorderedAttrName() { return "unordered"; }
-    static constexpr const char *stepAttrName() { return "step"; }
-
-    /// Is this an unordered loop?
-    bool isUnordered() { return getAttr(unorderedAttrName()).isa<UnitAttr>(); }
-
-    /// Does loop set (and return) the final value of the control variable?
-    bool hasLastValue() { return lastVal().size(); }
+    static constexpr llvm::StringRef unorderedAttrName() { return "unordered"; }
+    static constexpr llvm::StringRef stepAttrName() { return "constantStep"; }
+    static constexpr llvm::StringRef upperAttrName() {
+      return "constantUpperBound";
+    }
+    static constexpr llvm::StringRef lowerAttrName() {
+      return "constantLowerBound";
+    }
 
     /// Get the body of the loop
     mlir::Block *getBody() { return &region().front(); }
@@ -1945,21 +1964,27 @@ def fir_LoopOp : fir_Op<"loop", [ImplicitFirTerminator]> {
     /// Get the block argument corresponding to the loop control value (PHI)
     mlir::Value getInductionVar() { return getBody()->getArgument(0); }
 
-    /// Get a builder to insert operations into the LoopOp
-    mlir::OpBuilder getBodyBuilder() {
-      return mlir::OpBuilder(getBody(), std::prev(getBody()->end()));
+    mlir::Value getLowerBoundOperand() {
+      if (indexArgs().size() != 0)
+        return *indexArgs().begin();
+      return {};
+    }
+    
+    mlir::Value getUpperBoundOperand() {
+      if (indexArgs().size() != 0)
+        return *(indexArgs().begin() + 1);
+      return {};
     }
 
-    void setLowerBound(mlir::Value bound) {
-      getOperation()->setOperand(0, bound);
+    mlir::Value getStepOperand() {
+      if (indexArgs().size() == 3)
+        return *(indexArgs().begin() + 2);
+      return {};
     }
 
-    void setUpperBound(mlir::Value bound) {
-      getOperation()->setOperand(1, bound);
-    }
-
-    void setStep(mlir::Value step) {
-      getOperation()->setOperand(2, step);
+    void setUnordered() {
+      getOperation()->setAttr(unorderedAttrName(),
+                              mlir::UnitAttr::get(getContext()));
     }
   }];
 }
@@ -2611,7 +2636,7 @@ def fir_GlobalOp : fir_Op<"global", [IsolatedFromAbove, Symbol]> {
     result.attributes.back().second = builder.getStringAttr(name);
 
     bool simpleInitializer = false;
-    if (!parser.parseOptionalLParen()) {
+    if (mlir::succeeded(parser.parseOptionalLParen())) {
       Attribute attr;
       if (parser.parseAttribute(attr, initValAttrName(), result.attributes) ||
           parser.parseRParen())
