@@ -466,6 +466,13 @@ static A getSubOperands(unsigned pos, A allArgs,
   return {std::next(allArgs.begin(), start), std::next(allArgs.begin(), end)};
 }
 
+static unsigned denseElementsSize(mlir::DenseIntElementsAttr attr) {
+  unsigned count = 0;
+  for (auto x : attr)
+    ++count;
+  return count;
+}
+
 llvm::Optional<mlir::OperandRange> fir::SelectOp::getCompareOperands(unsigned) {
   return {};
 }
@@ -491,6 +498,11 @@ fir::SelectOp::getSuccessorOperands(llvm::ArrayRef<mlir::Value> operands,
 }
 
 bool fir::SelectOp::canEraseSuccessorOperand() { return true; }
+
+unsigned fir::SelectOp::targetOffsetSize() {
+  return denseElementsSize(
+      getAttrOfType<mlir::DenseIntElementsAttr>(getTargetOffsetAttr()));
+}
 
 //===----------------------------------------------------------------------===//
 // SelectCaseOp
@@ -602,6 +614,16 @@ static mlir::ParseResult parseSelectCase(mlir::OpAsmParser &parser,
   return mlir::success();
 }
 
+unsigned fir::SelectCaseOp::compareOffsetSize() {
+  return denseElementsSize(
+      getAttrOfType<mlir::DenseIntElementsAttr>(getCompareOffsetAttr()));
+}
+
+unsigned fir::SelectCaseOp::targetOffsetSize() {
+  return denseElementsSize(
+      getAttrOfType<mlir::DenseIntElementsAttr>(getTargetOffsetAttr()));
+}
+
 //===----------------------------------------------------------------------===//
 // SelectRankOp
 //===----------------------------------------------------------------------===//
@@ -632,6 +654,11 @@ fir::SelectRankOp::getSuccessorOperands(llvm::ArrayRef<mlir::Value> operands,
 }
 
 bool fir::SelectRankOp::canEraseSuccessorOperand() { return true; }
+
+unsigned fir::SelectRankOp::targetOffsetSize() {
+  return denseElementsSize(
+      getAttrOfType<mlir::DenseIntElementsAttr>(getTargetOffsetAttr()));
+}
 
 //===----------------------------------------------------------------------===//
 // SelectTypeOp
@@ -707,6 +734,11 @@ static ParseResult parseSelectType(OpAsmParser &parser,
                       bld.getI32VectorAttr({1, 0, offSize}));
   result.addAttribute(getTargetOffsetAttr(), bld.getI32VectorAttr(argOffs));
   return mlir::success();
+}
+
+unsigned fir::SelectTypeOp::targetOffsetSize() {
+  return denseElementsSize(
+      getAttrOfType<mlir::DenseIntElementsAttr>(getTargetOffsetAttr()));
 }
 
 //===----------------------------------------------------------------------===//
