@@ -552,29 +552,15 @@ class fir_SwitchTerminatorOp<string mnemonic, list<OpTrait> traits = []> :
 
   let successors = (successor VariadicSuccessor<AnySuccessor>:$targets);
 
-  let builders = [OpBuilder<
-    "Builder *, OperationState &result, Value selector,"
-    "ValueRange properOperands, ArrayRef<Block *> destinations,"
-    "ArrayRef<ValueRange> operands = {},"
-    "ArrayRef<NamedAttribute> attributes = {}",
-    [{
-      result.addOperands(selector);
-      result.addOperands(properOperands);
-      for (auto kvp : llvm::zip(destinations, operands)) {
-        result.addSuccessors(std::get<0>(kvp));
-        result.addOperands(std::get<1>(kvp));
-      }
-      result.addAttributes(attributes);
-    }]
-  >];
-
   string extraSwitchClassDeclaration = [{
     using Conditions = mlir::Value;
 
     static constexpr llvm::StringRef getCasesAttr() { return "case_tags"; }
 
     // The number of destination conditions that may be tested
-    unsigned getNumConditions() { return getNumDest(); }
+    unsigned getNumConditions() {
+      return getAttrOfType<mlir::ArrayAttr>(getCasesAttr()).size();
+    }
 
     // The selector is the value being tested to determine the destination
     mlir::Value getSelector() { return selector(); }
@@ -606,6 +592,43 @@ class fir_SwitchTerminatorOp<string mnemonic, list<OpTrait> traits = []> :
 
 class fir_IntegralSwitchTerminatorOp<string mnemonic,
     list<OpTrait> traits = []> : fir_SwitchTerminatorOp<mnemonic, traits> {
+
+  let skipDefaultBuilders = 1;
+  let builders = [OpBuilder<
+    "Builder *builder, OperationState &result, Value selector,"
+    "ArrayRef<int64_t> compareOperands, ArrayRef<Block *> destinations,"
+    "ArrayRef<ValueRange> destOperands = {},"
+    "ArrayRef<NamedAttribute> attributes = {}",
+    [{
+      result.addOperands(selector);
+      llvm::SmallVector<mlir::Attribute, 8> ivalues;
+      for (auto iv : compareOperands)
+        ivalues.push_back(builder->getI64IntegerAttr(iv));
+      ivalues.push_back(builder->getUnitAttr());
+      result.addAttribute(getCasesAttr(), builder->getArrayAttr(ivalues));
+      const auto count = destinations.size();
+      for (auto d : destinations)
+        result.addSuccessors(d);
+      const auto opCount = destOperands.size();
+      llvm::SmallVector<int32_t, 8> argOffs;
+      int32_t sumArgs = 0;
+      for (std::remove_const_t<decltype(count)> i = 0; i != count; ++i) {
+        if (i < opCount) {
+          result.addOperands(destOperands[i]);
+          const auto argSz = destOperands[i].size();
+          argOffs.push_back(argSz);
+          sumArgs += argSz;
+        } else {
+          argOffs.push_back(0);
+        }
+      }
+      result.addAttribute(getOperandSegmentSizeAttr(),
+                          builder->getI32VectorAttr({1, 0, sumArgs}));
+      result.addAttribute(getTargetOffsetAttr(),
+                          builder->getI32VectorAttr(argOffs));
+      result.addAttributes(attributes);
+    }]
+  >];
 
   let parser = [{
     mlir::OpAsmParser::OperandType selector;
@@ -679,19 +702,24 @@ class fir_IntegralSwitchTerminatorOp<string mnemonic,
           getSelector().getType().isa<fir::IntType>()))
       return emitOpError("must be an integer");
     auto cases = getAttrOfType<mlir::ArrayAttr>(getCasesAttr()).getValue();
-    auto count = getNumConditions();
+    auto count = getNumDest();
+    if (count == 0)
+      return emitOpError("must have at least one successor");
+    if (getNumConditions() != count)
+      return emitOpError("number of cases and targets don't match");
+    if (targetOffsetSize() != count)
+      return emitOpError("incorrect number of successor operand groups");
     for (decltype(count) i = 0; i != count; ++i) {
       auto &attr = cases[i];
-      if (attr.isa<mlir::IntegerAttr>() || attr.isa<mlir::UnitAttr>()) {
-        // ok
-      } else {
+      if (!(attr.isa<mlir::IntegerAttr>() || attr.isa<mlir::UnitAttr>()))
         return emitOpError("invalid case alternative");
-      }
     }
     return mlir::success();
   }];
 
-  let extraClassDeclaration = extraSwitchClassDeclaration;
+  let extraClassDeclaration = extraSwitchClassDeclaration#[{
+    unsigned targetOffsetSize();
+  }];
 }
 
 def fir_SelectOp : fir_IntegralSwitchTerminatorOp<"select"> {
@@ -755,6 +783,56 @@ def fir_SelectCaseOp : fir_SwitchTerminatorOp<"select_case"> {
     ```
   }];
 
+  let skipDefaultBuilders = 1;
+  let builders = [OpBuilder<
+    "Builder *builder, OperationState &result, Value selector,"
+    "ArrayRef<mlir::Attribute> compareAttrs, ArrayRef<ValueRange> cmpOperands,"
+    "ArrayRef<Block *> destinations, ArrayRef<ValueRange> destOperands = {},"
+    "ArrayRef<NamedAttribute> attributes = {}",
+    [{
+      result.addOperands(selector);
+      result.addAttribute(getCasesAttr(), builder->getArrayAttr(compareAttrs));
+      llvm::SmallVector<int32_t, 8> operOffs;
+      int32_t operSize = 0;
+      for (auto attr : compareAttrs) {
+        if (attr.isa<fir::ClosedIntervalAttr>()) {
+          operOffs.push_back(2);
+          operSize += 2;
+        } else if (attr.isa<mlir::UnitAttr>()) {
+          operOffs.push_back(0);
+        } else {
+          operOffs.push_back(1);
+          ++operSize;
+        }
+      }
+      for (auto ops : cmpOperands)
+        result.addOperands(ops);
+      result.addAttribute(getCompareOffsetAttr(),
+                          builder->getI32VectorAttr(operOffs));
+      const auto count = destinations.size();
+      for (auto d : destinations)
+        result.addSuccessors(d);
+      const auto opCount = destOperands.size();
+      llvm::SmallVector<int32_t, 8> argOffs;
+      int32_t sumArgs = 0;
+      for (std::remove_const_t<decltype(count)> i = 0; i != count; ++i) {
+        if (i < opCount) {
+          result.addOperands(destOperands[i]);
+          const auto argSz = destOperands[i].size();
+          argOffs.push_back(argSz);
+          sumArgs += argSz;
+        } else {
+          argOffs.push_back(0);
+        }
+      }
+      result.addAttribute(getOperandSegmentSizeAttr(),
+                          builder->getI32VectorAttr({1, operSize, sumArgs}));
+      result.addAttribute(getTargetOffsetAttr(),
+                          builder->getI32VectorAttr(argOffs));
+      result.addAttributes(attributes);
+    }]
+  >];
+
   let parser = "return parseSelectCase(parser, result);";
 
   let printer = [{
@@ -791,23 +869,31 @@ def fir_SelectCaseOp : fir_SwitchTerminatorOp<"select_case"> {
           getSelector().getType().isa<fir::CharacterType>()))
       return emitOpError("must be an integer, character, or logical");
     auto cases = getAttrOfType<mlir::ArrayAttr>(getCasesAttr()).getValue();
-    auto count = getNumConditions();
+    auto count = getNumDest();
+    if (count == 0)
+      return emitOpError("must have at least one successor");
+    if (getNumConditions() != count)
+      return emitOpError("number of conditions and successors don't match");
+    if (compareOffsetSize() != count)
+      return emitOpError("incorrect number of compare operand groups");
+    if (targetOffsetSize() != count)
+      return emitOpError("incorrect number of successor operand groups");
     for (decltype(count) i = 0; i != count; ++i) {
       auto &attr = cases[i];
-      if (attr.isa<fir::PointIntervalAttr>() ||
-          attr.isa<fir::LowerBoundAttr>() ||
-          attr.isa<fir::UpperBoundAttr>() ||
-          attr.isa<fir::ClosedIntervalAttr>() ||
-          attr.isa<mlir::UnitAttr>()) {
-        // ok
-      } else {
+      if (!(attr.isa<fir::PointIntervalAttr>() ||
+            attr.isa<fir::LowerBoundAttr>() ||
+            attr.isa<fir::UpperBoundAttr>() ||
+            attr.isa<fir::ClosedIntervalAttr>() ||
+            attr.isa<mlir::UnitAttr>()))
         return emitOpError("incorrect select case attribute type");
-      }
     }
     return mlir::success();
   }];
 
-  let extraClassDeclaration = extraSwitchClassDeclaration;
+  let extraClassDeclaration = extraSwitchClassDeclaration#[{
+    unsigned targetOffsetSize();
+    unsigned compareOffsetSize();
+  }];
 }
 
 def fir_SelectTypeOp : fir_SwitchTerminatorOp<"select_type"> {
@@ -829,6 +915,39 @@ def fir_SelectTypeOp : fir_SwitchTerminatorOp<"select_type"> {
           unit, ^bb5]
     ```
   }];
+
+  let skipDefaultBuilders = 1;
+  let builders = [OpBuilder<
+    "Builder *builder, OperationState &result, Value selector,"
+    "ArrayRef<mlir::Attribute> typeOperands,"
+    "ArrayRef<Block *> destinations, ArrayRef<ValueRange> destOperands = {},"
+    "ArrayRef<NamedAttribute> attributes = {}",
+    [{
+      result.addOperands(selector);
+      result.addAttribute(getCasesAttr(), builder->getArrayAttr(typeOperands));
+      const auto count = destinations.size();
+      for (auto d : destinations)
+        result.addSuccessors(d);
+      const auto opCount = destOperands.size();
+      llvm::SmallVector<int32_t, 8> argOffs;
+      int32_t sumArgs = 0;
+      for (std::remove_const_t<decltype(count)> i = 0; i != count; ++i) {
+        if (i < opCount) {
+          result.addOperands(destOperands[i]);
+          const auto argSz = destOperands[i].size();
+          argOffs.push_back(argSz);
+          sumArgs += argSz;
+        } else {
+          argOffs.push_back(0);
+        }
+      }
+      result.addAttribute(getOperandSegmentSizeAttr(),
+                          builder->getI32VectorAttr({1, 0, sumArgs}));
+      result.addAttribute(getTargetOffsetAttr(),
+                          builder->getI32VectorAttr(argOffs));
+      result.addAttributes(attributes);
+    }]
+  >];
 
   let parser = "return parseSelectType(parser, result);";
 
@@ -853,20 +972,25 @@ def fir_SelectTypeOp : fir_SwitchTerminatorOp<"select_type"> {
     if (!(getSelector().getType().isa<fir::BoxType>()))
       return emitOpError("must be a boxed type");
     auto cases = getAttrOfType<mlir::ArrayAttr>(getCasesAttr()).getValue();
-    auto count = getNumConditions();
+    auto count = getNumDest();
+    if (count == 0)
+      return emitOpError("must have at least one successor");
+    if (getNumConditions() != count)
+      return emitOpError("number of conditions and successors don't match");
+    if (targetOffsetSize() != count)
+      return emitOpError("incorrect number of successor operand groups");
     for (decltype(count) i = 0; i != count; ++i) {
       auto &attr = cases[i];
-      if (attr.isa<fir::ExactTypeAttr>() || attr.isa<fir::SubclassAttr>() ||
-          attr.isa<mlir::UnitAttr>()) {
-        // ok
-      } else {
+      if (!(attr.isa<fir::ExactTypeAttr>() || attr.isa<fir::SubclassAttr>() ||
+            attr.isa<mlir::UnitAttr>()))
         return emitOpError("invalid type-case alternative");
-      }
     }
     return mlir::success();
   }];
 
-  let extraClassDeclaration = extraSwitchClassDeclaration;
+  let extraClassDeclaration = extraSwitchClassDeclaration#[{
+    unsigned targetOffsetSize();
+  }];
 }
 
 def fir_UnreachableOp : fir_Op<"unreachable", [Terminator]> {
