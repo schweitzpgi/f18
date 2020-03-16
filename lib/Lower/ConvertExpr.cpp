@@ -13,7 +13,7 @@
 #include "flang/Evaluate/real.h"
 #include "flang/Lower/Bridge.h"
 #include "flang/Lower/ConvertType.h"
-#include "flang/Lower/OpBuilder.h"
+#include "flang/Lower/FIRBuilder.h"
 #include "flang/Lower/Runtime.h"
 #include "flang/Optimizer/Dialect/FIRDialect.h"
 #include "flang/Optimizer/Dialect/FIROps.h"
@@ -46,7 +46,7 @@ namespace {
 class ExprLowering {
   mlir::Location location;
   Fortran::lower::AbstractConverter &converter;
-  mlir::OpBuilder &builder;
+  Fortran::lower::FirOpBuilder &builder;
   const Fortran::lower::SomeExpr &expr;
   Fortran::lower::SymMap &symMap;
   const Fortran::lower::IntrinsicLibrary &intrinsics;
@@ -100,7 +100,7 @@ class ExprLowering {
     case Fortran::common::RelationalOperator::GE:
       return mlir::CmpFPredicate::OGE;
     }
-    assert(false && "unhandled REAL relational operator");
+    llvm_unreachable("unhandled REAL relational operator");
     return {};
   }
 
@@ -150,13 +150,12 @@ class ExprLowering {
   }
 
   mlir::FuncOp getFunction(llvm::StringRef name, mlir::FunctionType funTy) {
-    auto module = Fortran::lower::getModule(&builder);
-    if (auto func = Fortran::lower::getNamedFunction(module, name)) {
+    if (auto func = builder.getNamedFunction(name)) {
       assert(func.getType() == funTy &&
              "function already declared with a different type");
       return func;
     }
-    return Fortran::lower::createFunction(module, name, funTy);
+    return builder.createFunction(name, funTy);
   }
 
   // FIXME binary operation :: ('a, 'a) -> 'a
@@ -207,14 +206,14 @@ class ExprLowering {
 
   mlir::Value gen(Fortran::semantics::SymbolRef sym) {
     // FIXME: not all symbols are local
-    auto addr = createTemporary(getLoc(), builder, symMap,
-                                converter.genType(sym), &*sym);
+    auto addr = builder.createTemporary(
+        getLoc(), symMap, converter.genType(sym), llvm::None, &*sym);
     assert(addr && "failed generating symbol address");
     // Get address from descriptor if symbol has one.
     auto type = addr.getType();
     if (auto boxCharType = type.dyn_cast<fir::BoxCharType>()) {
       auto refType = fir::ReferenceType::get(boxCharType.getEleTy());
-      auto lenType = mlir::IntegerType::get(64, builder.getContext());
+      auto lenType = builder.getIntegerType(64);
       addr = builder.create<fir::UnboxCharOp>(getLoc(), refType, lenType, addr)
                  .getResult(0);
     } else if (type.isa<fir::BoxType>()) {
@@ -272,8 +271,9 @@ class ExprLowering {
 
   template <int KIND>
   mlir::Value genval(const Fortran::evaluate::ComplexComponent<KIND> &part) {
-    return Fortran::lower::ComplexOpsBuilder{builder, getLoc()}
-        .extractComplexPart(genval(part.left()), part.isImaginaryPart);
+    builder.setLocation(getLoc());
+    return builder.extractComplexPart(genval(part.left()),
+                                      part.isImaginaryPart);
   }
 
   template <Fortran::common::TypeCategory TC, int KIND>
@@ -368,8 +368,8 @@ class ExprLowering {
 
   template <int KIND>
   mlir::Value genval(const Fortran::evaluate::ComplexConstructor<KIND> &op) {
-    return Fortran::lower::ComplexOpsBuilder{builder, getLoc()}.createComplex(
-        KIND, genval(op.left()), genval(op.right()));
+    builder.setLocation(getLoc());
+    return builder.createComplex(KIND, genval(op.left()), genval(op.right()));
   }
 
   template <int KIND>
@@ -409,9 +409,9 @@ class ExprLowering {
       bool eq{op.opr == Fortran::common::RelationalOperator::EQ};
       assert(eq || op.opr == Fortran::common::RelationalOperator::NE &&
                        "relation undefined for complex");
-      result =
-          Fortran::lower::ComplexOpsBuilder{builder, getLoc()}
-              .createComplexCompare(genval(op.left()), genval(op.right()), eq);
+      builder.setLocation(getLoc());
+      result = builder.createComplexCompare(genval(op.left()),
+                                            genval(op.right()), eq);
     } else {
       static_assert(TC == Fortran::lower::CharacterCat);
       TODO();
@@ -894,8 +894,9 @@ public:
                         Fortran::lower::SymMap &map,
                         const Fortran::lower::IntrinsicLibrary &intr,
                         bool logicalAsI1 = false)
-      : location{loc}, converter{converter}, builder{converter.getOpBuilder()},
-        expr{vop}, symMap{map}, intrinsics{intr}, genLogicalAsI1{logicalAsI1} {}
+      : location{loc}, converter{converter},
+        builder{converter.getFirOpBuilder()}, expr{vop}, symMap{map},
+        intrinsics{intr}, genLogicalAsI1{logicalAsI1} {}
 
   /// Lower the expression `expr` into MLIR standard dialect
   mlir::Value gen() { return gen(expr); }
@@ -926,32 +927,4 @@ mlir::Value Fortran::lower::createSomeAddress(
     Fortran::lower::SymMap &symMap,
     const Fortran::lower::IntrinsicLibrary &intrinsics) {
   return ExprLowering{loc, converter, expr, symMap, intrinsics}.gen();
-}
-
-/// Create a temporary variable
-/// `symbol` will be nullptr for an anonymous temporary
-mlir::Value
-Fortran::lower::createTemporary(mlir::Location loc, mlir::OpBuilder &builder,
-                                Fortran::lower::SymMap &symMap, mlir::Type type,
-                                const Fortran::semantics::Symbol *symbol,
-                                llvm::StringRef name) {
-  if (symbol)
-    if (auto val = symMap.lookupSymbol(*symbol)) {
-      if (auto op = val.getDefiningOp())
-        return op->getResult(0);
-      return val;
-    }
-
-  auto insPt(builder.saveInsertionPoint());
-  builder.setInsertionPointToStart(getEntryBlock(&builder));
-  fir::AllocaOp ae;
-  assert(!type.dyn_cast<fir::ReferenceType>() && "cannot be a reference");
-  if (symbol) {
-    ae = builder.create<fir::AllocaOp>(loc, type, symbol->name().ToString());
-    symMap.addSymbol(*symbol, ae);
-  } else {
-    ae = builder.create<fir::AllocaOp>(loc, type, name);
-  }
-  builder.restoreInsertionPoint(insPt);
-  return ae;
 }

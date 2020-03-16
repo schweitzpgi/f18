@@ -92,32 +92,33 @@ public:
 
   mlir::PatternMatchResult
   matchAndRewrite(LoopOp loop, mlir::PatternRewriter &rewriter) const override {
-    auto low = loop.lowerBound();
-    auto high = loop.upperBound();
-    auto optStep = loop.optStep();
     auto loc = loop.getLoc();
-    mlir::Value step;
-    if (optStep.begin() != optStep.end()) {
-      step = *optStep.begin();
-    } else {
-      auto conStep = loop.constantStep();
-      step = rewriter.create<mlir::ConstantIndexOp>(
-          loc, conStep.hasValue() ? conStep.getValue().getSExtValue() : 1);
+    auto low = loop.getLowerBoundOperand();
+    if (!low) {
+      assert(loop.constantLowerBound().hasValue());
+      auto lb = *loop.constantLowerBound();
+      low = rewriter.create<mlir::ConstantIndexOp>(loc, lb.getSExtValue());
     }
+    auto high = loop.getUpperBoundOperand();
+    if (!high) {
+      assert(loop.constantUpperBound().hasValue());
+      auto ub = *loop.constantUpperBound();
+      high = rewriter.create<mlir::ConstantIndexOp>(loc, ub.getSExtValue());
+    }
+    auto step = loop.getStepOperand();
+    if (!step) {
+      if (loop.constantStep().hasValue()) {
+        auto st = *loop.constantStep();
+        step = rewriter.create<mlir::ConstantIndexOp>(loc, st.getSExtValue());
+      } else {
+        step = rewriter.create<mlir::ConstantIndexOp>(loc, 1);
+      }
+    }
+    assert(low && high && step);
     auto f = rewriter.create<mlir::loop::ForOp>(loc, low, high, step);
     f.region().getBlocks().clear();
     rewriter.inlineRegionBefore(loop.region(), f.region(), f.region().end());
-    if (loop.hasLastValue()) {
-      // Compute the final value of the loop iterator.
-      // FIXME: If there are no iterations?
-      auto ty = low.getType();
-      auto d = rewriter.create<mlir::SubIOp>(loc, ty, high, low);
-      auto q = rewriter.create<mlir::SignedDivIOp>(loc, ty, d, step);
-      auto dist = rewriter.create<mlir::MulIOp>(loc, ty, q, step);
-      rewriter.replaceOpWithNewOp<mlir::AddIOp>(loop, ty, low, dist);
-    } else {
-      rewriter.eraseOp(loop);
-    }
+    rewriter.eraseOp(loop);
     return matchSuccess();
   }
 };

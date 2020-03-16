@@ -7,11 +7,12 @@
 //===----------------------------------------------------------------------===//
 
 #include "flang/Lower/Runtime.h"
-#include "flang/Lower/OpBuilder.h"
+#include "flang/Lower/FIRBuilder.h"
 #include "flang/Optimizer/Dialect/FIRType.h"
 #include "mlir/IR/StandardTypes.h"
 #include "mlir/IR/Types.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/ErrorHandling.h"
 #include <cassert>
 
 namespace Fortran::lower {
@@ -40,7 +41,7 @@ mlir::Type RuntimeStaticDescription::getMLIRType(TypeCode t,
   case TypeCode::IOCookie:
     return fir::ReferenceType::get(mlir::IntegerType::get(64, context));
   }
-  assert(false && "bug");
+  llvm_unreachable("bug");
   return {};
 }
 
@@ -57,17 +58,14 @@ mlir::FunctionType RuntimeStaticDescription::getMLIRFunctionType(
   return mlir::FunctionType::get(argMLIRTypes, {}, context);
 }
 
-mlir::FuncOp
-RuntimeStaticDescription::getFuncOp(mlir::OpBuilder &builder) const {
-  mlir::ModuleOp module{getModule(&builder)};
-  mlir::FunctionType funTy{getMLIRFunctionType(module.getContext())};
-  auto function{getNamedFunction(module, symbol)};
-  if (!function) {
-    function = createFunction(module, symbol, funTy);
-    function.setAttr("fir.runtime", builder.getUnitAttr());
-  } else {
-    assert(funTy == function.getType() && "conflicting runtime declaration");
-  }
+mlir::FuncOp RuntimeStaticDescription::getFuncOp(
+    Fortran::lower::FirOpBuilder &builder) const {
+  auto module = builder.getModule();
+  auto funTy = getMLIRFunctionType(module.getContext());
+  auto function = builder.addNamedFunction(symbol, funTy);
+  function.setAttr("fir.runtime", builder.getUnitAttr());
+  if (funTy != function.getType())
+    llvm_unreachable("runtime function type mismatch");
   return function;
 }
 
@@ -80,27 +78,31 @@ public:
   Key key;
 };
 
-using RT = RuntimeStaticDescription;
-using RType = typename RT::TypeCode;
-using Args = typename RT::TypeCodeVector;
-using RTC = RuntimeEntryCode;
-
 static constexpr RuntimeEntryDescription runtimeTable[]{
-    {RTC::StopStatement, "StopStatement", RT::voidTy,
-     Args::create<RType::i32, RType::boolean, RType::boolean>()},
-    {RTC::StopStatementText, "StopStatementText", RT::voidTy,
-     Args::create<RType::charPtr, RType::i32, RType::boolean,
-                  RType::boolean>()},
-    {RTC::FailImageStatement, "StopStatementText", RT::voidTy,
-     Args::create<>()},
+    {RuntimeEntryCode::StopStatement, "StopStatement",
+     RuntimeStaticDescription::voidTy,
+     RuntimeStaticDescription::TypeCodeVector::create<
+         RuntimeStaticDescription::TypeCode::i32,
+         RuntimeStaticDescription::TypeCode::boolean,
+         RuntimeStaticDescription::TypeCode::boolean>()},
+    {RuntimeEntryCode::StopStatementText, "StopStatementText",
+     RuntimeStaticDescription::voidTy,
+     RuntimeStaticDescription::TypeCodeVector::create<
+         RuntimeStaticDescription::TypeCode::charPtr,
+         RuntimeStaticDescription::TypeCode::i32,
+         RuntimeStaticDescription::TypeCode::boolean,
+         RuntimeStaticDescription::TypeCode::boolean>()},
+    {RuntimeEntryCode::FailImageStatement, "StopStatementText",
+     RuntimeStaticDescription::voidTy,
+     RuntimeStaticDescription::TypeCodeVector::create<>()},
 };
 
 static constexpr StaticMultimapView<RuntimeEntryDescription> runtimeMap{
     runtimeTable};
 
 mlir::FuncOp genRuntimeFunction(RuntimeEntryCode code,
-                                mlir::OpBuilder &builder) {
-  auto description{runtimeMap.find(code)};
+                                Fortran::lower::FirOpBuilder &builder) {
+  auto description = runtimeMap.find(code);
   assert(description != runtimeMap.end());
   return description->getFuncOp(builder);
 }
