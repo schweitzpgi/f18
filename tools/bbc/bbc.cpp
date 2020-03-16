@@ -156,7 +156,8 @@ void convertFortranSourceToMLIR(
     return;
   }
 
-  mlir::PassManager pm = mlirModule.getContext();
+  mlir::PassManager pm(mlirModule.getContext());
+  mlir::applyPassManagerCLOptions(pm);
   pm.addPass(fir::createMemToRegPass());
   pm.addPass(fir::createCSEPass());
   pm.addPass(fir::createLowerToLoopPass());
