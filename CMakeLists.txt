@@ -37,7 +37,7 @@ include(AddFlang)
 
 
 # Check for a standalone build and configure as appropriate from
-# there. 
+# there.
 if (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
   message("Building Flang as a standalone project.")
   project(Flang)
@@ -49,7 +49,7 @@ if (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     mark_as_advanced(LLVM_ENABLE_ASSERTIONS)
   endif()
 
-  # We need a pre-built/installed version of LLVM. 
+  # We need a pre-built/installed version of LLVM.
   find_package(LLVM REQUIRED HINTS "${LLVM_CMAKE_PATH}")
   list(APPEND CMAKE_MODULE_PATH ${LLVM_DIR})
 
@@ -58,12 +58,16 @@ if (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     find_package(ZLIB REQUIRED)
   endif()
 
+  # They are used as destination of target generators.
+  set(LLVM_RUNTIME_OUTPUT_INTDIR ${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_CFG_INTDIR}/bin)
+  set(LLVM_LIBRARY_OUTPUT_INTDIR ${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_CFG_INTDIR}/lib${LLVM_LIBDIR_SUFFIX})
+
   include(CMakeParseArguments)
   include(AddLLVM)
-  include(HandleLLVMOptions)  
+  include(HandleLLVMOptions)
   include(VersionFromVCS)
   include(TableGen)
-  include(AddMLIR) 
+  include(AddMLIR)
 
   option(LLVM_ENABLE_WARNINGS "Enable compiler warnings." ON)
   option(LLVM_INSTALL_TOOLCHAIN_ONLY
@@ -71,7 +75,7 @@ if (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
   option(LLVM_FORCE_USE_OLD_HOST_TOOLCHAIN
     "Set to ON to force using an old, unsupported host toolchain." OFF)
 
-  
+
   # Add LLVM include files as if they were SYSTEM because there are complex unused
   # parameter issues that may or may not appear depending on the environments and
   # compilers (ifdefs are involved). This allows warnings from LLVM headers to be
