@@ -115,7 +115,9 @@ public:
       }
     }
     assert(low && high && step);
-    auto f = rewriter.create<mlir::loop::ForOp>(loc, low, high, step);
+    // ForOp has different bounds semantics. Adjust upper bound.
+    auto adjustUp = rewriter.create<mlir::AddIOp>(loc, high, step);
+    auto f = rewriter.create<mlir::loop::ForOp>(loc, low, adjustUp, step);
     f.region().getBlocks().clear();
     rewriter.inlineRegionBefore(loop.region(), f.region(), f.region().end());
     rewriter.eraseOp(loop);

@@ -2158,7 +2158,7 @@ struct LLVMIRLoweringPass : public mlir::ModulePass<LLVMIRLoweringPass> {
       return;
 
     if (auto llvmModule = mlir::translateModuleToLLVMIR(getModule())) {
-      output << *llvmModule;
+      llvmModule->print(output, nullptr);
       return;
     }
 
