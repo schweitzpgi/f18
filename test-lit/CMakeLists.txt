@@ -8,11 +8,7 @@ set(FLANG_INTRINSIC_MODULES_DIR ${FLANG_BINARY_DIR}/include/flang)
 set(FLANG_TOOLS_DIR  ${FLANG_BINARY_DIR}/tools/f18/bin)
 
 # bbc/tco tools path for lit
-if (FLANG_BUILT_STANDALONE)
- set(FLANG_LLVM_TOOLS_DIR  ${FLANG_BINARY_DIR}/bin)
-else()
- set(FLANG_LLVM_TOOLS_DIR  ${LLVM_BINARY_DIR}/bin)
-endif()
+set(FLANG_LLVM_TOOLS_DIR  ${FLANG_BINARY_DIR}/bin)
 
 configure_lit_site_cfg(
   ${CMAKE_CURRENT_SOURCE_DIR}/lit.site.cfg.py.in
