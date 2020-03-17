@@ -7,10 +7,10 @@ func @x(%addr : !fir.ref<!fir.array<10x10xi32>>) -> index {
   %c0 = constant 0 : index
   %c10 = constant 10 : index
   // CHECK: %[[ROW:.*]] = phi i64
-  // CHECK: icmp slt i64 %[[ROW]], 10
+  // CHECK: icmp slt i64 %[[ROW]], 11
   fir.loop %iv = %c0 to %c10 {
     // CHECK: %[[COL:.*]] = phi i64
-    // CHECK: icmp slt i64 %[[COL]], 10
+    // CHECK: icmp slt i64 %[[COL]], 11
     fir.loop %jv = (0) to (10) {
       // CHECK: getelementptr {{.*}} %[[ADDR]], i64 0, i64 %[[COL]], i64 %[[ROW]]
       %ptr = fir.coordinate_of %addr, %jv, %iv : (!fir.ref<!fir.array<10x10xi32>>, index, index) -> !fir.ref<i32>

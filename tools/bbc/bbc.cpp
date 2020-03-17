@@ -48,52 +48,79 @@
 #include "llvm/Support/raw_ostream.h"
 #include <iostream>
 
-namespace {
-
+//===----------------------------------------------------------------------===//
 // Some basic command-line options
-llvm::cl::opt<std::string> inputFilename(llvm::cl::Positional,
-                                         llvm::cl::Required,
-                                         llvm::cl::desc("<input file>"));
+//===----------------------------------------------------------------------===//
 
-llvm::cl::opt<std::string>
+static llvm::cl::opt<std::string> inputFilename(llvm::cl::Positional,
+                                                llvm::cl::Required,
+                                                llvm::cl::desc("<input file>"));
+
+static llvm::cl::opt<std::string>
     outputFilename("o", llvm::cl::desc("Specify the output filename"),
                    llvm::cl::value_desc("filename"), llvm::cl::init("a.mlir"));
 
-llvm::cl::list<std::string> includeDirs("I",
-                                        llvm::cl::desc("include search paths"));
+static llvm::cl::list<std::string>
+    includeDirs("I", llvm::cl::desc("include search paths"));
 
-llvm::cl::list<std::string> moduleDirs("module",
-                                       llvm::cl::desc("module search paths"));
+static llvm::cl::list<std::string>
+    moduleDirs("module", llvm::cl::desc("module search paths"));
 
-llvm::cl::opt<std::string>
+static llvm::cl::opt<std::string>
     moduleSuffix("module-suffix", llvm::cl::desc("module file suffix override"),
                  llvm::cl::init(".mod"));
 
-llvm::cl::opt<bool>
+static llvm::cl::opt<bool>
     emitLLVM("emit-llvm",
              llvm::cl::desc("Add passes to lower to and emit LLVM IR"),
              llvm::cl::init(false));
-llvm::cl::opt<bool>
+
+static llvm::cl::opt<bool>
     emitFIR("emit-fir",
             llvm::cl::desc("Dump the FIR created by lowering and exit"),
             llvm::cl::init(false));
 
-// vestigal struct that should be deleted
+static llvm::cl::opt<bool> fixedForm("Mfixed",
+                                     llvm::cl::desc("used fixed form"),
+                                     llvm::cl::init(false));
+
+static llvm::cl::opt<bool> freeForm("Mfree", llvm::cl::desc("used free form"),
+                                    llvm::cl::init(false));
+
+static llvm::cl::opt<bool> warnStdViolation("Mstandard",
+                                            llvm::cl::desc("emit warnings"),
+                                            llvm::cl::init(false));
+
+static llvm::cl::opt<bool> warnIsError("Werror",
+                                       llvm::cl::desc("warnings are errors"),
+                                       llvm::cl::init(false));
+
+//===----------------------------------------------------------------------===//
+
+namespace {
+
+// TODO: vestigal struct that should be deleted
 struct DriverOptions {
-  bool forcedForm{false};             // -Mfixed or -Mfree appeared
-  bool warnOnNonstandardUsage{false}; // -Mstandard
-  bool warningsAreErrors{false};      // -Werror
   Fortran::parser::Encoding encoding{Fortran::parser::Encoding::UTF_8};
   std::string prefix;
 };
 
-int exitStatus{EXIT_SUCCESS};
+} // namespace
+
+static int exitStatus{EXIT_SUCCESS};
+
+// Print the module without the "module { ... }" wrapper.
+static void printModule(mlir::ModuleOp mlirModule, llvm::raw_ostream &out) {
+  for (auto &op : mlirModule.getBody()->without_terminator())
+    out << op << '\n';
+  out << '\n';
+}
 
 // Convert Fortran input to MLIR (target is FIR dialect)
-void convertFortranSourceToMLIR(
+static void convertFortranSourceToMLIR(
     std::string path, Fortran::parser::Options options, DriverOptions &driver,
     Fortran::semantics::SemanticsContext &semanticsContext) {
-  if (!driver.forcedForm) {
+  if (!(fixedForm || freeForm)) {
     auto dot = path.rfind(".");
     if (dot != std::string::npos) {
       std::string suffix{path.substr(dot + 1)};
@@ -104,7 +131,7 @@ void convertFortranSourceToMLIR(
   Fortran::parser::Parsing parsing{semanticsContext.allSources()};
   parsing.Prescan(path, options);
   if (!parsing.messages().empty() &&
-      (driver.warningsAreErrors || parsing.messages().AnyFatalError())) {
+      (warnIsError || parsing.messages().AnyFatalError())) {
     llvm::errs() << driver.prefix << "could not scan " << path << '\n';
     parsing.messages().Emit(std::cerr, parsing.cooked());
     exitStatus = EXIT_FAILURE;
@@ -119,7 +146,7 @@ void convertFortranSourceToMLIR(
     return;
   }
   if ((!parsing.messages().empty() &&
-       (driver.warningsAreErrors || parsing.messages().AnyFatalError())) ||
+       (warnIsError || parsing.messages().AnyFatalError())) ||
       !parsing.parseTree().has_value()) {
     llvm::errs() << driver.prefix << "could not parse " << path << '\n';
     exitStatus = EXIT_FAILURE;
@@ -150,12 +177,12 @@ void convertFortranSourceToMLIR(
     return;
   }
   if (emitFIR) {
-    // dump FIR and exit
-    mlirModule.print(out);
-    out << '\n';
+    // Do lowering, but nothing else. Dump FIR and exit.
+    printModule(mlirModule, out);
     return;
   }
 
+  // Otherwise run the default passes.
   mlir::PassManager pm(mlirModule.getContext());
   mlir::applyPassManagerCLOptions(pm);
   pm.addPass(fir::createMemToRegPass());
@@ -163,29 +190,35 @@ void convertFortranSourceToMLIR(
   pm.addPass(fir::createLowerToLoopPass());
   pm.addPass(fir::createFIRToStdPass(kindMap));
   pm.addPass(mlir::createLowerToCFGPass());
+  pm.addPass(mlir::createCanonicalizerPass());
 
   if (emitLLVM) {
+    // Continue to lower from MLIR down to LLVM IR. Emit LLVM and MLIR.
     pm.addPass(fir::createFIRToLLVMPass(nameUniquer));
     std::error_code ec;
-    llvm::ToolOutputFile out(outputFilename + ".ll", ec,
-                             llvm::sys::fs::OF_None);
+    llvm::ToolOutputFile outFile(outputFilename + ".ll", ec,
+                                 llvm::sys::fs::OF_None);
     if (ec) {
       llvm::errs() << "can't open output file " + outputFilename + ".ll";
       return;
     }
-    pm.addPass(fir::createLLVMDialectToLLVMPass(out.os()));
-  }
-
-  if (mlir::succeeded(pm.run(mlirModule))) {
-    mlirModule.print(out);
-    out << '\n';
+    pm.addPass(fir::createLLVMDialectToLLVMPass(outFile.os()));
+    if (mlir::succeeded(pm.run(mlirModule))) {
+      outFile.keep();
+      printModule(mlirModule, out);
+      return;
+    }
   } else {
-    llvm::errs() << "oops, pass manager reported failure\n";
-    mlirModule.dump();
+    // Emit MLIR and do not lower to LLVM IR.
+    if (mlir::succeeded(pm.run(mlirModule))) {
+      printModule(mlirModule, out);
+      return;
+    }
   }
+  // Something went wrong. Try to dump the MLIR module.
+  llvm::errs() << "oops, pass manager reported failure\n";
+  mlirModule.dump();
 }
-
-} // namespace
 
 int main(int argc, char **argv) {
   fir::registerFIR();
@@ -199,12 +232,10 @@ int main(int argc, char **argv) {
   DriverOptions driver;
   driver.prefix = argv[0] + ": "s;
 
-  if (includeDirs.size() == 0) {
+  if (includeDirs.size() == 0)
     includeDirs.push_back(".");
-  }
-  if (moduleDirs.size() == 0) {
+  if (moduleDirs.size() == 0)
     moduleDirs.push_back(".");
-  }
 
   Fortran::parser::Options options;
   options.predefinitions.emplace_back("__F18", "1");
@@ -222,8 +253,8 @@ int main(int argc, char **argv) {
   semanticsContext.set_moduleDirectory(moduleDirs.front())
       .set_moduleFileSuffix(moduleSuffix)
       .set_searchDirectories(includeDirs)
-      .set_warnOnNonstandardUsage(driver.warnOnNonstandardUsage)
-      .set_warningsAreErrors(driver.warningsAreErrors);
+      .set_warnOnNonstandardUsage(warnStdViolation)
+      .set_warningsAreErrors(warnIsError);
 
   convertFortranSourceToMLIR(inputFilename, options, driver, semanticsContext);
   return exitStatus;
