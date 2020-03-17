@@ -473,12 +473,8 @@ static mlir::ParseResult parseLoopOp(mlir::OpAsmParser &parser,
     }
   }
   // Parse the optional `unordered` keyword
-  bool isUnordered = false;
-  if (mlir::succeeded(
-          parser.parseOptionalKeyword(LoopOp::unorderedAttrName()))) {
+  if (mlir::succeeded(parser.parseOptionalKeyword(LoopOp::unorderedAttrName())))
     result.addAttribute(LoopOp::unorderedAttrName(), builder.getUnitAttr());
-    isUnordered = true;
-  }
 
   // Parse the body region.
   mlir::Region *body = result.addRegion();
