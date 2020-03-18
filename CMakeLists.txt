@@ -318,8 +318,10 @@ option(FLANG_INCLUDE_TESTS
 if (FLANG_INCLUDE_TESTS)
   enable_testing()
   add_subdirectory(test)
+else()
+  enable_testing()
+  add_subdirectory(test)
 endif()
-add_subdirectory(test-lit)
 
 # TODO: Add doxygen support.
 #option(FLANG_INCLUDE_DOCS "Generate build targets for the Flang docs."
