@@ -27,6 +27,7 @@
 #include "mlir/Parser.h"
 #include "mlir/Target/LLVMIR.h"
 #include "llvm/Support/CommandLine.h"
+#include "llvm/Support/ErrorHandling.h"
 
 #undef TODO
 #define TODO()                                                                 \
@@ -35,7 +36,7 @@
       mlir::emitError(toLocation(), __FILE__)                                  \
           << ":" << __LINE__ << " not implemented";                            \
     else                                                                       \
-      assert(false && "not yet implemented");                                  \
+      llvm_unreachable("not yet implemented");                                 \
   }
 
 static llvm::cl::opt<bool>
@@ -220,6 +221,17 @@ private:
     return builder->createFunction(callee, funcTy);
   }
 
+  bool isNumericScalarCategory(Fortran::common::TypeCategory cat) {
+    return cat == Fortran::lower::IntegerCat ||
+           cat == Fortran::lower::RealCat ||
+           cat == Fortran::lower::ComplexCat ||
+           cat == Fortran::lower::LogicalCat;
+  }
+
+  bool isCharacterCategory(Fortran::common::TypeCategory cat) {
+    return cat == Fortran::lower::CharacterCat;
+  }
+
   static bool inMainProgram(Fortran::lower::pft::Evaluation *cstr) {
     return std::visit(Fortran::common::visitors{
                           [](Fortran::lower::pft::FunctionLikeUnit *c) {
@@ -232,6 +244,7 @@ private:
                       },
                       cstr->parentVariant.p);
   }
+  
   static const Fortran::parser::SubroutineStmt *
   inSubroutine(Fortran::lower::pft::Evaluation *cstr) {
     return std::visit(
@@ -246,6 +259,7 @@ private:
         },
         cstr->parentVariant.p);
   }
+  
   static const Fortran::parser::FunctionStmt *
   inFunction(Fortran::lower::pft::Evaluation *cstr) {
     return std::visit(
@@ -260,6 +274,7 @@ private:
         },
         cstr->parentVariant.p);
   }
+  
   static const Fortran::parser::MpSubprogramStmt *
   inMpSubprogram(Fortran::lower::pft::Evaluation *cstr) {
     return std::visit(
@@ -303,9 +318,9 @@ private:
     genFIRConditionalBranch(cond, trueTarget->block, falseTarget->block);
   }
 
-  //
+  //===--------------------------------------------------------------------===//
   // Function-like PFT entry and exit statements
-  //
+  //===--------------------------------------------------------------------===//
 
   void
   genFIR(const Fortran::parser::Statement<Fortran::parser::ProgramStmt> &stmt,
@@ -474,8 +489,7 @@ private:
     }
     auto funTy = mlir::FunctionType::get(argTy, resTy, builder->getContext());
     // FIXME: mangle name
-    mlir::FuncOp func = getFunc(funName, funTy);
-    (void)func; // FIXME
+    [[maybe_unused]] mlir::FuncOp func = getFunc(funName, funTy);
     std::vector<mlir::Value> actuals;
     for (auto &aa :
          std::get<std::list<Fortran::parser::ActualArgSpec>>(stmt.v.t)) {
@@ -1060,7 +1074,18 @@ private:
               } else if (sym && Fortran::semantics::IsPointer(*sym)) {
                 // Target of the pointer must be assigned.
                 // See Fortran 2018 10.2.1.3 p2
-                TODO();
+                auto lhsType = assignment.lhs.GetType();
+                assert(lhsType && "lhs cannot be typeless");
+                if (isNumericScalarCategory(lhsType->category())) {
+                  builder->create<fir::StoreOp>(toLocation(),
+                                                genExprValue(assignment.rhs),
+                                                genExprValue(assignment.lhs));
+                } else if (isCharacterCategory(lhsType->category())) {
+                  TODO();
+                } else {
+                  assert(lhsType->category() == Fortran::lower::DerivedCat);
+                  TODO();
+                }
               } else if (assignment.lhs.Rank() > 0) {
                 // Array assignment
                 // See Fortran 2018 10.2.1.3 p5, p6, and p7
@@ -1069,26 +1094,20 @@ private:
                 // Scalar assignments
                 auto lhsType = assignment.lhs.GetType();
                 assert(lhsType && "lhs cannot be typeless");
-                switch (lhsType->category()) {
-                case Fortran::lower::IntegerCat:
-                case Fortran::lower::RealCat:
-                case Fortran::lower::ComplexCat:
-                case Fortran::lower::LogicalCat:
+                if (isNumericScalarCategory(lhsType->category())) {
                   // Fortran 2018 10.2.1.3 p8 and p9
                   // Conversions are already inserted by semantic
                   // analysis.
                   builder->create<fir::StoreOp>(toLocation(),
                                                 genExprValue(assignment.rhs),
                                                 genExprAddr(assignment.lhs));
-                  break;
-                case Fortran::lower::CharacterCat:
+                } else if (isCharacterCategory(lhsType->category())) {
                   // Fortran 2018 10.2.1.3 p10 and p11
                   genCharacterAssignment(assignment);
-                  break;
-                case Fortran::lower::DerivedCat:
+                } else {
+                  assert(lhsType->category() == Fortran::lower::DerivedCat);
                   // Fortran 2018 10.2.1.3 p12 and p13
                   TODO();
-                  break;
                 }
               }
             },
