@@ -55,7 +55,7 @@ static constexpr std::tuple<
     mkIOKey(SetRec), mkIOKey(SetRound), mkIOKey(SetSign),
     mkIOKey(OutputDescriptor), mkIOKey(InputDescriptor),
     mkIOKey(OutputUnformattedBlock), mkIOKey(InputUnformattedBlock),
-    mkIOKey(OutputInteger64), mkIOKey(InputInteger64), mkIOKey(OutputReal32),
+    mkIOKey(OutputInteger64), mkIOKey(InputInteger), mkIOKey(OutputReal32),
     mkIOKey(InputReal32), mkIOKey(OutputReal64), mkIOKey(InputReal64),
     mkIOKey(OutputComplex64), mkIOKey(OutputComplex32), mkIOKey(OutputAscii),
     mkIOKey(InputAscii), mkIOKey(OutputLogical), mkIOKey(InputLogical),
