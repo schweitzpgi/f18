@@ -9,28 +9,27 @@
 #include "flang/Optimizer/Support/InternalNames.h"
 #include "mlir/IR/Diagnostics.h"
 #include "llvm/ADT/Optional.h"
-#include "llvm/ADT/Twine.h"
 
 constexpr std::int64_t BAD_VALUE = -1;
 
-inline llvm::StringRef prefix() { return "_Q"; }
+inline std::string prefix() { return "_Q"; }
 
 static std::string doModules(llvm::ArrayRef<llvm::StringRef> mods) {
-  llvm::Twine result;
+  std::string result;
   auto *token = "M";
   for (auto mod : mods) {
-    result.concat(token).concat(mod);
+    result.append(token).append(mod);
     token = "S";
   }
-  return result.str();
+  return result;
 }
 
 static std::string doModulesHost(llvm::ArrayRef<llvm::StringRef> mods,
                                  llvm::Optional<llvm::StringRef> host) {
-  llvm::Twine result(doModules(mods));
+  std::string result = doModules(mods);
   if (host.hasValue())
-    result.concat("F").concat(*host);
-  return result.str();
+    result.append("F").append(*host);
+  return result;
 }
 
 inline llvm::SmallVector<llvm::StringRef, 2>
@@ -65,40 +64,39 @@ static std::int64_t readInt(llvm::StringRef uniq, std::size_t &i,
   return result;
 }
 
-llvm::StringRef fir::NameUniquer::toLower(llvm::StringRef name) {
-  auto lo = name.lower();
-  if (name.equals(lo))
-    return name;
-  return cache.insert(lo).first->getKey();
+std::string fir::NameUniquer::toLower(llvm::StringRef name) {
+  return name.lower();
 }
 
-llvm::StringRef fir::NameUniquer::addAsString(std::int64_t i) {
-  return cache.insert(std::to_string(i)).first->getKey();
+std::string fir::NameUniquer::intAsString(std::int64_t i) {
+  assert(i >= 0);
+  return std::to_string(i);
 }
 
 std::string fir::NameUniquer::doKind(std::int64_t kind) {
-  llvm::Twine result("K");
+  std::string result = "K";
   if (kind < 0)
-    return result.concat("N").concat(addAsString(-kind)).str();
-  return result.concat(addAsString(kind)).str();
+    return result.append("N").append(intAsString(-kind));
+  return result.append(intAsString(kind));
 }
 
 std::string fir::NameUniquer::doKinds(llvm::ArrayRef<std::int64_t> kinds) {
-  llvm::Twine result;
+  std::string result;
   for (auto i : kinds)
-    result.concat(doKind(i));
-  return result.str();
+    result.append(doKind(i));
+  return result;
 }
 
 std::string fir::NameUniquer::doCommonBlock(llvm::StringRef name) {
-  return llvm::Twine(prefix()).concat("B").concat(toLower(name)).str();
+  std::string result = prefix();
+  return result.append("B").append(toLower(name));
 }
 
 std::string
 fir::NameUniquer::doConstant(llvm::ArrayRef<llvm::StringRef> modules,
                              llvm::StringRef name) {
-  auto result = llvm::Twine(prefix()) + doModules(modules) + "EC";
-  return result.concat(toLower(name)).str();
+  std::string result = prefix();
+  return result.append(doModules(modules)).append("EC").append(toLower(name));
 }
 
 std::string
@@ -106,20 +104,21 @@ fir::NameUniquer::doDispatchTable(llvm::ArrayRef<llvm::StringRef> modules,
                                   llvm::Optional<llvm::StringRef> host,
                                   llvm::StringRef name,
                                   llvm::ArrayRef<std::int64_t> kinds) {
-  auto result = llvm::Twine(prefix()) + doModulesHost(modules, host) + "DT";
-  return result.concat(toLower(name)).concat(doKinds(kinds)).str();
+  std::string result = prefix();
+  result.append(doModulesHost(modules, host)).append("DT");
+  return result.append(toLower(name)).append(doKinds(kinds));
 }
 
 std::string fir::NameUniquer::doGenerated(llvm::StringRef name) {
-  auto result = llvm::Twine(prefix()) + "Q" + toLower(name);
-  return result.str();
+  std::string result = prefix();
+  return result.append("Q").append(toLower(name));
 }
 
 std::string fir::NameUniquer::doIntrinsicTypeDescriptor(
     llvm::ArrayRef<llvm::StringRef> modules,
     llvm::Optional<llvm::StringRef> host, IntrinsicType type,
     std::int64_t kind) {
-  const char *name{nullptr};
+  const char *name = nullptr;
   switch (type) {
   case IntrinsicType::CHARACTER:
     name = "character";
@@ -137,24 +136,28 @@ std::string fir::NameUniquer::doIntrinsicTypeDescriptor(
     name = "real";
     break;
   }
-  auto result = llvm::Twine(prefix()) + doModulesHost(modules, host) + "C";
-  return result.concat(name).concat(doKind(kind)).str();
+  assert(name && "unknown intrinsic type");
+  std::string result = prefix();
+  result.append(doModulesHost(modules, host)).append("C");
+  return result.append(name).append(doKind(kind));
 }
 
 std::string
 fir::NameUniquer::doProcedure(llvm::ArrayRef<llvm::StringRef> modules,
                               llvm::Optional<llvm::StringRef> host,
                               llvm::StringRef name) {
-  auto result = llvm::Twine(prefix()) + doModulesHost(modules, host) + "P";
-  return result.concat(toLower(name)).str();
+  std::string result = prefix();
+  result.append(doModulesHost(modules, host)).append("P");
+  return result.append(toLower(name));
 }
 
 std::string fir::NameUniquer::doType(llvm::ArrayRef<llvm::StringRef> modules,
                                      llvm::Optional<llvm::StringRef> host,
                                      llvm::StringRef name,
                                      llvm::ArrayRef<std::int64_t> kinds) {
-  auto result = llvm::Twine(prefix()) + doModulesHost(modules, host) + "T";
-  return result.concat(toLower(name)).concat(doKinds(kinds)).str();
+  std::string result = prefix();
+  result.append(doModulesHost(modules, host)).append("T");
+  return result.append(toLower(name)).append(doKinds(kinds));
 }
 
 std::string
@@ -162,8 +165,9 @@ fir::NameUniquer::doTypeDescriptor(llvm::ArrayRef<llvm::StringRef> modules,
                                    llvm::Optional<llvm::StringRef> host,
                                    llvm::StringRef name,
                                    llvm::ArrayRef<std::int64_t> kinds) {
-  auto result = llvm::Twine(prefix()) + doModulesHost(modules, host) + "CT";
-  return result.concat(toLower(name)).concat(doKinds(kinds)).str();
+  std::string result = prefix();
+  result.append(doModulesHost(modules, host)).append("CT");
+  return result.append(toLower(name)).append(doKinds(kinds));
 }
 
 std::string fir::NameUniquer::doTypeDescriptor(
@@ -177,8 +181,9 @@ std::string fir::NameUniquer::doTypeDescriptor(
 std::string
 fir::NameUniquer::doVariable(llvm::ArrayRef<llvm::StringRef> modules,
                              llvm::StringRef name) {
-  auto result = llvm::Twine(prefix()) + doModules(modules) + "E";
-  return result.concat(toLower(name)).str();
+  std::string result = prefix();
+  result.append(doModules(modules)).append("E");
+  return result.append(toLower(name));
 }
 
 std::pair<fir::NameUniquer::NameKind, fir::NameUniquer::DeconstructedName>
