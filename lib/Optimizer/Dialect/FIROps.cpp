@@ -341,8 +341,121 @@ void fir::GenTypeDescOp::build(Builder *, OperationState &result,
 // GlobalOp
 //===----------------------------------------------------------------------===//
 
+static ParseResult parseGlobalOp(OpAsmParser &parser, OperationState &result) {
+  // Parse the optional linkage
+  llvm::StringRef linkage;
+  auto &builder = parser.getBuilder();
+  if (mlir::succeeded(parser.parseOptionalKeyword(&linkage))) {
+    if (fir::GlobalOp::verifyValidLinkage(linkage))
+      return failure();
+    mlir::StringAttr linkAttr = builder.getStringAttr(linkage);
+    result.addAttribute(fir::GlobalOp::linkageAttrName(), linkAttr);
+  }
+
+  // Parse the name as a symbol reference attribute.
+  SymbolRefAttr nameAttr;
+  if (parser.parseAttribute(nameAttr, mlir::SymbolTable::getSymbolAttrName(),
+                            result.attributes))
+    return failure();
+
+  auto name = nameAttr.getRootReference();
+  result.attributes.back().second = builder.getStringAttr(name);
+
+  bool simpleInitializer = false;
+  if (mlir::succeeded(parser.parseOptionalLParen())) {
+    Attribute attr;
+    if (parser.parseAttribute(attr, fir::GlobalOp::initValAttrName(),
+                              result.attributes) ||
+        parser.parseRParen())
+      return failure();
+    simpleInitializer = true;
+  }
+
+  if (succeeded(parser.parseOptionalKeyword("constant"))) {
+    // if "constant" keyword then mark this as a constant, not a variable
+    result.addAttribute(fir::GlobalOp::constantAttrName(),
+                        builder.getUnitAttr());
+  }
+
+  mlir::Type globalType;
+  if (parser.parseColonType(globalType))
+    return failure();
+
+  result.addAttribute(fir::GlobalOp::typeAttrName(),
+                      mlir::TypeAttr::get(globalType));
+
+  if (simpleInitializer) {
+    result.addRegion();
+  } else {
+    // Parse the optional initializer body.
+    if (parser.parseRegion(*result.addRegion(), llvm::None, llvm::None))
+      return failure();
+  }
+
+  auto refTy = AllocaOp::wrapResultType(globalType);
+  if (parser.addTypeToList(refTy, result.types))
+    return failure();
+  return success();
+}
+
 void fir::GlobalOp::appendInitialValue(mlir::Operation *op) {
   getBlock().getOperations().push_back(op);
+}
+
+void fir::GlobalOp::build(mlir::Builder *builder, OperationState &result,
+                          StringRef name, bool isConstant, Type type,
+                          Attribute initialVal, StringAttr linkage,
+                          ArrayRef<NamedAttribute> attrs) {
+  result.addAttribute(typeAttrName(), mlir::TypeAttr::get(type));
+  result.addAttribute(mlir::SymbolTable::getSymbolAttrName(),
+                      builder->getStringAttr(name));
+  if (isConstant)
+    result.addAttribute(constantAttrName(), builder->getUnitAttr());
+  if (initialVal)
+    result.addAttribute(initValAttrName(), initialVal);
+  if (linkage)
+    result.addAttribute(linkageAttrName(), linkage);
+  result.attributes.append(attrs.begin(), attrs.end());
+}
+
+void fir::GlobalOp::build(mlir::Builder *builder, OperationState &result,
+                          StringRef name, Type type, Attribute initialVal,
+                          StringAttr linkage, ArrayRef<NamedAttribute> attrs) {
+  build(builder, result, name, /*isConstant=*/false, type, {}, linkage, attrs);
+}
+
+void fir::GlobalOp::build(mlir::Builder *builder, OperationState &result,
+                          StringRef name, bool isConstant, Type type,
+                          StringAttr linkage, ArrayRef<NamedAttribute> attrs) {
+  build(builder, result, name, isConstant, type, {}, linkage, attrs);
+}
+
+void fir::GlobalOp::build(mlir::Builder *builder, OperationState &result,
+                          StringRef name, Type type, StringAttr linkage,
+                          ArrayRef<NamedAttribute> attrs) {
+  build(builder, result, name, /*isConstant=*/false, type, {}, linkage, attrs);
+}
+
+void fir::GlobalOp::build(mlir::Builder *builder, OperationState &result,
+                          StringRef name, bool isConstant, Type type,
+                          ArrayRef<NamedAttribute> attrs) {
+  build(builder, result, name, isConstant, type, StringAttr{}, attrs);
+}
+
+void fir::GlobalOp::build(mlir::Builder *builder, OperationState &result,
+                          StringRef name, Type type,
+                          ArrayRef<NamedAttribute> attrs) {
+  build(builder, result, name, /*isConstant=*/false, type, attrs);
+}
+
+mlir::ParseResult fir::GlobalOp::verifyValidLinkage(StringRef linkage) {
+  // Supporting only a subset of the LLVM linkage types for now
+  static const llvm::SmallVector<const char *, 3> validNames = {
+      "internal", "common", "weak"};
+  if (llvm::any_of(validNames,
+                   [&](const char *name) { return linkage == name; }))
+    return success();
+  return failure();
 }
 
 //===----------------------------------------------------------------------===//
