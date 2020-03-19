@@ -9,19 +9,16 @@
 #include "flang/Optimizer/Support/InternalNames.h"
 #include "mlir/IR/Diagnostics.h"
 #include "llvm/ADT/Optional.h"
+#include "llvm/ADT/StringExtras.h"
 
 constexpr std::int64_t BAD_VALUE = -1;
 
 inline std::string prefix() { return "_Q"; }
 
 static std::string doModules(llvm::ArrayRef<llvm::StringRef> mods) {
-  std::string result;
-  auto *token = "M";
-  for (auto mod : mods) {
-    result.append(token).append(mod);
-    token = "S";
-  }
-  return result;
+  if (mods.empty())
+    return "";
+  return "M" + llvm::join(mods.begin(), mods.end(), "S");
 }
 
 static std::string doModulesHost(llvm::ArrayRef<llvm::StringRef> mods,
