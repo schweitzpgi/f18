@@ -118,7 +118,7 @@ std::string fir::NameUniquer::doIntrinsicTypeDescriptor(
     llvm::ArrayRef<llvm::StringRef> modules,
     llvm::Optional<llvm::StringRef> host, IntrinsicType type,
     std::int64_t kind) {
-  const char *name{nullptr};
+  const char *name = nullptr;
   switch (type) {
   case IntrinsicType::CHARACTER:
     name = "character";
@@ -135,10 +135,8 @@ std::string fir::NameUniquer::doIntrinsicTypeDescriptor(
   case IntrinsicType::REAL:
     name = "real";
     break;
-  default:
-    llvm_unreachable("unknown intrinsic type");
-    break;
   }
+  assert(name && "unknown intrinsic type");
   std::string result = prefix();
   result.append(doModulesHost(modules, host)).append("C");
   return result.append(name).append(doKind(kind));
