@@ -11,7 +11,7 @@
 
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/Optional.h"
-#include "llvm/ADT/StringSet.h"
+#include "llvm/ADT/StringRef.h"
 #include <cstdint>
 
 namespace llvm {
@@ -117,12 +117,10 @@ struct NameUniquer {
   deconstruct(llvm::StringRef uniquedName);
 
 private:
-  llvm::StringRef addAsString(std::int64_t i);
+  std::string intAsString(std::int64_t i);
   std::string doKind(std::int64_t kind);
   std::string doKinds(llvm::ArrayRef<std::int64_t> kinds);
-  llvm::StringRef toLower(llvm::StringRef name);
-
-  llvm::StringSet<> cache;
+  std::string toLower(llvm::StringRef name);
 };
 
 } // namespace fir
