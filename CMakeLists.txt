@@ -315,13 +315,8 @@ add_subdirectory(runtime)
 option(FLANG_INCLUDE_TESTS
        "Generate build targets for the Flang unit tests."
        ${LLVM_INCLUDE_TESTS})
-if (FLANG_INCLUDE_TESTS)
-  enable_testing()
-  add_subdirectory(test)
-else()
-  enable_testing()
-  add_subdirectory(test)
-endif()
+enable_testing()
+add_subdirectory(test)
 
 # TODO: Add doxygen support.
 #option(FLANG_INCLUDE_DOCS "Generate build targets for the Flang docs."
