@@ -2615,69 +2615,29 @@ def fir_GlobalOp : fir_Op<"global", [IsolatedFromAbove, Symbol]> {
 
   let arguments = (ins
     StrAttr:$sym_name,
-    OptionalAttr<AnyAttr>:$initval,
-    UnitAttr:$constant,
-    TypeAttr:$type
+    TypeAttr:$type,
+    OptionalAttr<AnyAttr>:$initVal,
+    OptionalAttr<UnitAttr>:$constant,
+    OptionalAttr<StrAttr>:$linkName
   );
 
   let results = (outs fir_ReferenceType:$resultType);
 
   let regions = (region AtMostRegion<1>:$region);
 
-  let parser = [{
-    // Parse the name as a symbol reference attribute.
-    SymbolRefAttr nameAttr;
-    if (parser.parseAttribute(nameAttr, mlir::SymbolTable::getSymbolAttrName(),
-                              result.attributes))
-      return failure();
-
-    auto &builder = parser.getBuilder();
-    auto name = nameAttr.getRootReference();
-    result.attributes.back().second = builder.getStringAttr(name);
-
-    bool simpleInitializer = false;
-    if (mlir::succeeded(parser.parseOptionalLParen())) {
-      Attribute attr;
-      if (parser.parseAttribute(attr, initValAttrName(), result.attributes) ||
-          parser.parseRParen())
-        return failure();
-      simpleInitializer = true;
-    }
-
-    if (succeeded(parser.parseOptionalKeyword(constantAttrName()))) {
-      // if "constant" keyword then mark this as a constant, not a variable
-      result.addAttribute(constantAttrName(), builder.getUnitAttr());
-    }
-
-    mlir::Type globalType;
-    if (parser.parseColonType(globalType))
-      return failure();
-
-    result.addAttribute(typeAttrName(), mlir::TypeAttr::get(globalType));
-
-    if (!simpleInitializer) {
-      // Parse the optional initializer body.
-      if (parser.parseRegion(*result.addRegion(), llvm::None, llvm::None))
-        return failure();
-    }
-
-    auto refTy = AllocaOp::wrapResultType(globalType);
-    if (parser.addTypeToList(refTy, result.types))
-      return failure();
-    return success();
-  }];
+  let parser = "return parseGlobalOp(parser, result);";
 
   let printer = [{
+    p << getOperationName();
+    if (linkName().hasValue())
+      p << ' ' << linkName().getValue();
     auto varName = getAttrOfType<StringAttr>(
       mlir::SymbolTable::getSymbolAttrName()).getValue();
-    p << getOperationName() << " @" << varName;
-    if (auto iv = initval().getValueOr(Attribute())) {
-      p << '(';
-      p.printAttribute(iv);
-      p << ')';
-    }
+    p << " @" << varName;
+    if (auto val = getValueOrNull())
+      p << '(' << val << ')';
     if (getAttr(constantAttrName()))
-      p << ' ' << constantAttrName();
+      p << " constant";
     p << " : ";
     p.printType(getType());
     Region &body = getOperation()->getRegion(0);
@@ -2689,22 +2649,40 @@ def fir_GlobalOp : fir_Op<"global", [IsolatedFromAbove, Symbol]> {
   let skipDefaultBuilders = 1;
   let builders = [
     OpBuilder<"mlir::Builder *builder, OperationState &result,"
-              "StringRef name, Type type, ArrayRef<NamedAttribute> attrs = {}",
-    [{
-      result.addAttribute(typeAttrName(), mlir::TypeAttr::get(type));
-      result.addAttribute(mlir::SymbolTable::getSymbolAttrName(),
-                          builder->getStringAttr(name));
-      result.addAttributes(attrs);
-    }]>
+              "StringRef name, Type type, ArrayRef<NamedAttribute> attrs = {}">,
+    OpBuilder<"mlir::Builder *builder, OperationState &result,"
+              "StringRef name, bool isConstant, Type type,"
+	      "ArrayRef<NamedAttribute> attrs = {}">,
+    OpBuilder<"mlir::Builder *builder, OperationState &result,"
+              "StringRef name, Type type, StringAttr linkage = {},"
+	      "ArrayRef<NamedAttribute> attrs = {}">,
+    OpBuilder<"mlir::Builder *builder, OperationState &result,"
+              "StringRef name, bool isConstant, Type type,"
+	      "StringAttr linkage = {},"
+	      "ArrayRef<NamedAttribute> attrs = {}">,
+    OpBuilder<"mlir::Builder *builder, OperationState &result,"
+              "StringRef name, Type type, Attribute initVal,"
+	      "StringAttr linkage = {},"
+	      "ArrayRef<NamedAttribute> attrs = {}">,
+    OpBuilder<"mlir::Builder *builder, OperationState &result,"
+              "StringRef name, bool isConstant, Type type,"
+	      "Attribute initVal, StringAttr linkage = {},"
+	      "ArrayRef<NamedAttribute> attrs = {}">,
   ];
 
   let extraClassDeclaration = [{
     static constexpr llvm::StringRef constantAttrName() { return "constant"; }
-    static constexpr llvm::StringRef initValAttrName() { return "initval"; }
+    static constexpr llvm::StringRef initValAttrName() { return "initVal"; }
+    static constexpr llvm::StringRef linkageAttrName() { return "linkName"; }
     static constexpr llvm::StringRef typeAttrName() { return "type"; }
 
     mlir::Type getType() {
       return getAttrOfType<TypeAttr>(typeAttrName()).getValue();
+    }
+    
+    /// Return the initializer attribute if it exists, or a null attribute.
+    Attribute getValueOrNull() {
+      return initVal().getValueOr(Attribute());
     }
 
     /// Append the next initializer value to the `GlobalOp` to construct
@@ -2716,6 +2694,9 @@ def fir_GlobalOp : fir_Op<"global", [IsolatedFromAbove, Symbol]> {
 
     /// A GlobalOp has one block.
     mlir::Block &getBlock() { return getRegion().front(); }
+
+    /// Determine if `linkage` is a supported keyword
+    static mlir::ParseResult verifyValidLinkage(StringRef linkage);
   }];
 }
 
