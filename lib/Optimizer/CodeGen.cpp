@@ -1453,15 +1453,30 @@ struct GlobalOpConversion : public FIROpConversion<fir::GlobalOp> {
     auto tyAttr = unwrap(convertType(global.getType()));
     auto loc = global.getLoc();
     mlir::Attribute initAttr{};
-    if (global.initval())
-      initAttr = global.initval().getValue();
+    if (global.initVal())
+      initAttr = global.initVal().getValue();
+    auto linkage = convertLinkage(global.linkName());
+    auto isConst = global.constant().hasValue();
     auto g = rewriter.create<mlir::LLVM::GlobalOp>(
-        loc, tyAttr, global.constant(), mlir::LLVM::Linkage::External,
-        global.sym_name(), initAttr);
+        loc, tyAttr, isConst, linkage, global.sym_name(), initAttr);
     auto &gr = g.getInitializerRegion();
     rewriter.inlineRegionBefore(global.region(), gr, gr.end());
     rewriter.eraseOp(global);
     return matchSuccess();
+  }
+
+  mlir::LLVM::Linkage
+  convertLinkage(llvm::Optional<llvm::StringRef> optLinkage) const {
+    if (optLinkage.hasValue()) {
+      auto name = optLinkage.getValue();
+      if (name == "internal")
+        return mlir::LLVM::Linkage::Internal;
+      if (name == "common")
+        return mlir::LLVM::Linkage::Common;
+      if (name == "weak")
+        return mlir::LLVM::Linkage::Weak;
+    }
+    return mlir::LLVM::Linkage::External;
   }
 };
 
