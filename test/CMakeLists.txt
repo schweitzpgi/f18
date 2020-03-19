@@ -1,14 +1,42 @@
-# simple helper to add a flang test.  
-function(add_flang_test EXECUTABLE TEST_NAME) 
-  message(STATUS "flang: adding test '${TEST_NAME}' (${EXECUTABLE})")
-  add_executable(${EXECUTABLE}-test ${EXECUTABLE}.cpp)
-  target_compile_features(${EXECUTABLE}-test PRIVATE cxx_std_17)
-  target_link_libraries(${EXECUTABLE}-test ${ARGN})
-  add_test(NAME ${TEST_NAME} 
-           COMMAND ${EXECUTABLE}-test)
-endfunction()
+# Test runner infrastructure for Flang. This configures the Flang test trees
+# for use by Lit, and delegates to LLVM's lit test handlers.
 
-#add_subdirectory(Decimal)
-#add_subdirectory(Evaluate)
-#add_subdirectory(Runtime)
-add_subdirectory(Semantics)
+# f18 modules directory
+set(FLANG_INTRINSIC_MODULES_DIR ${FLANG_BINARY_DIR}/include/flang)
+
+# f18/flang tools path for lit
+set(FLANG_TOOLS_DIR  ${FLANG_BINARY_DIR}/tools/f18/bin)
+
+# bbc/tco tools path for lit
+set(FLANG_LLVM_TOOLS_DIR  ${FLANG_BINARY_DIR}/bin)
+
+configure_lit_site_cfg(
+  ${CMAKE_CURRENT_SOURCE_DIR}/lit.site.cfg.py.in
+  ${CMAKE_CURRENT_BINARY_DIR}/lit.site.cfg.py
+  MAIN_CONFIG
+  ${CMAKE_CURRENT_SOURCE_DIR}/lit.cfg.py
+)
+
+set(FLANG_TEST_PARAMS
+  flang_site_config=${CMAKE_CURRENT_BINARY_DIR}/lit.site.cfg.py)
+
+set(FLANG_TEST_DEPENDS
+  f18
+  llvm-lit
+  FileCheck
+  count
+  not
+  bbc
+  tco
+)
+
+add_lit_testsuite(check-flang "Running the Flang regression tests"
+  ${CMAKE_CURRENT_BINARY_DIR}
+  PARAMS ${FLANG_TEST_PARAMS}
+  DEPENDS ${FLANG_TEST_DEPENS}
+)
+
+set_target_properties(check-flang PROPERTIES FOLDER "Tests")
+add_lit_testsuites(FLANG ${CMAKE_CURRENT_SOURCE_DIR}
+  DEPENDS ${FLANG_TEST_DEPS}
+)
