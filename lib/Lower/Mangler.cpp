@@ -19,32 +19,37 @@
 namespace {
 
 // recursively build the vector of module scopes
-void moduleNames(const Fortran::semantics::Scope *scope,
+void moduleNames(const Fortran::semantics::Scope &scope,
                  llvm::SmallVector<llvm::StringRef, 2> &result) {
-  if (scope->kind() == Fortran::semantics::Scope::Kind::Global) {
+  if (scope.kind() == Fortran::semantics::Scope::Kind::Global) {
     return;
   }
-  moduleNames(&scope->parent(), result);
-  if (scope->kind() == Fortran::semantics::Scope::Kind::Module)
-    if (auto *symbol = scope->symbol())
+  moduleNames(scope.parent(), result);
+  if (scope.kind() == Fortran::semantics::Scope::Kind::Module)
+    if (auto *symbol = scope.symbol())
       result.emplace_back(toStringRef(symbol->name()));
 }
 
 llvm::SmallVector<llvm::StringRef, 2>
-moduleNames(const Fortran::semantics::Scope *scope) {
+moduleNames(const Fortran::semantics::Scope &scope) {
   llvm::SmallVector<llvm::StringRef, 2> result;
   moduleNames(scope, result);
   return result;
 }
 
 llvm::Optional<llvm::StringRef>
-hostName(const Fortran::semantics::Scope *scope) {
-  if (scope->kind() == Fortran::semantics::Scope::Kind::Subprogram) {
-    auto &parent = scope->parent();
-    if (parent.kind() == Fortran::semantics::Scope::Kind::Subprogram)
-      if (auto *symbol = parent.symbol()) {
-        return {toStringRef(symbol->name())};
-      }
+hostName(const Fortran::semantics::Scope &scope) {
+  //  if (scope.kind() == Fortran::semantics::Scope::Kind::Subprogram) {
+  //    auto &parent = scope.parent();
+  //    if (parent.kind() == Fortran::semantics::Scope::Kind::Subprogram)
+  //      if (auto *symbol = parent.symbol()) {
+  //        return {toStringRef(symbol->name())};
+  //      }
+  //  }
+  //  return {};
+  if (scope.kind() == Fortran::semantics::Scope::Kind::Subprogram) {
+    assert(scope.symbol() && "subprogram scope must have a symbol");
+    return {toStringRef(scope.symbol()->name())};
   }
   return {};
 }
@@ -62,15 +67,28 @@ Fortran::lower::mangle::mangleName(fir::NameUniquer &uniquer,
             return uniquer.doProgramEntry().str();
           },
           [&](const Fortran::semantics::SubprogramDetails &) {
-            auto &cb{symbol->name()};
-            auto modNames{moduleNames(symbol->scope())};
-            return uniquer.doProcedure(modNames, hostName(symbol->scope()),
-                                       toStringRef(cb));
+            const auto *scope{&symbol->owner()};
+            auto &symbolName{symbol->name()};
+            // Separate module subprograms must be mangled according to the
+            // scope where they were declared (the symbol we have is the
+            // definition).
+            if (symbol->attrs().test(Fortran::semantics::Attr::MODULE) &&
+                scope->IsSubmodule()) {
+              // FIXME symbol from MpSubprogramStmt do not seem to have
+              // Attr::MODULE set.
+              const auto *iface{scope->parent().FindSymbol(symbolName)};
+              assert(iface && "Separate module proc must be declared");
+              scope = &iface->owner();
+            }
+            auto modNames{moduleNames(*scope)};
+            return uniquer.doProcedure(modNames, hostName(*scope),
+                                       toStringRef(symbolName));
           },
           [&](const Fortran::semantics::ProcEntityDetails &) {
+            const auto &scope{symbol->owner()};
             auto &cb{symbol->name()};
-            auto modNames{moduleNames(symbol->scope())};
-            return uniquer.doProcedure(modNames, hostName(symbol->scope()),
+            auto modNames{moduleNames(scope)};
+            return uniquer.doProcedure(modNames, hostName(scope),
                                        toStringRef(cb));
           },
           [](const auto &) -> std::string {
