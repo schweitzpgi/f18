@@ -244,7 +244,7 @@ private:
                       },
                       cstr->parentVariant.p);
   }
-  
+
   static const Fortran::parser::SubroutineStmt *
   inSubroutine(Fortran::lower::pft::Evaluation *cstr) {
     return std::visit(
@@ -259,7 +259,7 @@ private:
         },
         cstr->parentVariant.p);
   }
-  
+
   static const Fortran::parser::FunctionStmt *
   inFunction(Fortran::lower::pft::Evaluation *cstr) {
     return std::visit(
@@ -274,7 +274,7 @@ private:
         },
         cstr->parentVariant.p);
   }
-  
+
   static const Fortran::parser::MpSubprogramStmt *
   inMpSubprogram(Fortran::lower::pft::Evaluation *cstr) {
     return std::visit(
@@ -373,15 +373,22 @@ private:
       std::string &name, const Fortran::semantics::Symbol *&symbol) {
     setCurrentPosition(stmt.source);
     auto &n = stmt.statement.v;
-    name = n.ToString();
     symbol = n.symbol;
+    assert(symbol && "Name resolution failure");
+    name = mangleName(*symbol);
   }
   void
   genFIR(const Fortran::parser::Statement<Fortran::parser::EndMpSubprogramStmt>
              &stmt,
-         std::string &, const Fortran::semantics::Symbol *&) {
-    genFIRProcedureExit(
-        static_cast<const Fortran::parser::MpSubprogramStmt *>(nullptr));
+         std::string &, const Fortran::semantics::Symbol *&symbol) {
+    setCurrentPosition(stmt.source);
+    assert(symbol);
+    if (symbol->get<Fortran::semantics::SubprogramDetails>().isFunction()) {
+      genFIRFunctionReturn(*symbol);
+    } else {
+      genFIRProcedureExit(
+          static_cast<const Fortran::parser::MpSubprogramStmt *>(nullptr));
+    }
   }
 
   //
