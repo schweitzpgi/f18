@@ -90,7 +90,7 @@ class LoopLoopConv : public mlir::OpRewritePattern<LoopOp> {
 public:
   using OpRewritePattern::OpRewritePattern;
 
-  mlir::PatternMatchResult
+  mlir::LogicalResult
   matchAndRewrite(LoopOp loop, mlir::PatternRewriter &rewriter) const override {
     auto loc = loop.getLoc();
     auto low = loop.getLowerBoundOperand();
@@ -121,7 +121,7 @@ public:
     f.region().getBlocks().clear();
     rewriter.inlineRegionBefore(loop.region(), f.region(), f.region().end());
     rewriter.eraseOp(loop);
-    return matchSuccess();
+    return success();
   }
 };
 
@@ -130,7 +130,7 @@ class LoopWhereConv : public mlir::OpRewritePattern<WhereOp> {
 public:
   using OpRewritePattern::OpRewritePattern;
 
-  mlir::PatternMatchResult
+  mlir::LogicalResult
   matchAndRewrite(WhereOp where,
                   mlir::PatternRewriter &rewriter) const override {
     auto loc = where.getLoc();
@@ -145,7 +145,7 @@ public:
       ifOp.elseRegion().back().erase();
     }
     rewriter.eraseOp(where);
-    return matchSuccess();
+    return success();
   }
 };
 
@@ -154,10 +154,10 @@ class LoopFirEndConv : public mlir::OpRewritePattern<FirEndOp> {
 public:
   using OpRewritePattern::OpRewritePattern;
 
-  mlir::PatternMatchResult
+  mlir::LogicalResult
   matchAndRewrite(FirEndOp op, mlir::PatternRewriter &rewriter) const override {
     rewriter.replaceOpWithNewOp<mlir::loop::YieldOp>(op);
-    return matchSuccess();
+    return success();
   }
 };
 
