@@ -18,6 +18,7 @@
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Function.h"
+#include "mlir/Interfaces/SideEffects.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Support/Functional.h"
 #include "mlir/Transforms/Passes.h"
@@ -176,11 +177,12 @@ LogicalResult BasicCSE::simplifyOperation(ScopedMapTy &knownValues,
   if (op->getNumRegions() != 0)
     return failure();
 
-  if (!op->hasNoSideEffect() && !fir::nonVolatileLoad(op) && !fir::pureCall(op))
+  if (!MemoryEffectOpInterface::hasNoEffect(op) && !fir::nonVolatileLoad(op) &&
+      !fir::pureCall(op))
     return failure();
 
   // If the operation is already trivially dead just add it to the erase list.
-  if (op->use_empty()) {
+  if (isOpTriviallyDead(op)) {
     opsToErase.push_back(op);
     return success();
   }

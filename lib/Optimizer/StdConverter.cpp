@@ -105,7 +105,7 @@ protected:
 struct SelectTypeOpConversion : public FIROpConversion<SelectTypeOp> {
   using FIROpConversion::FIROpConversion;
 
-  mlir::PatternMatchResult
+  mlir::LogicalResult
   matchAndRewrite(mlir::Operation *op, OperandTy operands,
                   mlir::ConversionPatternRewriter &rewriter) const override {
     auto selectType = mlir::cast<SelectTypeOp>(op);
@@ -136,7 +136,7 @@ struct SelectTypeOpConversion : public FIROpConversion<SelectTypeOp> {
       rewriter.replaceOpWithNewOp<mlir::BranchOp>(
           selectType, dest, mlir::ValueRange{destOps.getValue()});
     }
-    return matchSuccess();
+    return success();
   }
 
   static void genTypeLadderStep(mlir::Location loc, bool exactTest,

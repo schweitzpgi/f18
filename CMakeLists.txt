@@ -49,9 +49,12 @@ if (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     mark_as_advanced(LLVM_ENABLE_ASSERTIONS)
   endif()
 
-  # We need a pre-built/installed version of LLVM.
+  # We need a pre-built/installed version of LLVM and MLIR.
   find_package(LLVM REQUIRED HINTS "${LLVM_CMAKE_PATH}")
   list(APPEND CMAKE_MODULE_PATH ${LLVM_DIR})
+
+  find_package(MLIR REQUIRED HINTS "${MLIR_CMAKE_PATH}")
+  list(APPEND CMAKE_MODULE_PATH ${MLIR_DIR})
 
   # If LLVM links to zlib we need the imported targets so we can too.
   if(LLVM_ENABLE_ZLIB)
@@ -85,6 +88,8 @@ if (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
   # should not be suppressed).
   include_directories(SYSTEM ${LLVM_INCLUDE_DIRS})
   add_definitions(${LLVM_DEFINITIONS})
+  include_directories(SYSTEM ${MLIR_INCLUDE_DIRS})
+  add_definitions(${MLIR_DEFINITIONS})
 
   # LLVM's cmake configuration files currently sneak in a c++11 flag.
   # We look for it here and remove it from Flang's compile flags to 
