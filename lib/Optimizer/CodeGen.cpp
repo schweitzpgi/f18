@@ -39,9 +39,7 @@
 /// necessary to preserve the semantics of the Fortran program.
 
 #undef TODO
-#define TODO(X)                                                                \
-  (void)X;                                                                     \
-  assert(false && "not yet implemented")
+#define TODO() llvm_unreachable("not yet implemented")
 
 using namespace llvm;
 
@@ -69,19 +67,16 @@ bool allConstants(OperandTy operands) {
 }
 } // namespace fir
 
-namespace {
-
 using SmallVecResult = SmallVector<mlir::Value, 4>;
 using AttributeTy = ArrayRef<mlir::NamedAttribute>;
 
-const unsigned defaultAlign{8};
+static constexpr unsigned defaultAlign = 8;
+
+namespace {
 
 /// FIR type converter
 /// This converts FIR types to LLVM types (for now)
 class FIRToLLVMTypeConverter : public mlir::LLVMTypeConverter {
-  fir::KindMapping kindMapping;
-  static StringMap<mlir::LLVM::LLVMType> identStructCache;
-
 public:
   FIRToLLVMTypeConverter(mlir::MLIRContext *context, fir::NameUniquer &uniquer)
       : LLVMTypeConverter(context), kindMapping(context), uniquer(uniquer) {
@@ -159,7 +154,10 @@ public:
     // auto *ctx = box.getContext();
     auto eleTy = unwrap(convertType(ele));
     // buffer*
-    parts.push_back(eleTy.getPointerTo());
+    if (ele.isa<fir::SequenceType>() && eleTy.isPointerTy())
+      parts.push_back(eleTy);
+    else
+      parts.push_back(eleTy.getPointerTo());
     // ele-size
     parts.push_back(mlir::LLVM::LLVMType::getInt64Ty(llvmDialect));
     // version
@@ -266,13 +264,16 @@ public:
   mlir::LLVM::LLVMType convertSequenceType(fir::SequenceType seq) {
     auto baseTy = unwrap(convertType(seq.getEleTy()));
     auto shape = seq.getShape();
-    if (shape.size()) {
+    auto constRows = seq.getConstantRows();
+    if (constRows) {
+      decltype(constRows) i = constRows;
       for (auto e : shape) {
-        if (e < 0)
-          e = 0;
         baseTy = mlir::LLVM::LLVMType::getArrayTy(baseTy, e);
+        if (--i == 0)
+          break;
       }
-      return baseTy;
+      if (seq.hasConstantShape())
+        return baseTy;
     }
     return baseTy.getPointerTo();
   }
@@ -334,14 +335,56 @@ public:
     return wrappedLLVMType;
   }
 
+  /// Returns false iff the sequence type has a shape and the shape is constant.
+  static bool unknownShape(fir::SequenceType::Shape shape) {
+    // does the shape even exist?
+    if (!shape.size())
+      return true;
+    // if it exists, are any dimensions deferred?
+    const auto sz = shape.size();
+    for (std::remove_const_t<decltype(sz)> i = 0; i < sz; ++i)
+      if (shape[i] < 0)
+        return true;
+    return false;
+  }
+
+  /// Does this record type have dynamically inlined subobjects? Note: this
+  /// should not look through references as they are not inlined.
+  static bool dynamicallySized(fir::RecordType seqTy) {
+    for (auto field : seqTy.getTypeList()) {
+      if (auto arr = field.second.dyn_cast<fir::SequenceType>()) {
+        if (unknownShape(arr.getShape()))
+          return true;
+      } else if (auto rec = field.second.dyn_cast<fir::RecordType>()) {
+        if (dynamicallySized(rec))
+          return true;
+      }
+    }
+    return false;
+  }
+
+  static bool dynamicallySized(mlir::Type ty) {
+    if (auto arr = ty.dyn_cast<fir::SequenceType>())
+      ty = arr.getEleTy();
+    if (auto rec = ty.dyn_cast<fir::RecordType>())
+      return dynamicallySized(rec);
+    return false;
+  }
+
+  fir::NameUniquer &getUniquer() { return uniquer; }
+
+private:
+  fir::KindMapping kindMapping;
   fir::NameUniquer &uniquer;
+  static StringMap<mlir::LLVM::LLVMType> identStructCache;
 };
 
 // instantiate static data member
 StringMap<mlir::LLVM::LLVMType> FIRToLLVMTypeConverter::identStructCache;
+} // namespace
 
 /// remove `omitNames` (by name) from the attribute dictionary
-SmallVector<mlir::NamedAttribute, 4>
+static SmallVector<mlir::NamedAttribute, 4>
 pruneNamedAttrDict(AttributeTy attrs, ArrayRef<StringRef> omitNames) {
   SmallVector<mlir::NamedAttribute, 4> result;
   for (auto x : attrs) {
@@ -361,6 +404,7 @@ inline mlir::LLVM::LLVMType getVoidPtrType(mlir::LLVM::LLVMDialect *dialect) {
   return mlir::LLVM::LLVMType::getInt8PtrTy(dialect);
 }
 
+namespace {
 /// FIR conversion pattern template
 template <typename FromOp>
 class FIROpConversion : public mlir::OpConversionPattern<FromOp> {
@@ -391,13 +435,79 @@ protected:
     return rewriter.create<mlir::LLVM::ConstantOp>(loc, ity, cattr);
   }
 
+  /// Method to construct code sequence to get the rank from a box.
+  mlir::Value getRankFromBox(mlir::Location loc, mlir::Value box,
+                             mlir::Type resultTy,
+                             mlir::ConversionPatternRewriter &rewriter) const {
+    auto c0 = genConstantOffset(loc, rewriter, 0);
+    auto c3 = genConstantOffset(loc, rewriter, 3);
+    llvm::SmallVector<mlir::Value, 3> args = {box, c0, c3};
+    auto pty = unwrap(resultTy).getPointerTo();
+    auto p = rewriter.create<mlir::LLVM::GEPOp>(loc, pty, args);
+    return rewriter.create<mlir::LLVM::LoadOp>(loc, resultTy, p);
+  }
+
+  /// Method to construct code sequence to get the triple for dimension `dim`
+  /// from a box.
+  llvm::SmallVector<mlir::Value, 3>
+  getDimsFromBox(mlir::Location loc, llvm::ArrayRef<mlir::Type> retTys,
+                 mlir::Value box, mlir::Value dim,
+                 mlir::ConversionPatternRewriter &rewriter) const {
+    auto c0 = genConstantOffset(loc, rewriter, 0);
+    auto c7 = genConstantOffset(loc, rewriter, 7);
+    auto l0 = loadFromOffset(loc, box, c0, c7, dim, 0, retTys[0], rewriter);
+    auto l1 = loadFromOffset(loc, box, c0, c7, dim, 1, retTys[1], rewriter);
+    auto l2 = loadFromOffset(loc, box, c0, c7, dim, 2, retTys[2], rewriter);
+    return {l0.getResult(), l1.getResult(), l2.getResult()};
+  }
+
+  mlir::LLVM::LoadOp
+  loadFromOffset(mlir::Location loc, mlir::Value a, mlir::LLVM::ConstantOp c0,
+                 mlir::LLVM::ConstantOp c7, mlir::Value dim, int off,
+                 mlir::Type ty,
+                 mlir::ConversionPatternRewriter &rewriter) const {
+    auto pty = unwrap(ty).getPointerTo();
+    auto c = genConstantOffset(loc, rewriter, off);
+    auto p = genGEP(loc, pty, rewriter, a, c0, c7, dim, c);
+    return rewriter.create<mlir::LLVM::LoadOp>(loc, ty, p);
+  }
+
+  template <typename... ARGS>
+  mlir::LLVM::GEPOp genGEP(mlir::Location loc, mlir::LLVM::LLVMType ty,
+                           mlir::ConversionPatternRewriter &rewriter,
+                           mlir::Value base, ARGS... args) const {
+    SmallVector<mlir::Value, 8> cv{args...};
+    return rewriter.create<mlir::LLVM::GEPOp>(loc, ty, base, cv);
+  }
+
   FIRToLLVMTypeConverter &lowering;
 };
 
+/// FIR conversion pattern template
+template <typename FromOp>
+class FIROpAndTypeConversion : public FIROpConversion<FromOp> {
+public:
+  using FIROpConversion<FromOp>::FIROpConversion;
+
+  mlir::LogicalResult
+  matchAndRewrite(FromOp op, OperandTy operands,
+                  mlir::ConversionPatternRewriter &rewriter) const final {
+    mlir::Type ty = this->convertType(op.getType());
+    return doRewrite(op, ty, operands, rewriter);
+  }
+
+  virtual mlir::LogicalResult
+  doRewrite(FromOp addr, mlir::Type ty, OperandTy operands,
+            mlir::ConversionPatternRewriter &rewriter) const {
+    llvm_unreachable("derived class must override");
+  }
+};
+} // namespace
+
 /// Create an LLVM dialect global
-void createGlobal(mlir::Location loc, mlir::ModuleOp mod, StringRef name,
-                  mlir::LLVM::LLVMType type,
-                  mlir::ConversionPatternRewriter &rewriter) {
+static void createGlobal(mlir::Location loc, mlir::ModuleOp mod, StringRef name,
+                         mlir::LLVM::LLVMType type,
+                         mlir::ConversionPatternRewriter &rewriter) {
   if (mod.lookupSymbol<mlir::LLVM::GlobalOp>(name))
     return;
   mlir::OpBuilder modBuilder(mod.getBodyRegion());
@@ -406,6 +516,7 @@ void createGlobal(mlir::Location loc, mlir::ModuleOp mod, StringRef name,
                                           mlir::Attribute{});
 }
 
+namespace {
 struct AddrOfOpConversion : public FIROpConversion<fir::AddrOfOp> {
   using FIROpConversion::FIROpConversion;
 
@@ -419,14 +530,16 @@ struct AddrOfOpConversion : public FIROpConversion<fir::AddrOfOp> {
     return success();
   }
 };
+} // namespace
 
-mlir::LLVM::ConstantOp
+static mlir::LLVM::ConstantOp
 genConstantIndex(mlir::Location loc, mlir::LLVM::LLVMType ity,
                  mlir::ConversionPatternRewriter &rewriter, int offset) {
   auto cattr = rewriter.getI64IntegerAttr(offset);
   return rewriter.create<mlir::LLVM::ConstantOp>(loc, ity, cattr);
 }
 
+namespace {
 /// convert to LLVM IR dialect `alloca`
 struct AllocaOpConversion : public FIROpConversion<fir::AllocaOp> {
   using FIROpConversion::FIROpConversion;
@@ -446,10 +559,11 @@ struct AllocaOpConversion : public FIROpConversion<fir::AllocaOp> {
     return success();
   }
 };
+} // namespace
 
-mlir::LLVM::LLVMFuncOp getMalloc(fir::AllocMemOp op,
-                                 mlir::ConversionPatternRewriter &rewriter,
-                                 mlir::LLVM::LLVMDialect *dialect) {
+static mlir::LLVM::LLVMFuncOp
+getMalloc(fir::AllocMemOp op, mlir::ConversionPatternRewriter &rewriter,
+          mlir::LLVM::LLVMDialect *dialect) {
   auto module = op.getParentOfType<mlir::ModuleOp>();
   if (auto mallocFunc = module.lookupSymbol<mlir::LLVM::LLVMFuncOp>("malloc"))
     return mallocFunc;
@@ -462,6 +576,7 @@ mlir::LLVM::LLVMFuncOp getMalloc(fir::AllocMemOp op,
                                           /*isVarArg=*/false));
 }
 
+namespace {
 /// convert to `call` to the runtime to `malloc` memory
 struct AllocMemOpConversion : public FIROpConversion<fir::AllocMemOp> {
   using FIROpConversion::FIROpConversion;
@@ -485,11 +600,12 @@ struct AllocMemOpConversion : public FIROpConversion<fir::AllocMemOp> {
     return success();
   }
 };
+} // namespace
 
 /// obtain the free() function
-mlir::LLVM::LLVMFuncOp getFree(fir::FreeMemOp op,
-                               mlir::ConversionPatternRewriter &rewriter,
-                               mlir::LLVM::LLVMDialect *dialect) {
+static mlir::LLVM::LLVMFuncOp getFree(fir::FreeMemOp op,
+                                      mlir::ConversionPatternRewriter &rewriter,
+                                      mlir::LLVM::LLVMDialect *dialect) {
   auto module = op.getParentOfType<mlir::ModuleOp>();
   if (auto freeFunc = module.lookupSymbol<mlir::LLVM::LLVMFuncOp>("free"))
     return freeFunc;
@@ -501,6 +617,7 @@ mlir::LLVM::LLVMFuncOp getFree(fir::FreeMemOp op,
                                           /*isVarArg=*/false));
 }
 
+namespace {
 /// lower a freemem instruction into a call to free()
 struct FreeMemOpConversion : public FIROpConversion<fir::FreeMemOp> {
   using FIROpConversion::FIROpConversion;
@@ -519,14 +636,6 @@ struct FreeMemOpConversion : public FIROpConversion<fir::FreeMemOp> {
     return success();
   }
 };
-
-template <typename... ARGS>
-mlir::LLVM::GEPOp genGEP(mlir::Location loc, mlir::LLVM::LLVMType ty,
-                         mlir::ConversionPatternRewriter &rewriter,
-                         mlir::Value base, ARGS... args) {
-  SmallVector<mlir::Value, 8> cv{args...};
-  return rewriter.create<mlir::LLVM::GEPOp>(loc, ty, base, cv);
-}
 
 /// convert to returning the first element of the box (any flavor)
 struct BoxAddrOpConversion : public FIROpConversion<fir::BoxAddrOp> {
@@ -577,29 +686,15 @@ struct BoxDimsOpConversion : public FIROpConversion<fir::BoxDimsOp> {
   mlir::LogicalResult
   matchAndRewrite(fir::BoxDimsOp boxdims, OperandTy operands,
                   mlir::ConversionPatternRewriter &rewriter) const override {
-    auto a = operands[0];
-    auto dim = operands[1];
-    auto loc = boxdims.getLoc();
-    auto c0 = genConstantOffset(loc, rewriter, 0);
-    auto c7 = genConstantOffset(loc, rewriter, 7);
-    auto l0 = loadFromOffset(boxdims, loc, a, c0, c7, dim, 0, rewriter);
-    auto l1 = loadFromOffset(boxdims, loc, a, c0, c7, dim, 1, rewriter);
-    auto l2 = loadFromOffset(boxdims, loc, a, c0, c7, dim, 2, rewriter);
-    rewriter.replaceOp(boxdims,
-                       {l0.getResult(), l1.getResult(), l2.getResult()});
+    llvm::SmallVector<mlir::Type, 3> resultTypes = {
+        convertType(boxdims.getResult(0).getType()),
+        convertType(boxdims.getResult(1).getType()),
+        convertType(boxdims.getResult(2).getType()),
+    };
+    auto results = getDimsFromBox(boxdims.getLoc(), resultTypes, operands[0],
+                                  operands[1], rewriter);
+    rewriter.replaceOp(boxdims, results);
     return success();
-  }
-
-  mlir::LLVM::LoadOp
-  loadFromOffset(fir::BoxDimsOp boxdims, mlir::Location loc, mlir::Value a,
-                 mlir::LLVM::ConstantOp c0, mlir::LLVM::ConstantOp c7,
-                 mlir::Value dim, int off,
-                 mlir::ConversionPatternRewriter &rewriter) const {
-    auto ty = convertType(boxdims.getResult(off).getType());
-    auto pty = unwrap(ty).getPointerTo();
-    auto c = genConstantOffset(loc, rewriter, off);
-    auto p = genGEP(loc, pty, rewriter, a, c0, c7, dim, c);
-    return rewriter.create<mlir::LLVM::LoadOp>(loc, ty, p);
   }
 };
 
@@ -709,12 +804,8 @@ struct BoxRankOpConversion : public FIROpConversion<fir::BoxRankOp> {
     auto a = operands[0];
     auto loc = boxrank.getLoc();
     auto ty = convertType(boxrank.getType());
-    auto c0 = genConstantOffset(loc, rewriter, 0);
-    auto c3 = genConstantOffset(loc, rewriter, 3);
-    SmallVector<mlir::Value, 4> args{a, c0, c3};
-    auto pty = unwrap(ty).getPointerTo();
-    auto p = rewriter.create<mlir::LLVM::GEPOp>(loc, pty, args);
-    rewriter.replaceOpWithNewOp<mlir::LLVM::LoadOp>(boxrank, ty, p);
+    auto result = getRankFromBox(loc, a, ty, rewriter);
+    rewriter.replaceOp(boxrank, result);
     return success();
   }
 };
@@ -958,7 +1049,7 @@ struct DispatchOpConversion : public FIROpConversion<fir::DispatchOp> {
     // get the table, lookup the method, fetch the func-ptr
     rewriter.replaceOpWithNewOp<mlir::LLVM::CallOp>(dispatch, ty, operands,
                                                     None);
-    TODO(dispatch);
+    TODO();
     return success();
   }
 };
@@ -971,7 +1062,7 @@ struct DispatchTableOpConversion
   mlir::LogicalResult
   matchAndRewrite(fir::DispatchTableOp dispTab, OperandTy operands,
                   mlir::ConversionPatternRewriter &rewriter) const override {
-    TODO(dispTab);
+    TODO();
     return success();
   }
 };
@@ -983,7 +1074,7 @@ struct DTEntryOpConversion : public FIROpConversion<fir::DTEntryOp> {
   mlir::LogicalResult
   matchAndRewrite(fir::DTEntryOp dtEnt, OperandTy operands,
                   mlir::ConversionPatternRewriter &rewriter) const override {
-    TODO(dtEnt);
+    TODO();
     return success();
   }
 };
@@ -1101,29 +1192,27 @@ struct EmboxProcOpConversion : public FIROpConversion<fir::EmboxProcOp> {
   }
 };
 
-mlir::Attribute getValue(mlir::Value value) {
-  assert(value.getDefiningOp());
-  if (auto v = dyn_cast<mlir::LLVM::ConstantOp>(value.getDefiningOp()))
-    return v.value();
-  if (auto v = dyn_cast<mlir::ConstantOp>(value.getDefiningOp()))
-    return v.value();
-  assert(false && "must be a constant op");
-  return {};
-}
-
-template <typename A>
-inline void appendTo(SmallVectorImpl<A> &dest, ArrayRef<A> from) {
-  dest.append(from.begin(), from.end());
-}
+struct ValueOpCommon {
+  static mlir::Attribute getValue(mlir::Value value) {
+    auto defOp = value.getDefiningOp();
+    if (auto v = dyn_cast<mlir::LLVM::ConstantOp>(defOp))
+      return v.value();
+    if (auto v = dyn_cast<mlir::ConstantOp>(defOp))
+      return v.value();
+    llvm_unreachable("must be a constant op");
+    return {};
+  }
+};
 
 /// Extract a subobject value from an ssa-value of aggregate type
-struct ExtractValueOpConversion : public FIROpConversion<fir::ExtractValueOp> {
-  using FIROpConversion::FIROpConversion;
+struct ExtractValueOpConversion
+    : public FIROpAndTypeConversion<fir::ExtractValueOp>,
+      public ValueOpCommon {
+  using FIROpAndTypeConversion::FIROpAndTypeConversion;
 
   mlir::LogicalResult
-  matchAndRewrite(fir::ExtractValueOp extractVal, OperandTy operands,
-                  mlir::ConversionPatternRewriter &rewriter) const override {
-    auto ty = convertType(extractVal.getType());
+  doRewrite(fir::ExtractValueOp extractVal, mlir::Type ty, OperandTy operands,
+            mlir::ConversionPatternRewriter &rewriter) const override {
     assert(fir::allConstants(operands.drop_front(1)));
     // since all indices are constants use LLVM's extractvalue instruction
     SmallVector<mlir::Attribute, 8> attrs;
@@ -1138,13 +1227,14 @@ struct ExtractValueOpConversion : public FIROpConversion<fir::ExtractValueOp> {
 
 /// InsertValue is the generalized instruction for the composition of new
 /// aggregate type values.
-struct InsertValueOpConversion : public FIROpConversion<fir::InsertValueOp> {
-  using FIROpConversion::FIROpConversion;
+struct InsertValueOpConversion
+    : public FIROpAndTypeConversion<fir::InsertValueOp>,
+      public ValueOpCommon {
+  using FIROpAndTypeConversion::FIROpAndTypeConversion;
 
   mlir::LogicalResult
-  matchAndRewrite(fir::InsertValueOp insertVal, OperandTy operands,
-                  mlir::ConversionPatternRewriter &rewriter) const override {
-    auto ty = convertType(insertVal.getType());
+  doRewrite(fir::InsertValueOp insertVal, mlir::Type ty, OperandTy operands,
+            mlir::ConversionPatternRewriter &rewriter) const override {
     assert(fir::allConstants(operands.drop_front(2)));
     // since all indices must be constants use LLVM's insertvalue instruction
     SmallVector<mlir::Attribute, 8> attrs;
@@ -1157,43 +1247,40 @@ struct InsertValueOpConversion : public FIROpConversion<fir::InsertValueOp> {
   }
 };
 
-/// return true if all `Value`s in `operands` are not `FieldIndexOp`s
-bool noFieldIndexOps(mlir::Operation::operand_range operands) {
-  for (auto opnd : operands) {
-    if (auto defop = opnd.getDefiningOp())
-      if (dyn_cast<fir::FieldIndexOp>(defop))
-        return false;
-  }
-  return true;
-}
-
 /// convert to reference to a reference to a subobject
-struct CoordinateOpConversion : public FIROpConversion<fir::CoordinateOp> {
-  using FIROpConversion::FIROpConversion;
+struct CoordinateOpConversion
+    : public FIROpAndTypeConversion<fir::CoordinateOp> {
+  using FIROpAndTypeConversion::FIROpAndTypeConversion;
 
   mlir::LogicalResult
-  matchAndRewrite(fir::CoordinateOp coor, OperandTy operands,
-                  mlir::ConversionPatternRewriter &rewriter) const override {
-    auto ty = convertType(coor.getType());
+  doRewrite(fir::CoordinateOp coor, mlir::Type ty, OperandTy operands,
+            mlir::ConversionPatternRewriter &rewriter) const override {
     auto loc = coor.getLoc();
-    mlir::Value base = operands[0];
     auto c0 = genConstantIndex(loc, lowering.indexType(), rewriter, 0);
+    mlir::Value base = operands[0];
+    auto firRef = coor.ref();
+    auto firTy = firRef.getType();
 
-    // The base can be a boxed reference or a raw reference
-    if (auto boxTy = coor.ref().getType().dyn_cast<fir::BoxType>()) {
+    // if argument 0 is boxed, get the base pointer from the box
+    if (auto boxTy = firTy.dyn_cast<fir::BoxType>()) {
+
+      // Special case:
+      //   %lenp = len_param_index foo, type<T(foo:i32)...>
+      //   %addr = coordinate_of %box, %lenp
       if (coor.getNumOperands() == 2) {
         auto coorPtr = *coor.coor().begin();
         auto s = coorPtr.getDefiningOp();
         if (s && isa<fir::LenParamIndexOp>(s)) {
           mlir::Value lenParam = operands[1]; // byte offset
-          auto vty = voidPtrTy();
-          auto bc = rewriter.create<mlir::LLVM::BitcastOp>(loc, vty, base);
-          auto uty = unwrap(ty);
-          auto gep = genGEP(loc, uty, rewriter, bc, lenParam);
-          rewriter.replaceOpWithNewOp<mlir::LLVM::BitcastOp>(coor, uty, gep);
+          auto bc =
+              rewriter.create<mlir::LLVM::BitcastOp>(loc, voidPtrTy(), base);
+          auto gep = genGEP(loc, unwrap(ty), rewriter, bc, lenParam);
+          rewriter.replaceOpWithNewOp<mlir::LLVM::BitcastOp>(coor, unwrap(ty),
+                                                             gep);
           return success();
         }
       }
+
       auto c0_ = genConstantOffset(loc, rewriter, 0);
       auto pty = unwrap(convertType(boxTy.getEleTy())).getPointerTo();
       // Extract the boxed reference
@@ -1202,64 +1289,175 @@ struct CoordinateOpConversion : public FIROpConversion<fir::CoordinateOp> {
       base = rewriter.create<mlir::LLVM::LoadOp>(loc, pty, p);
     }
 
-    SmallVector<mlir::Value, 8> offs{c0};
-    auto indices = operands.drop_front(1);
-    offs.append(indices.begin(), indices.end());
-    if (noFieldIndexOps(coor.coor())) {
-      // do not need to lower any field index ops, so use a GEP
-      rewriter.replaceOpWithNewOp<mlir::LLVM::GEPOp>(coor, ty, base, offs);
+    mlir::Type cpnTy = getReferenceEleTy(firTy);
+
+    if (FIRToLLVMTypeConverter::dynamicallySized(cpnTy)) {
+      TODO();
+    }
+
+    // if arrays has known shape
+    const bool hasKnownShape =
+        arraysHaveKnownShape(cpnTy, operands.drop_front(1));
+
+    // If only the column is `?`, then we can simply place the column value in
+    // the 0-th GEP position.
+    bool columnIsDeferred = false;
+    if (!hasKnownShape)
+      if (auto arrTy = cpnTy.dyn_cast<fir::SequenceType>()) {
+        const auto sz = arrTy.getDimension();
+        if (arraysHaveKnownShape(arrTy.getEleTy(),
+                                 operands.drop_front(1 + sz))) {
+          auto shape = arrTy.getShape();
+          bool allConst = true;
+          for (std::remove_const_t<decltype(sz)> i = 0; i < sz - 1; ++i)
+            if (shape[i] < 0) {
+              allConst = false;
+              break;
+            }
+          if (allConst)
+            columnIsDeferred = true;
+        }
+      }
+
+    if (hasKnownShape || columnIsDeferred) {
+      SmallVector<mlir::Value, 8> offs;
+      if (hasKnownShape)
+        offs.push_back(c0);
+      const auto sz = operands.size();
+      llvm::Optional<int> dims;
+      SmallVector<mlir::Value, 8> arrIdx;
+      for (std::remove_const_t<decltype(sz)> i = 1; i < sz; ++i) {
+        auto nxtOpnd = operands[i];
+
+        // check if the i-th coordinate relates to an array
+        if (dims.hasValue()) {
+          arrIdx.push_back(nxtOpnd);
+          int dimsLeft = *dims;
+          if (dimsLeft > 1) {
+            dims = dimsLeft - 1;
+            continue;
+          }
+          cpnTy = cpnTy.cast<fir::SequenceType>().getEleTy();
+          // append array range in reverse (FIR arrays are column-major)
+          offs.append(arrIdx.rbegin(), arrIdx.rend());
+          arrIdx.clear();
+          dims.reset();
+          continue;
+        } else if (auto arrTy = cpnTy.dyn_cast<fir::SequenceType>()) {
+          int d = arrTy.getDimension() - 1;
+          if (d > 0) {
+            dims = d;
+            arrIdx.push_back(nxtOpnd);
+            continue;
+          }
+          cpnTy = cpnTy.cast<fir::SequenceType>().getEleTy();
+          offs.push_back(nxtOpnd);
+          continue;
+        }
+
+        // check if the i-th coordinate relates to a field
+        if (auto strTy = cpnTy.dyn_cast<fir::RecordType>()) {
+          cpnTy = strTy.getType(getIntValue(nxtOpnd));
+        } else if (auto strTy = cpnTy.dyn_cast<mlir::TupleType>()) {
+          cpnTy = strTy.getType(getIntValue(nxtOpnd));
+        } else {
+          llvm_unreachable("unhandled type");
+        }
+        offs.push_back(nxtOpnd);
+      }
+      if (dims.hasValue())
+        return mlir::emitError(loc, "not enough arguments for array shape");
+      mlir::Value retval = genGEP(loc, unwrap(ty), rewriter, base, offs);
+      rewriter.replaceOp(coor, retval);
       return success();
     }
 
-    // lower the field index ops by walking the indices
-    auto bty = coor.ref().getType().cast<fir::BoxType>();
-    mlir::Type baseTy = fir::ReferenceType::get(bty.getEleTy());
-    SmallVector<mlir::Value, 8> args{c0};
-    args.append(coor.coor().begin(), coor.coor().end());
+    // Taking a coordinate of an array with deferred shape. In this case, the
+    // array must be boxed. We need to retrieve the array triples from the box.
+    //
+    // Given:
+    //
+    //   %box ... : box<array<? x ? x ? x i32>>
+    //   %addr = coordinate_of %box, %0, %1, %2
+    //
+    // We want to lower this into an llvm GEP as:
+    //
+    //   %i1 = (%0 - %box.dims(0).lo) * %box.dims(0).str
+    //   %i2 = (%1 - %box.dims(1).lo) * %box.dims(1).str * %box.dims(0).ext
+    //   %scale_by = %box.dims(1).ext * %box.dims(0).ext
+    //   %i3 = (%2 - %box.dims(2).lo) * %box.dims(2).str * %scale_by
+    //   %offset = %i3 + %i2 + %i1
+    //   %addr = getelementptr i32, i32* %box.ref, i64 %offset
+    //
+    // Section 18.5.3 para 3 specifies when and how to interpret the `lo`
+    // value(s) of the triple. The implication is that they must always be
+    // zero for `coordinate_of`. This is because we do not use `coordinate_of`
+    // to compute the offset into a `box<ptr>` or `box<heap>`. The coordinate
+    // is pointer arithmetic. Pointers along a path must be explicitly
+    // dereferenced with a `load`.
 
-    mlir::Value retval = base;
-    assert(offs.size() == args.size() && "must have same arity");
-    unsigned pos = 0;
-    for (std::size_t i = 0, sz{offs.size()}; i != sz; ++i) {
-      assert(pos <= i);
-      if (auto defop = args[i].getDefiningOp())
-        if (auto field = dyn_cast<fir::FieldIndexOp>(defop)) {
-          auto memTy = unwrap(convertType(baseTy)).getPointerTo();
-          mlir::Value gep = retval;
-          if (i - pos > 0)
-            gep = genGEP(loc, memTy, rewriter, gep, arguments(offs, pos, i));
-          auto bc =
-              rewriter.create<mlir::LLVM::BitcastOp>(loc, voidPtrTy(), gep);
-          auto gep_ = genGEP(loc, voidPtrTy(), rewriter, bc, offs[i]);
-          pos = i + 1;
-          baseTy = baseTy.cast<fir::RecordType>().getType(field.field_id());
-          retval = rewriter.create<mlir::LLVM::BitcastOp>(
-              loc, convertType(baseTy), gep_);
-          continue;
-        }
-      if (auto ptrTy = baseTy.dyn_cast<fir::ReferenceType>()) {
-        baseTy = ptrTy.getEleTy();
-      } else if (auto ptrTy = baseTy.dyn_cast<fir::PointerType>()) {
-        baseTy = ptrTy.getEleTy();
-      } else if (auto ptrTy = baseTy.dyn_cast<fir::HeapType>()) {
-        baseTy = ptrTy.getEleTy();
-      } else if (auto arrTy = baseTy.dyn_cast<fir::SequenceType>()) {
-        // FIXME: unchecked advance over array dims
+    if (!firTy.isa<fir::BoxType>())
+      return mlir::emitError(loc, "base must have box type");
+    if (!cpnTy.isa<fir::SequenceType>())
+      return mlir::emitError(loc, "base element must be reference to array");
+    auto baseTy = cpnTy.cast<fir::SequenceType>();
+    const auto baseDim = baseTy.getDimension();
+    if (!arraysHaveKnownShape(baseTy.getEleTy(),
+                              operands.drop_front(1 + baseDim)))
+      return mlir::emitError(loc, "base element has deferred shapes");
+
+    // Generate offset computation.
+    TODO();
+
+    return failure();
+  }
+
+  /// Walk the abstract memory layout and determine if the path traverses any
+  /// array types with unknown shape. Return true iff all the array types have a
+  /// constant shape along the path.
+  bool arraysHaveKnownShape(mlir::Type type, OperandTy coors) const {
+    const auto sz = coors.size();
+    std::remove_const_t<decltype(sz)> i = 0;
+    for (; i < sz; ++i) {
+      auto nxtOpnd = coors[i];
+      if (auto arrTy = type.dyn_cast<fir::SequenceType>()) {
+        if (FIRToLLVMTypeConverter::unknownShape(arrTy.getShape()))
+          return false;
         i += arrTy.getDimension() - 1;
-        baseTy = arrTy.getEleTy();
-      } else if (auto strTy = baseTy.dyn_cast<fir::RecordType>()) {
-        baseTy = strTy.getType(getIntValue(offs[i]));
-      } else if (auto strTy = baseTy.dyn_cast<mlir::TupleType>()) {
-        baseTy = strTy.getType(getIntValue(offs[i]));
+        type = arrTy.getEleTy();
+      } else if (auto strTy = type.dyn_cast<fir::RecordType>()) {
+        type = strTy.getType(getIntValue(nxtOpnd));
+      } else if (auto strTy = type.dyn_cast<mlir::TupleType>()) {
+        type = strTy.getType(getIntValue(nxtOpnd));
       } else {
-        assert(false && "unhandled type");
+        return false;
       }
     }
-    if (pos < offs.size())
-      retval = genGEP(loc, unwrap(ty), rewriter, retval,
-                      arguments(offs, pos, offs.size()));
-    rewriter.replaceOp(coor, retval);
-    return success();
+    return i == sz;
+  }
+
+  /// Returns the element type of the reference `refTy`.
+  static mlir::Type getReferenceEleTy(mlir::Type refTy) {
+    if (auto boxTy = refTy.dyn_cast<fir::BoxType>())
+      return boxTy.getEleTy();
+    if (auto ptrTy = refTy.dyn_cast<fir::ReferenceType>())
+      return ptrTy.getEleTy();
+    if (auto ptrTy = refTy.dyn_cast<fir::PointerType>())
+      return ptrTy.getEleTy();
+    if (auto ptrTy = refTy.dyn_cast<fir::HeapType>())
+      return ptrTy.getEleTy();
+    llvm_unreachable("not a reference type");
+    return {};
+  }
+
+  /// return true if all `Value`s in `operands` are not `FieldIndexOp`s
+  static bool noFieldIndexOps(mlir::Operation::operand_range operands) {
+    for (auto opnd : operands) {
+      if (auto defop = opnd.getDefiningOp())
+        if (dyn_cast<fir::FieldIndexOp>(defop))
+          return false;
+    }
+    return true;
   }
 
   SmallVector<mlir::Value, 8> arguments(OperandTy vec, unsigned s,
@@ -1277,8 +1475,8 @@ struct CoordinateOpConversion : public FIROpConversion<fir::CoordinateOp> {
   }
 };
 
-/// convert a field index to a runtime function that computes the byte offset of
-/// the dynamic field
+/// convert a field index to a runtime function that computes the byte offset
+/// of the dynamic field
 struct FieldIndexOpConversion : public FIROpConversion<fir::FieldIndexOp> {
   using FIROpConversion::FIROpConversion;
 
@@ -1413,7 +1611,7 @@ struct GenTypeDescOpConversion : public FIROpConversion<fir::GenTypeDescOp> {
     if (auto d = type.dyn_cast<fir::RecordType>()) {
       auto name = d.getName();
       auto pair = fir::NameUniquer::deconstruct(name);
-      return lowering.uniquer.doTypeDescriptor(
+      return lowering.getUniquer().doTypeDescriptor(
           pair.second.modules, pair.second.host, pair.second.name,
           pair.second.kinds);
     }
@@ -1428,7 +1626,7 @@ struct GlobalLenOpConversion : public FIROpConversion<fir::GlobalLenOp> {
   mlir::LogicalResult
   matchAndRewrite(fir::GlobalLenOp globalLen, OperandTy operands,
                   mlir::ConversionPatternRewriter &rewriter) const override {
-    TODO(globalLen);
+    TODO();
     return success();
   }
 };
@@ -1715,19 +1913,6 @@ struct UnboxCharOpConversion : public FIROpConversion<fir::UnboxCharOp> {
   }
 };
 
-// generate a GEP into a structure and load the element at position `x`
-mlir::LLVM::LoadOp genLoadWithIndex(mlir::Location loc, mlir::Value tuple,
-                                    mlir::LLVM::LLVMType ty,
-                                    mlir::ConversionPatternRewriter &rewriter,
-                                    mlir::LLVM::LLVMType oty,
-                                    mlir::LLVM::ConstantOp c0, int x) {
-  auto ax = rewriter.getI32IntegerAttr(x);
-  auto cx = rewriter.create<mlir::LLVM::ConstantOp>(loc, oty, ax);
-  auto xty = ty.getStructElementType(x);
-  auto gep = genGEP(loc, xty.getPointerTo(), rewriter, tuple, c0, cx);
-  return rewriter.create<mlir::LLVM::LoadOp>(loc, xty, gep);
-}
-
 // unbox a generic box reference, yielding its components
 struct UnboxOpConversion : public FIROpConversion<fir::UnboxOp> {
   using FIROpConversion::FIROpConversion;
@@ -1753,6 +1938,19 @@ struct UnboxOpConversion : public FIROpConversion<fir::UnboxOp> {
     unbox.replaceAllUsesWith(repls);
     rewriter.eraseOp(unbox);
     return success();
+  }
+
+  // generate a GEP into a structure and load the element at position `x`
+  mlir::LLVM::LoadOp genLoadWithIndex(mlir::Location loc, mlir::Value tuple,
+                                      mlir::LLVM::LLVMType ty,
+                                      mlir::ConversionPatternRewriter &rewriter,
+                                      mlir::LLVM::LLVMType oty,
+                                      mlir::LLVM::ConstantOp c0, int x) const {
+    auto ax = rewriter.getI32IntegerAttr(x);
+    auto cx = rewriter.create<mlir::LLVM::ConstantOp>(loc, oty, ax);
+    auto xty = ty.getStructElementType(x);
+    auto gep = genGEP(loc, xty.getPointerTo(), rewriter, tuple, c0, cx);
+    return rewriter.create<mlir::LLVM::LoadOp>(loc, xty, gep);
   }
 };
 

@@ -1062,6 +1062,17 @@ SequenceType::Shape fir::SequenceType::getShape() const {
   return getImpl()->getShape();
 }
 
+unsigned fir::SequenceType::getConstantRows() const {
+  auto shape = getShape();
+  unsigned count = 0;
+  for (auto d : shape) {
+    if (d < 0)
+      break;
+    ++count;
+  }
+  return count;
+}
+
 mlir::LogicalResult fir::SequenceType::verifyConstructionInvariants(
     mlir::Location loc, const SequenceType::Shape &shape, mlir::Type eleTy,
     mlir::AffineMapAttr map) {
