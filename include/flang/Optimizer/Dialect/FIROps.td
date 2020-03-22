@@ -1729,7 +1729,7 @@ def fir_GenDimsOp : fir_OneResultOp<"gendims", [NoSideEffect]> {
     stride must not be zero.
 
     ```mlir
-      %d = fir.gendims %l, %u, %s : (index, index, index) -> !fir.dims<1>
+      %d = fir.gendims %lo, %ext, %str : (index, index, index) -> !fir.dims<1>
     ```
   }];
 

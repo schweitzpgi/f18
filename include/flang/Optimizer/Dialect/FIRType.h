@@ -324,6 +324,12 @@ public:
   /// The number of dimensions of the sequence
   unsigned getDimension() const { return getShape().size(); }
 
+  /// Number of rows of constant extent
+  unsigned getConstantRows() const;
+
+  /// Is the shape of the sequence constant?
+  bool hasConstantShape() const { return getConstantRows() == getDimension(); }
+  
   /// The value `-1` represents an unknown extent for a dimension
   static constexpr Extent getUnknownExtent() { return -1; }
 
