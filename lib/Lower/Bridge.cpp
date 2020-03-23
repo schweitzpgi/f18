@@ -110,9 +110,7 @@ public:
     for (auto &u : pft.getUnits()) {
       std::visit(
           Fortran::common::visitors{
-              [&](Fortran::lower::pft::FunctionLikeUnit &f) {
-                lowerFunc(f, {});
-              },
+              [&](Fortran::lower::pft::FunctionLikeUnit &f) { lowerFunc(f); },
               [&](Fortran::lower::pft::ModuleLikeUnit &m) { lowerMod(m); },
               [&](Fortran::lower::pft::BlockDataUnit &) { TODO(); },
           },
@@ -160,7 +158,7 @@ public:
 
   mlir::Location getCurrentLocation() override final { return toLocation(); }
   mlir::Location genLocation() override final {
-    return builder->getUnknownLoc();
+    return mlir::UnknownLoc::get(&mlirContext);
   }
   mlir::Location
   genLocation(const Fortran::parser::CharBlock &block) override final {
@@ -232,66 +230,6 @@ private:
     return cat == Fortran::lower::CharacterCat;
   }
 
-  static bool inMainProgram(Fortran::lower::pft::Evaluation *cstr) {
-    return std::visit(Fortran::common::visitors{
-                          [](Fortran::lower::pft::FunctionLikeUnit *c) {
-                            return c->isMainProgram();
-                          },
-                          [&](Fortran::lower::pft::Evaluation *c) {
-                            return inMainProgram(c);
-                          },
-                          [](auto *) { return false; },
-                      },
-                      cstr->parentVariant.p);
-  }
-
-  static const Fortran::parser::SubroutineStmt *
-  inSubroutine(Fortran::lower::pft::Evaluation *cstr) {
-    return std::visit(
-        Fortran::common::visitors{
-            [](Fortran::lower::pft::FunctionLikeUnit *c) {
-              return c->getSubroutine();
-            },
-            [&](Fortran::lower::pft::Evaluation *c) { return inSubroutine(c); },
-            [](auto *) -> const Fortran::parser::SubroutineStmt * {
-              return nullptr;
-            },
-        },
-        cstr->parentVariant.p);
-  }
-
-  static const Fortran::parser::FunctionStmt *
-  inFunction(Fortran::lower::pft::Evaluation *cstr) {
-    return std::visit(
-        Fortran::common::visitors{
-            [](Fortran::lower::pft::FunctionLikeUnit *c) {
-              return c->getFunction();
-            },
-            [&](Fortran::lower::pft::Evaluation *c) { return inFunction(c); },
-            [](auto *) -> const Fortran::parser::FunctionStmt * {
-              return nullptr;
-            },
-        },
-        cstr->parentVariant.p);
-  }
-
-  static const Fortran::parser::MpSubprogramStmt *
-  inMpSubprogram(Fortran::lower::pft::Evaluation *cstr) {
-    return std::visit(
-        Fortran::common::visitors{
-            [](Fortran::lower::pft::FunctionLikeUnit *c) {
-              return c->getMpSubprogram();
-            },
-            [&](Fortran::lower::pft::Evaluation *c) {
-              return inMpSubprogram(c);
-            },
-            [](auto *) -> const Fortran::parser::MpSubprogramStmt * {
-              return nullptr;
-            },
-        },
-        cstr->parentVariant.p);
-  }
-
   void genFIRUnconditionalBranch(mlir::Block *targetBlock) {
     assert(targetBlock && "missing unconditional target block");
     builder->create<mlir::BranchOp>(toLocation(), targetBlock);
@@ -318,79 +256,6 @@ private:
     genFIRConditionalBranch(cond, trueTarget->block, falseTarget->block);
   }
 
-  //===--------------------------------------------------------------------===//
-  // Function-like PFT entry and exit statements
-  //===--------------------------------------------------------------------===//
-
-  void
-  genFIR(const Fortran::parser::Statement<Fortran::parser::ProgramStmt> &stmt,
-         std::string &name, const Fortran::semantics::Symbol *&) {
-    setCurrentPosition(stmt.source);
-    name = uniquer.doProgramEntry();
-  }
-  void genFIR(
-      const Fortran::parser::Statement<Fortran::parser::EndProgramStmt> &stmt,
-      std::string &, const Fortran::semantics::Symbol *&) {
-    setCurrentPosition(stmt.source);
-    genFIRProgramExit();
-  }
-
-  void
-  genFIR(const Fortran::parser::Statement<Fortran::parser::FunctionStmt> &stmt,
-         std::string &name, const Fortran::semantics::Symbol *&symbol) {
-    setCurrentPosition(stmt.source);
-    auto &n = std::get<Fortran::parser::Name>(stmt.statement.t);
-    symbol = n.symbol;
-    assert(symbol && "Name resolution failure");
-    name = mangleName(*symbol);
-  }
-  void genFIR(
-      const Fortran::parser::Statement<Fortran::parser::EndFunctionStmt> &stmt,
-      std::string &, const Fortran::semantics::Symbol *&symbol) {
-    setCurrentPosition(stmt.source);
-    assert(symbol);
-    genFIRFunctionReturn(*symbol);
-  }
-  void genFIR(
-      const Fortran::parser::Statement<Fortran::parser::SubroutineStmt> &stmt,
-      std::string &name, const Fortran::semantics::Symbol *&symbol) {
-    setCurrentPosition(stmt.source);
-    auto &n = std::get<Fortran::parser::Name>(stmt.statement.t);
-    symbol = n.symbol;
-    assert(symbol && "Name resolution failure");
-    name = mangleName(*symbol);
-  }
-  void
-  genFIR(const Fortran::parser::Statement<Fortran::parser::EndSubroutineStmt>
-             &stmt,
-         std::string &, const Fortran::semantics::Symbol *&) {
-    setCurrentPosition(stmt.source);
-    genFIRProcedureExit(
-        static_cast<const Fortran::parser::SubroutineStmt *>(nullptr));
-  }
-  void genFIR(
-      const Fortran::parser::Statement<Fortran::parser::MpSubprogramStmt> &stmt,
-      std::string &name, const Fortran::semantics::Symbol *&symbol) {
-    setCurrentPosition(stmt.source);
-    auto &n = stmt.statement.v;
-    symbol = n.symbol;
-    assert(symbol && "Name resolution failure");
-    name = mangleName(*symbol);
-  }
-  void
-  genFIR(const Fortran::parser::Statement<Fortran::parser::EndMpSubprogramStmt>
-             &stmt,
-         std::string &, const Fortran::semantics::Symbol *&symbol) {
-    setCurrentPosition(stmt.source);
-    assert(symbol);
-    if (symbol->get<Fortran::semantics::SubprogramDetails>().isFunction()) {
-      genFIRFunctionReturn(*symbol);
-    } else {
-      genFIRProcedureExit(
-          static_cast<const Fortran::parser::MpSubprogramStmt *>(nullptr));
-    }
-  }
-
   //
   // Termination of symbolically referenced execution units
   //
@@ -411,18 +276,17 @@ private:
     mlir::Value r = builder->create<fir::LoadOp>(toLocation(), resultRef);
     builder->create<mlir::ReturnOp>(toLocation(), r);
   }
-  template <typename A>
-  void genFIRProcedureExit(const A *) {
-    // FIXME: alt-returns
-    builder->create<mlir::ReturnOp>(toLocation());
-  }
-  void genFIR(const Fortran::parser::EndSubroutineStmt &) {
-    genFIRProcedureExit(
-        static_cast<const Fortran::parser::SubroutineStmt *>(nullptr));
-  }
-  void genFIR(const Fortran::parser::EndMpSubprogramStmt &) {
-    genFIRProcedureExit(
-        static_cast<const Fortran::parser::MpSubprogramStmt *>(nullptr));
+  void genFIRProcedureExit(const Fortran::semantics::Symbol &symbol) {
+    const auto &details = symbol.get<Fortran::semantics::SubprogramDetails>();
+    if (details.isFunction()) {
+      mlir::Value resultRef = localSymbols.lookupSymbol(details.result());
+      mlir::Value r = builder->create<fir::LoadOp>(toLocation(), resultRef);
+      builder->create<mlir::ReturnOp>(toLocation(), r);
+    } else if (Fortran::semantics::HasAlternateReturns(symbol)) {
+      TODO();
+    } else {
+      builder->create<mlir::ReturnOp>(toLocation());
+    }
   }
 
   //
@@ -1263,19 +1127,17 @@ private:
 
   // gen expression, if any; share code with END of procedure
   void genFIR(Fortran::lower::pft::Evaluation &eval,
-              const Fortran::parser::ReturnStmt &) {
-    if (inMainProgram(&eval)) {
-      builder->create<mlir::ReturnOp>(toLocation());
-    } else if (auto *stmt = inSubroutine(&eval)) {
-      genFIRProcedureExit(stmt);
-    } else if (auto *stmt = inFunction(&eval)) {
-      auto *symbol = std::get<Fortran::parser::Name>(stmt->t).symbol;
-      assert(symbol);
-      genFIRFunctionReturn(*symbol);
-    } else if (auto *stmt = inMpSubprogram(&eval)) {
-      genFIRProcedureExit(stmt);
+              const Fortran::parser::ReturnStmt &stmt) {
+    const auto *funit{eval.getOwningProcedure()};
+    assert(funit && "not inside main program or a procedure");
+    if (funit->isMainProgram()) {
+      genFIRProgramExit();
     } else {
-      mlir::emitError(toLocation(), "unknown subprogram type");
+      if (stmt.v) {
+        // Alternate return
+        TODO();
+      }
+      genFIRProcedureExit(funit->getSubprogramSymbol());
     }
   }
 
@@ -1323,35 +1185,40 @@ private:
   }
 
   /// Prepare to translate a new function
-  void startNewFunction(Fortran::lower::pft::FunctionLikeUnit &funit,
-                        llvm::StringRef name,
-                        const Fortran::semantics::Symbol *symbol) {
+  void startNewFunction(Fortran::lower::pft::FunctionLikeUnit &funit) {
     assert(!builder && "expected nullptr");
+    // get mangled name
+    std::string name;
+    if (funit.isMainProgram()) {
+      name = uniquer.doProgramEntry();
+    } else {
+      name = mangleName(funit.getSubprogramSymbol());
+    }
     mlir::FuncOp func =
         Fortran::lower::FirOpBuilder::getNamedFunction(module, name);
+
     if (!func)
-      func = createNewFunction(name, symbol);
+      func = createNewFunction(name, funit.symbol);
     builder = new Fortran::lower::FirOpBuilder(func);
     assert(builder && "FirOpBuilder did not instantiate");
     func.addEntryBlock();
     builder->setInsertionPointToStart(&func.front());
 
     // plumb function's arguments
-    if (symbol) {
+    if (funit.symbol && !funit.isMainProgram()) {
       auto *entryBlock = &func.front();
-      auto *details =
-          symbol->detailsIf<Fortran::semantics::SubprogramDetails>();
-      assert(details && "details for semantics symbol must be subprogram");
+      const auto &details =
+          funit.symbol->get<Fortran::semantics::SubprogramDetails>();
       for (const auto &v :
-           llvm::zip(details->dummyArgs(), entryBlock->getArguments())) {
+           llvm::zip(details.dummyArgs(), entryBlock->getArguments())) {
         if (std::get<0>(v)) {
           localSymbols.addSymbol(*std::get<0>(v), std::get<1>(v));
         } else {
           TODO(); // handle alternate return
         }
       }
-      if (details->isFunction())
-        createTemporary(toLocation(), details->result());
+      if (details.isFunction())
+        createTemporary(toLocation(), details.result());
     }
 
     // Create most function blocks in advance.
@@ -1407,50 +1274,57 @@ private:
     }
   }
 
-  /// Cleanup after the function has been translated
-  void endNewFunction() {
+  /// Helper to get location from FunctionLikeUnit begin/end
+  static Fortran::parser::CharBlock extractLocation(
+      Fortran::lower::pft::FunctionLikeUnit::FunctionStatement &fstmt) {
+    return std::visit([](const auto *stmt) { return stmt->source; }, fstmt);
+  }
+
+  /// Emit return and cleanup after the function has been translated.
+  void endNewFunction(Fortran::lower::pft::FunctionLikeUnit &funit) {
+    auto loc = extractLocation(funit.endStmt);
+    setCurrentPosition(loc);
+
+    if (funit.isMainProgram()) {
+      genFIRProgramExit();
+    } else {
+      genFIRProcedureExit(funit.getSubprogramSymbol());
+    }
+
     delete builder;
     builder = nullptr;
     localSymbols.clear();
   }
 
   /// Lower a procedure-like construct
-  void lowerFunc(Fortran::lower::pft::FunctionLikeUnit &func,
-                 llvm::ArrayRef<llvm::StringRef> modules,
-                 llvm::Optional<llvm::StringRef> host = {}) {
-    std::string name;
-    const Fortran::semantics::Symbol *symbol = nullptr;
+  void lowerFunc(Fortran::lower::pft::FunctionLikeUnit &funit) {
 
-    if (func.beginStmt) {
-      std::visit([&](auto *p) { genFIR(*p, name, symbol); }, *func.beginStmt);
+    if (funit.beginStmt) {
+      auto loc = extractLocation(funit.endStmt);
+      setCurrentPosition(loc);
     } else {
-      name = uniquer.doProgramEntry();
+      // TODO: get location of anonymous main program
     }
 
-    startNewFunction(func, name, symbol);
+    startNewFunction(funit);
 
     // lower this procedure
-    for (auto &eval : func.evaluationList) {
+    for (auto &eval : funit.evaluationList) {
       genFIR(eval);
     }
-    std::visit([&](auto *p) { genFIR(*p, name, symbol); }, func.endStmt);
 
-    endNewFunction();
+    endNewFunction(funit);
 
     // recursively lower internal procedures
-    llvm::Optional<llvm::StringRef> optName{name};
-    for (auto &f : func.nestedFunctions) {
-      lowerFunc(f, modules, optName);
+    for (auto &f : funit.nestedFunctions) {
+      lowerFunc(f);
     }
   }
 
   void lowerMod(Fortran::lower::pft::ModuleLikeUnit &mod) {
-    // FIXME: build the vector of module names
-    std::vector<llvm::StringRef> moduleName;
-
     // FIXME: do we need to visit the module statements?
     for (auto &f : mod.nestedFunctions) {
-      lowerFunc(f, moduleName);
+      lowerFunc(f);
     }
   }
 

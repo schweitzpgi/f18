@@ -1,11 +1,11 @@
-! RUN: bbc %s -emit-fir | FileCheck %s
+! RUN: bbc %s -o "-" -emit-fir | FileCheck %s
 
-!CHECK: func @_QPsub() {
+! CHECK-LABEL: func @_QPsub() {
 subroutine sub()
 ! CHECK: }
 end subroutine
 
-!CHECK: func @_QPasubroutine() {
+! CHECK-LABEL: func @_QPasubroutine() {
 subroutine AsUbRoUtInE()
 ! CHECK: }
 end subroutine
@@ -18,7 +18,7 @@ end function
 
 module testMod
 contains
-  !CHECK: func @_QMtestmodPsub() {
+  ! CHECK-LABEL: func @_QMtestmodPsub() {
   subroutine sub()
   ! CHECK: }
   end subroutine
@@ -31,28 +31,30 @@ contains
 end module
 
 
+! CHECK-LABEL: func @_QPfoo2()
 function foo2()
   real(4) :: foo2
 contains
-  !CHECK: func @_QFfoo2Psub() {
+  ! CHECK-LABEL: func @_QFfoo2Psub() {
   subroutine sub()
   ! CHECK: }
   end subroutine
 
-  !CHECK: func @_QFfoo2Pfoo() {
+  ! CHECK-LABEL: func @_QFfoo2Pfoo() {
   subroutine foo()
   ! CHECK: }
   end subroutine
 end function
 
+! CHECK-LABEL: func @_QPsub2()
 subroutine sUb2()
 contains
-  !CHECK: func @_QFsub2Psub() {
+  ! CHECK-LABEL: func @_QFsub2Psub() {
   subroutine sub()
   ! CHECK: }
   end subroutine
 
-  !CHECK: func @_QFsub2Pfoo() {
+  ! CHECK-LABEL: func @_QFsub2Pfoo() {
   subroutine Foo()
   ! CHECK: }
   end subroutine
@@ -60,9 +62,10 @@ end subroutine
 
 module testMod2
 contains
+  ! CHECK-LABEL: func @_QMtestmod2Psub()
   subroutine sub()
   contains
-    !CHECK: func @_QMtestmod2FsubPsubsub() {
+    ! CHECK-LABEL: func @_QMtestmod2FsubPsubsub() {
     subroutine subSub()
     ! CHECK: }
     end subroutine
@@ -82,7 +85,7 @@ end module color_points
 
 submodule (color_points) color_points_a
 contains
-  !CHECK: func @_QMcolor_pointsScolor_points_aPsub() {
+  ! CHECK-LABEL: func @_QMcolor_pointsScolor_points_aPsub() {
   subroutine sub
   end subroutine
   ! CHECK: }
@@ -90,14 +93,15 @@ end submodule
 
 submodule (color_points:color_points_a) impl
 contains
+  ! CHECK-LABEL: func @_QMcolor_pointsScolor_points_aSimplPfoo()
   subroutine foo
     contains
-    !CHECK: func @_QMcolor_pointsScolor_points_aSimplFfooPbar() {
+    ! CHECK-LABEL: func @_QMcolor_pointsScolor_points_aSimplFfooPbar() {
     subroutine bar
     ! CHECK: }
     end subroutine
   end subroutine
-  !CHECK: func @_QMcolor_pointsPdraw() {
+  ! CHECK-LABEL: func @_QMcolor_pointsPdraw() {
   module subroutine draw()
   end subroutine
   !FIXME func @_QMcolor_pointsPerase() -> i32 {
@@ -107,7 +111,7 @@ contains
 end submodule
 
 
-! CHECK: func @MAIN_() {
+! CHECK-LABEL: func @MAIN_() {
 program test
 ! CHECK: }
 end program
