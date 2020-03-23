@@ -34,13 +34,12 @@
 #include "llvm/ADT/APFloat.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/IR/Type.h"
+#include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
 
 namespace {
 
-#define TODO()                                                                 \
-  assert(false);                                                               \
-  return {}
+#define TODO() llvm_unreachable("not yet implemented")
 
 /// Lowering of Fortran::evaluate::Expr<T> expressions
 class ExprLowering {
@@ -705,11 +704,19 @@ class ExprLowering {
     return seqTy.getEleTy();
   }
 
-  // Return the coordinate of the array reference
-  mlir::Value gen(const Fortran::evaluate::ArrayRef &aref) {
-    mlir::Value base = aref.base().IsSymbol()
-                           ? gen(aref.base().GetFirstSymbol())
-                           : gen(aref.base().GetComponent());
+  // Generate the code for a Bound value.
+  mlir::Value genval(const Fortran::semantics::Bound &bound) {
+    if (bound.isExplicit()) {
+      auto sub = bound.GetExplicit();
+      if (sub.has_value())
+        return genval(*sub);
+      return genIntegerConstant<8>(builder.getContext(), 1);
+    }
+    TODO();
+  }
+
+  mlir::Value genArrayRefComponent(const Fortran::evaluate::ArrayRef &aref) {
+    mlir::Value base = gen(aref.base().GetComponent());
     llvm::SmallVector<mlir::Value, 8> args;
     for (auto &subsc : aref.subscript())
       args.push_back(genval(subsc));
@@ -718,9 +725,32 @@ class ExprLowering {
     return builder.create<fir::CoordinateOp>(getLoc(), ty, base, args);
   }
 
+  // Return the coordinate of the array reference
+  mlir::Value gen(const Fortran::evaluate::ArrayRef &aref) {
+    if (aref.base().IsSymbol()) {
+      auto &symbol = aref.base().GetFirstSymbol();
+      mlir::Value base = gen(symbol);
+      auto &shape =
+          symbol.get<Fortran::semantics::ObjectEntityDetails>().shape();
+      unsigned i = 0;
+      llvm::SmallVector<mlir::Value, 8> args;
+      for (auto &subsc : aref.subscript()) {
+        auto val = genval(subsc);
+        auto adj = genval(shape[i++].lbound());
+        auto ty = val.getType();
+        args.push_back(builder.create<mlir::SubIOp>(getLoc(), ty, val, adj));
+      }
+      auto ty = genSubType(base.getType(), args.size());
+      ty = fir::ReferenceType::get(ty);
+      return builder.create<fir::CoordinateOp>(getLoc(), ty, base, args);
+    }
+    return genArrayRefComponent(aref);
+  }
+
   mlir::Value gendef(const Fortran::evaluate::ArrayRef &aref) {
     return gen(aref);
   }
+
   mlir::Value genval(const Fortran::evaluate::ArrayRef &aref) {
     return builder.create<fir::LoadOp>(getLoc(), gen(aref));
   }
