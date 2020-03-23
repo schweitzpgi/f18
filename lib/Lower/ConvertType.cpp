@@ -323,15 +323,19 @@ public:
             symbol->detailsIf<Fortran::semantics::SubprogramDetails>()) {
       if (proc->isFunction())
         returnTys.emplace_back(gen(proc->result()));
-      // FIXME: handle alt-return
       for (auto *arg : proc->dummyArgs()) {
         // Nullptr args are alternate returns indicators
-        if (arg)
+        if (arg) {
           inputTys.emplace_back(genDummyArgType(*arg));
+        } else {
+          // Handle alt-return
+          TODO();
+        }
       }
     } else if (symbol->detailsIf<Fortran::semantics::ProcEntityDetails>()) {
       // TODO Should probably use Fortran::evaluate::Characteristics for that.
       TODO();
+    } else if (symbol->detailsIf<Fortran::semantics::MainProgramDetails>()) {
     } else {
       assert(false && "unexpected symbol details for function");
     }
