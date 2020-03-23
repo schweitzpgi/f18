@@ -195,6 +195,10 @@ struct Evaluation {
     }});
   }
 
+  /// Return FunctionLikeUnit to which this evaluation
+  /// belongs. Nullptr if it does not belong to such unit.
+  FunctionLikeUnit *getOwningProcedure() const;
+
   bool lowerAsStructured() const;
   bool lowerAsUnstructured() const;
 
@@ -307,6 +311,19 @@ struct FunctionLikeUnit : public ProgramUnit {
     return getA<parser::MpSubprogramStmt>();
   }
 
+  bool isMainProgram() const {
+    return !beginStmt ||
+           std::holds_alternative<
+               const parser::Statement<parser::ProgramStmt> *>(*beginStmt);
+  }
+
+  /// Returns reference to the subprogram symbol of this FunctionLikeUnit.
+  /// Dies if the FunctionLikeUnit is not a subprogram.
+  const semantics::Symbol &getSubprogramSymbol() const {
+    assert(symbol && "not inside a procedure");
+    return *symbol;
+  }
+
   /// Anonymous programs do not have a begin statement
   std::optional<FunctionStatement> beginStmt;
   FunctionStatement endStmt;
@@ -314,6 +331,11 @@ struct FunctionLikeUnit : public ProgramUnit {
   llvm::DenseMap<parser::Label, Evaluation *> labelEvaluationMap;
   SymbolLabelMap assignSymbolLabelMap;
   std::list<FunctionLikeUnit> nestedFunctions;
+  /// Symbol associated to this FunctionLikeUnit.
+  /// Null if the FunctionLikeUnit is an anonymous program.
+  /// The symbol has MainProgramDetails for named programs, otherwise it has
+  /// SubprogramDetails.
+  const semantics::Symbol *symbol{nullptr};
 
 private:
   template <typename A>

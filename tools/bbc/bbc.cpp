@@ -56,12 +56,8 @@ static llvm::cl::opt<std::string> inputFilename(llvm::cl::Positional,
                                                 llvm::cl::desc("<input file>"));
 
 static llvm::cl::opt<std::string>
-    outputFilename("o", llvm::cl::desc("Specify the FIR output filename"),
-                   llvm::cl::value_desc("filename"), llvm::cl::init("-"));
-
-static llvm::cl::opt<std::string> LLVMOutputFilename(
-    "ll-file", llvm::cl::desc("Specify the LLVM IR output filename"),
-    llvm::cl::value_desc("filename"), llvm::cl::init("a.mlir.ll"));
+    outputFilename("o", llvm::cl::desc("Specify the output filename"),
+                   llvm::cl::value_desc("filename"), llvm::cl::init("a.mlir"));
 
 static llvm::cl::list<std::string>
     includeDirs("I", llvm::cl::desc("include search paths"));
@@ -199,10 +195,10 @@ static void convertFortranSourceToMLIR(
     // Continue to lower from MLIR down to LLVM IR. Emit LLVM and MLIR.
     pm.addPass(fir::createFIRToLLVMPass(nameUniquer));
     std::error_code ec;
-    llvm::ToolOutputFile outFile(LLVMOutputFilename + ".ll", ec,
+    llvm::ToolOutputFile outFile(outputFilename + ".ll", ec,
                                  llvm::sys::fs::OF_None);
     if (ec) {
-      llvm::errs() << "can't open output file " + LLVMOutputFilename + ".ll";
+      llvm::errs() << "can't open output file " + outputFilename + ".ll";
       return;
     }
     pm.addPass(fir::createLLVMDialectToLLVMPass(outFile.os()));

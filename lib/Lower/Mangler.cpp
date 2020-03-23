@@ -39,14 +39,6 @@ moduleNames(const Fortran::semantics::Scope &scope) {
 
 llvm::Optional<llvm::StringRef>
 hostName(const Fortran::semantics::Scope &scope) {
-  //  if (scope.kind() == Fortran::semantics::Scope::Kind::Subprogram) {
-  //    auto &parent = scope.parent();
-  //    if (parent.kind() == Fortran::semantics::Scope::Kind::Subprogram)
-  //      if (auto *symbol = parent.symbol()) {
-  //        return {toStringRef(symbol->name())};
-  //      }
-  //  }
-  //  return {};
   if (scope.kind() == Fortran::semantics::Scope::Kind::Subprogram) {
     assert(scope.symbol() && "subprogram scope must have a symbol");
     return {toStringRef(scope.symbol()->name())};
