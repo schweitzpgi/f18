@@ -46,7 +46,6 @@
 #include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/ToolOutputFile.h"
 #include "llvm/Support/raw_ostream.h"
-#include <iostream>
 
 //===----------------------------------------------------------------------===//
 // Some basic command-line options
@@ -133,14 +132,14 @@ static void convertFortranSourceToMLIR(
   if (!parsing.messages().empty() &&
       (warnIsError || parsing.messages().AnyFatalError())) {
     llvm::errs() << driver.prefix << "could not scan " << path << '\n';
-    parsing.messages().Emit(std::cerr, parsing.cooked());
+    parsing.messages().Emit(llvm::errs(), parsing.cooked());
     exitStatus = EXIT_FAILURE;
     return;
   }
-  parsing.Parse(&std::cout);
-  parsing.messages().Emit(std::cerr, parsing.cooked());
+  parsing.Parse(llvm::outs());
+  parsing.messages().Emit(llvm::errs(), parsing.cooked());
   if (!parsing.consumedWholeFile()) {
-    parsing.EmitMessage(std::cerr, parsing.finalRestingPlace(),
+    parsing.EmitMessage(llvm::errs(), parsing.finalRestingPlace(),
                         "parser FAIL (final position)");
     exitStatus = EXIT_FAILURE;
     return;
@@ -156,7 +155,7 @@ static void convertFortranSourceToMLIR(
   Fortran::semantics::Semantics semantics{semanticsContext, parseTree,
                                           parsing.cooked()};
   semantics.Perform();
-  semantics.EmitMessages(std::cerr);
+  semantics.EmitMessages(llvm::errs());
   if (semantics.AnyFatalError()) {
     llvm::errs() << driver.prefix << "semantic errors in " << path << '\n';
     exitStatus = EXIT_FAILURE;
