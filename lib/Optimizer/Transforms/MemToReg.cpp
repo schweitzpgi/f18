@@ -23,9 +23,9 @@ using namespace fir;
 using DominatorTree = mlir::DominanceInfo;
 
 static llvm::cl::opt<bool>
-    ClDisableMemToReg("disable-mem2reg",
-                      llvm::cl::desc("disable memory to register pass"),
-                      llvm::cl::init(false), llvm::cl::Hidden);
+    disableMemToReg("disable-mem2reg",
+                    llvm::cl::desc("disable memory to register pass"),
+                    llvm::cl::init(false), llvm::cl::Hidden);
 
 /// A generalized version of a mem-to-reg pass suitable for use with an MLIR
 /// dialect. This code was ported from the LLVM project. MLIR differs with its
@@ -175,6 +175,7 @@ struct MemToReg
   /// Contains a stable numbering of basic blocks to avoid non-determinstic
   /// behavior.
   llvm::DenseMap<mlir::Block *, unsigned> BBNumbers;
+  llvm::DenseMap<mlir::Block *, unsigned> bbInitialArgs;
 
   /// Reverse mapping of Allocas.
   llvm::DenseMap<mlir::Operation *, unsigned> allocaLookup;
@@ -516,14 +517,19 @@ struct MemToReg
                   std::vector<RenamePassData> &Worklist) {
   NextIteration:
     // Does this block take arguments?
-    if ((!BB->hasNoPredecessors()) && (BB->getNumArguments() > 0)) {
+    const auto aiEnd = BB->getNumArguments();
+    if ((!BB->hasNoPredecessors()) && (aiEnd > bbInitialArgs[BB])) {
       // add the values from block `Pred` to the argument list in the proper
       // positions
-      for (unsigned ai = 0, AI{BB->getNumArguments()}; ai != AI; ++ai) {
-        auto allocaNo = argToAllocaMap[std::make_pair(BB, ai)];
-        setParam(Pred, ai, IncomingVals[allocaNo], BB, AI);
+      for (std::remove_const_t<decltype(aiEnd)> ai = 0; ai != aiEnd; ++ai) {
+        auto iter = argToAllocaMap.find(std::make_pair(BB, ai));
+        if (iter == argToAllocaMap.end())
+          continue;
+        auto allocaNo = iter->second;
+        auto offset = bbInitialArgs[BB];
+        setParam(Pred, ai + offset, IncomingVals[allocaNo], BB, aiEnd + offset);
         // use the block argument, not the live def in the pred block
-        addValue(IncomingVals, allocaNo, BB->getArgument(ai));
+        addValue(IncomingVals, allocaNo, BB->getArgument(ai + offset));
       }
     }
 
@@ -626,8 +632,10 @@ struct MemToReg
       // so now.
       if (BBNumbers.empty()) {
         unsigned id = 0;
-        for (auto &BB : F)
+        for (auto &BB : F) {
           BBNumbers[&BB] = id++;
+          bbInitialArgs[&BB] = BB.getNumArguments();
+        }
       }
 
       // Keep the reverse mapping of the 'Allocas' array for the rename pass.
@@ -710,7 +718,7 @@ struct MemToReg
 
   /// run the MemToReg pass on the FIR dialect
   void runOnFunction() override {
-    if (ClDisableMemToReg)
+    if (disableMemToReg)
       return;
 
     auto f = this->getFunction();
