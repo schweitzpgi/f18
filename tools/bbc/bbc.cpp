@@ -184,11 +184,11 @@ static void convertFortranSourceToMLIR(
   // Otherwise run the default passes.
   mlir::PassManager pm(mlirModule.getContext());
   mlir::applyPassManagerCLOptions(pm);
-  pm.addPass(fir::createMemToRegPass());
-  pm.addPass(fir::createCSEPass());
   pm.addPass(fir::createLowerToLoopPass());
   pm.addPass(fir::createFIRToStdPass(kindMap));
   pm.addPass(mlir::createLowerToCFGPass());
+  pm.addPass(fir::createMemToRegPass());
+  pm.addPass(fir::createCSEPass());
   pm.addPass(mlir::createCanonicalizerPass());
 
   if (emitLLVM) {
