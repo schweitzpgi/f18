@@ -168,7 +168,7 @@ private:
 
   void exitModule() {
     parentVariantStack.pop_back();
-    ResetFunctionList();
+    resetFunctionList();
   }
 
   /// Initialize a new function-like unit and make it the builder's focus.
@@ -195,7 +195,7 @@ private:
     labelEvaluationMap = nullptr;
     assignSymbolLabelMap = nullptr;
     parentVariantStack.pop_back();
-    ResetFunctionList();
+    resetFunctionList();
   }
 
   /// Initialize a new construct and make it the builder's focus.
@@ -217,7 +217,7 @@ private:
   }
 
   /// Reset functionList to an enclosing function's functionList.
-  void ResetFunctionList() {
+  void resetFunctionList() {
     if (!parentVariantStack.empty()) {
       std::visit(common::visitors{
                      [&](pft::FunctionLikeUnit *p) {
@@ -302,48 +302,49 @@ private:
 
   /// Mark I/O statement ERR, EOR, and END specifier branch targets.
   template <typename A>
-  constexpr void analyzeIoBranches(pft::Evaluation &eval, const A &stmt) {
+  void analyzeIoBranches(pft::Evaluation &eval, const A &stmt) {
+    auto processIfLabel{[&](const auto &specs) {
+      using LableNodes =
+          std::tuple<parser::ErrLabel, parser::EorLabel, parser::EndLabel>;
+      for (const auto &spec : specs) {
+        const auto *label = std::visit(
+            [](const auto &label) -> const parser::Label * {
+              using B = std::decay_t<decltype(label)>;
+              if constexpr (common::HasMember<B, LableNodes>) {
+                return &label.v;
+              }
+              return nullptr;
+            },
+            spec.u);
+
+        if (label)
+          markBranchTarget(eval, *label);
+      }
+    }};
+
+    using OtherIOStmts =
+        std::tuple<parser::BackspaceStmt, parser::CloseStmt,
+                   parser::EndfileStmt, parser::FlushStmt, parser::OpenStmt,
+                   parser::RewindStmt, parser::WaitStmt>;
+
     if constexpr (std::is_same_v<A, parser::ReadStmt> ||
                   std::is_same_v<A, parser::WriteStmt>) {
-      for (const auto &control : stmt.controls) {
-        if (std::holds_alternative<parser::ErrLabel>(control.u) ||
-            std::holds_alternative<parser::EorLabel>(control.u) ||
-            std::holds_alternative<parser::EndLabel>(control.u)) {
-          markBranchTarget(eval, stmt->v);
-        }
-      }
-    }
-    if constexpr (std::is_same_v<A, parser::WaitStmt> ||
-                  std::is_same_v<A, parser::OpenStmt> ||
-                  std::is_same_v<A, parser::CloseStmt> ||
-                  std::is_same_v<A, parser::BackspaceStmt> ||
-                  std::is_same_v<A, parser::EndfileStmt> ||
-                  std::is_same_v<A, parser::RewindStmt> ||
-                  std::is_same_v<A, parser::FlushStmt>) {
-      for (const auto &spec : stmt.v) {
-        if (std::holds_alternative<parser::ErrLabel>(spec.u) ||
-            std::holds_alternative<parser::EorLabel>(spec.u) ||
-            std::holds_alternative<parser::EndLabel>(spec.u)) {
-          markBranchTarget(eval, stmt->v);
-        }
-      }
-    }
-    if constexpr (std::is_same_v<A, parser::InquireStmt>) {
-      for (const auto &spec :
-           std::get<std::list<parser::InquireSpec>>(stmt.u)) {
-        if (std::holds_alternative<parser::ErrLabel>(spec.u) ||
-            std::holds_alternative<parser::EorLabel>(spec.u) ||
-            std::holds_alternative<parser::EndLabel>(spec.u)) {
-          markBranchTarget(eval, stmt->v);
-        }
-      }
+      processIfLabel(stmt.controls);
+    } else if constexpr (std::is_same_v<A, parser::InquireStmt>) {
+      processIfLabel(std::get<std::list<parser::InquireSpec>>(stmt.u));
+    } else if constexpr (common::HasMember<A, OtherIOStmts>) {
+      processIfLabel(stmt.v);
+    } else {
+      // Always crash if this is instantiated
+      static_assert(!std::is_same_v<A, parser::ReadStmt>,
+                    "Unexpected IO statement");
     }
   }
 
   /// Set the exit of a construct, possibly from multiple enclosing constructs.
   void setConstructExit(pft::Evaluation &eval) {
     eval.constructExit = eval.evaluationList->back().lexicalSuccessor;
-    if (eval.constructExit->isNopConstructStmt()) {
+    if (eval.constructExit && eval.constructExit->isNopConstructStmt()) {
       eval.constructExit = eval.constructExit->parentConstruct->constructExit;
     }
     assert(eval.constructExit && "missing construct exit");
@@ -369,7 +370,7 @@ private:
   /// from one or more enclosing constructs.
   pft::Evaluation *exitSuccessor(pft::Evaluation &eval) {
     pft::Evaluation *successor{eval.lexicalSuccessor};
-    if (successor->isNopConstructStmt()) {
+    if (successor && successor->isNopConstructStmt()) {
       successor = successor->parentConstruct->constructExit;
     }
     assert(successor && "missing exit successor");
@@ -383,51 +384,43 @@ private:
 
   template <typename A>
   inline std::string getConstructName(const A &stmt) {
-    if constexpr (std::is_same_v<A, parser::BlockStmt *> ||
-                  std::is_same_v<A, const parser::CycleStmt *> ||
-                  std::is_same_v<A, const parser::ElseStmt *> ||
-                  std::is_same_v<A, const parser::ElsewhereStmt *> ||
-                  std::is_same_v<A, const parser::EndAssociateStmt *> ||
-                  std::is_same_v<A, const parser::EndBlockStmt *> ||
-                  std::is_same_v<A, const parser::EndCriticalStmt *> ||
-                  std::is_same_v<A, const parser::EndDoStmt *> ||
-                  std::is_same_v<A, const parser::EndForallStmt *> ||
-                  std::is_same_v<A, const parser::EndIfStmt *> ||
-                  std::is_same_v<A, const parser::EndSelectStmt *> ||
-                  std::is_same_v<A, const parser::EndWhereStmt *> ||
-                  std::is_same_v<A, const parser::ExitStmt *>) {
-      if (stmt->v) {
-        return stmt->v->ToString();
-      }
+    using MaybeConstructNameWrapper =
+        std::tuple<parser::BlockStmt, parser::CycleStmt, parser::ElseStmt,
+                   parser::ElsewhereStmt, parser::EndAssociateStmt,
+                   parser::EndBlockStmt, parser::EndCriticalStmt,
+                   parser::EndDoStmt, parser::EndForallStmt, parser::EndIfStmt,
+                   parser::EndSelectStmt, parser::EndWhereStmt,
+                   parser::ExitStmt>;
+    if constexpr (common::HasMember<A, MaybeConstructNameWrapper>) {
+      if (stmt.v)
+        return stmt.v->ToString();
     }
-    if constexpr (std::is_same_v<A, const parser::AssociateStmt *> ||
-                  std::is_same_v<A, const parser::CaseStmt *> ||
-                  std::is_same_v<A, const parser::ChangeTeamStmt *> ||
-                  std::is_same_v<A, const parser::CriticalStmt *> ||
-                  std::is_same_v<A, const parser::ElseIfStmt *> ||
-                  std::is_same_v<A, const parser::EndChangeTeamStmt *> ||
-                  std::is_same_v<A, const parser::ForallConstructStmt *> ||
-                  std::is_same_v<A, const parser::IfThenStmt *> ||
-                  std::is_same_v<A, const parser::LabelDoStmt *> ||
-                  std::is_same_v<A, const parser::MaskedElsewhereStmt *> ||
-                  std::is_same_v<A, const parser::NonLabelDoStmt *> ||
-                  std::is_same_v<A, const parser::SelectCaseStmt *> ||
-                  std::is_same_v<A, const parser::SelectRankCaseStmt *> ||
-                  std::is_same_v<A, const parser::TypeGuardStmt *> ||
-                  std::is_same_v<A, const parser::WhereConstructStmt *>) {
-      if (auto name{std::get<std::optional<parser::Name>>(stmt->t)}) {
+
+    using MaybeConstructNameInTuple = std::tuple<
+        parser::AssociateStmt, parser::CaseStmt, parser::ChangeTeamStmt,
+        parser::CriticalStmt, parser::ElseIfStmt, parser::EndChangeTeamStmt,
+        parser::ForallConstructStmt, parser::IfThenStmt, parser::LabelDoStmt,
+        parser::MaskedElsewhereStmt, parser::NonLabelDoStmt,
+        parser::SelectCaseStmt, parser::SelectRankCaseStmt,
+        parser::TypeGuardStmt, parser::WhereConstructStmt>;
+
+    if constexpr (common::HasMember<A, MaybeConstructNameInTuple>) {
+      if (auto name{std::get<std::optional<parser::Name>>(stmt.t)})
         return name->ToString();
-      }
     }
-    if constexpr (std::is_same_v<A, const parser::SelectRankStmt *> ||
-                  std::is_same_v<A, const parser::SelectTypeStmt *>) {
-      if (auto name{std::get<0>(stmt->t)}) {
+
+    // These statements have several std::optional<parser::Name>
+    if constexpr (std::is_same_v<A, parser::SelectRankStmt> ||
+                  std::is_same_v<A, parser::SelectTypeStmt>) {
+      if (auto name{std::get<0>(stmt.t)}) {
         return name->ToString();
       }
     }
     return {};
   }
 
+  /// \p parentConstruct can be null if this statement is at the highest
+  /// level of a program.
   template <typename A>
   void insertConstructName(const A &stmt, pft::Evaluation *parentConstruct) {
     std::string name{getConstructName(stmt)};
@@ -437,6 +430,8 @@ private:
   }
 
   /// Insert branch links for a list of Evaluations.
+  /// \p parentConstruct can be null if the evaluationList contains the
+  /// top-level statements of a program.
   void analyzeBranches(pft::Evaluation *parentConstruct,
                        std::list<pft::Evaluation> &evaluationList) {
     pft::Evaluation *lastIfConstructEvaluation{nullptr};
@@ -444,7 +439,6 @@ private:
     for (auto &eval : evaluationList) {
       eval.visit(common::visitors{
           // Action statements
-          [&](const parser::BackspaceStmt &s) { analyzeIoBranches(eval, &s); },
           [&](const parser::CallStmt &s) {
             // Look for alternate return specifiers.
             const auto &args{std::get<std::list<parser::ActualArgSpec>>(s.v.t)};
@@ -456,33 +450,24 @@ private:
               }
             }
           },
-          [&](const parser::CloseStmt &s) { analyzeIoBranches(eval, &s); },
           [&](const parser::CycleStmt &s) {
-            std::string name{getConstructName(&s)};
+            std::string name{getConstructName(s)};
             pft::Evaluation *construct{name.empty() ? doConstructStack.back()
                                                     : constructNameMap[name]};
             assert(construct && "missing CYCLE construct");
             markBranchTarget(eval, construct->evaluationList->back());
           },
-          [&](const parser::EndfileStmt &s) { analyzeIoBranches(eval, &s); },
           [&](const parser::ExitStmt &s) {
-            std::string name{getConstructName(&s)};
+            std::string name{getConstructName(s)};
             pft::Evaluation *construct{name.empty() ? doConstructStack.back()
                                                     : constructNameMap[name]};
             assert(construct && "missing EXIT construct");
             markBranchTarget(eval, *construct->constructExit);
           },
-          [&](const parser::FlushStmt &s) { analyzeIoBranches(eval, &s); },
           [&](const parser::GotoStmt &s) { markBranchTarget(eval, s.v); },
           [&](const parser::IfStmt &) { lastIfStmtEvaluation = &eval; },
-          [&](const parser::InquireStmt &s) { analyzeIoBranches(eval, &s); },
-          [&](const parser::OpenStmt &s) { analyzeIoBranches(eval, &s); },
-          [&](const parser::ReadStmt &s) { analyzeIoBranches(eval, &s); },
           [&](const parser::ReturnStmt &) { eval.isUnstructured = true; },
-          [&](const parser::RewindStmt &s) { analyzeIoBranches(eval, &s); },
           [&](const parser::StopStmt &) { eval.isUnstructured = true; },
-          [&](const parser::WaitStmt &s) { analyzeIoBranches(eval, &s); },
-          [&](const parser::WriteStmt &s) { analyzeIoBranches(eval, &s); },
           [&](const parser::ComputedGotoStmt &s) {
             for (auto &label : std::get<std::list<parser::Label>>(s.t)) {
               markBranchTarget(eval, label);
@@ -495,10 +480,10 @@ private:
           },
           [&](const parser::AssignStmt &s) { // legacy label assignment
             auto &label = std::get<parser::Label>(s.t);
-            auto sym = std::get<parser::Name>(s.t).symbol;
+            const auto *sym = std::get<parser::Name>(s.t).symbol;
             assert(sym && "missing AssignStmt symbol");
             pft::Evaluation *t{labelEvaluationMap->find(label)->second};
-            if (!std::get_if<const parser::FormatStmt *const>(&t->u)) {
+            if (!t->isA<parser::FormatStmt>()) {
               markBranchTarget(eval, label);
             }
             auto iter = assignSymbolLabelMap->find(sym);
@@ -519,24 +504,24 @@ private:
 
           // Construct statements
           [&](const parser::AssociateStmt &s) {
-            insertConstructName(&s, parentConstruct);
+            insertConstructName(s, parentConstruct);
           },
           [&](const parser::BlockStmt &s) {
-            insertConstructName(&s, parentConstruct);
+            insertConstructName(s, parentConstruct);
           },
           [&](const parser::SelectCaseStmt &s) {
-            insertConstructName(&s, parentConstruct);
+            insertConstructName(s, parentConstruct);
             eval.lexicalSuccessor->isNewBlock = true;
           },
           [&](const parser::CaseStmt &) { eval.isNewBlock = true; },
           [&](const parser::ChangeTeamStmt &s) {
-            insertConstructName(&s, parentConstruct);
+            insertConstructName(s, parentConstruct);
           },
           [&](const parser::CriticalStmt &s) {
-            insertConstructName(&s, parentConstruct);
+            insertConstructName(s, parentConstruct);
           },
           [&](const parser::NonLabelDoStmt &s) {
-            insertConstructName(&s, parentConstruct);
+            insertConstructName(s, parentConstruct);
             doConstructStack.push_back(parentConstruct);
             auto &control{std::get<std::optional<parser::LoopControl>>(s.t)};
             // eval.block is the loop preheader block, which will be set
@@ -595,7 +580,7 @@ private:
             }
           },
           [&](const parser::IfThenStmt &s) {
-            insertConstructName(&s, parentConstruct);
+            insertConstructName(s, parentConstruct);
             eval.lexicalSuccessor->isNewBlock = true;
             lastIfConstructEvaluation = &eval;
           },
@@ -619,12 +604,12 @@ private:
             lastIfConstructEvaluation = nullptr;
           },
           [&](const parser::SelectRankStmt &s) {
-            insertConstructName(&s, parentConstruct);
+            insertConstructName(s, parentConstruct);
             eval.lexicalSuccessor->isNewBlock = true;
           },
           [&](const parser::SelectRankCaseStmt &) { eval.isNewBlock = true; },
           [&](const parser::SelectTypeStmt &s) {
-            insertConstructName(&s, parentConstruct);
+            insertConstructName(s, parentConstruct);
             eval.lexicalSuccessor->isNewBlock = true;
           },
           [&](const parser::TypeGuardStmt &) { eval.isNewBlock = true; },
@@ -649,7 +634,19 @@ private:
           [&](const parser::SelectRankConstruct &) { setConstructExit(eval); },
           [&](const parser::SelectTypeConstruct &) { setConstructExit(eval); },
 
-          [](const auto &) { /* do nothing */ },
+          [&](const auto &stmt) {
+            using A = std::decay_t<decltype(stmt)>;
+            using IoStmts = std::tuple<parser::BackspaceStmt, parser::CloseStmt,
+                                       parser::EndfileStmt, parser::FlushStmt,
+                                       parser::InquireStmt, parser::OpenStmt,
+                                       parser::ReadStmt, parser::RewindStmt,
+                                       parser::WaitStmt, parser::WriteStmt>;
+            if constexpr (common::HasMember<A, IoStmts>) {
+              analyzeIoBranches(eval, stmt);
+            }
+
+            /* do nothing */
+          },
       });
 
       // Analyze construct evaluations.
@@ -780,33 +777,28 @@ public:
     std::string name{};
     std::string header{};
     if (functionLikeUnit.beginStmt) {
-      std::visit(
-          common::visitors{
-              [&](const parser::Statement<parser::ProgramStmt> *statement) {
-                unitKind = "Program";
-                name = statement->statement.v.ToString();
-              },
-              [&](const parser::Statement<parser::FunctionStmt> *statement) {
-                unitKind = "Function";
-                name =
-                    std::get<parser::Name>(statement->statement.t).ToString();
-                header = statement->source.ToString();
-              },
-              [&](const parser::Statement<parser::SubroutineStmt> *statement) {
-                unitKind = "Subroutine";
-                name =
-                    std::get<parser::Name>(statement->statement.t).ToString();
-                header = statement->source.ToString();
-              },
-              [&](const parser::Statement<parser::MpSubprogramStmt>
-                      *statement) {
-                unitKind = "MpSubprogram";
-                name = statement->statement.v.ToString();
-                header = statement->source.ToString();
-              },
-              [&](auto *) {},
+      functionLikeUnit.beginStmt->visit(common::visitors{
+          [&](const parser::Statement<parser::ProgramStmt> &statement) {
+            unitKind = "Program";
+            name = statement.statement.v.ToString();
           },
-          *functionLikeUnit.beginStmt);
+          [&](const parser::Statement<parser::FunctionStmt> &statement) {
+            unitKind = "Function";
+            name = std::get<parser::Name>(statement.statement.t).ToString();
+            header = statement.source.ToString();
+          },
+          [&](const parser::Statement<parser::SubroutineStmt> &statement) {
+            unitKind = "Subroutine";
+            name = std::get<parser::Name>(statement.statement.t).ToString();
+            header = statement.source.ToString();
+          },
+          [&](const parser::Statement<parser::MpSubprogramStmt> &statement) {
+            unitKind = "MpSubprogram";
+            name = statement.statement.v.ToString();
+            header = statement.source.ToString();
+          },
+          [&](const auto &) {},
+      });
     } else {
       unitKind = "Program";
       name = "<anonymous>";
@@ -856,13 +848,11 @@ private:
 
 template <typename A, typename T>
 static pft::FunctionLikeUnit::FunctionStatement getFunctionStmt(const T &func) {
-  return pft::FunctionLikeUnit::FunctionStatement{
-      &std::get<parser::Statement<A>>(func.t)};
+  return std::get<parser::Statement<A>>(func.t);
 }
 template <typename A, typename T>
 static pft::ModuleLikeUnit::ModuleStatement getModuleStmt(const T &mod) {
-  return pft::ModuleLikeUnit::ModuleStatement{
-      &std::get<parser::Statement<A>>(mod.t)};
+  return std::get<parser::Statement<A>>(mod.t);
 }
 
 static const semantics::Symbol *
@@ -870,25 +860,23 @@ getSymbol(std::optional<pft::FunctionLikeUnit::FunctionStatement> &beginStmt) {
   if (!beginStmt)
     return nullptr;
 
-  const auto *symbol = std::visit(
-      common::visitors{
-          [](const parser::Statement<parser::ProgramStmt> *stmt)
-              -> const semantics::Symbol * { return stmt->statement.v.symbol; },
-          [](const parser::Statement<parser::FunctionStmt> *stmt)
-              -> const semantics::Symbol * {
-            return std::get<parser::Name>(stmt->statement.t).symbol;
-          },
-          [](const parser::Statement<parser::SubroutineStmt> *stmt)
-              -> const semantics::Symbol * {
-            return std::get<parser::Name>(stmt->statement.t).symbol;
-          },
-          [](const parser::Statement<parser::MpSubprogramStmt> *stmt)
-              -> const semantics::Symbol * { return stmt->statement.v.symbol; },
-          [](const auto *) -> const semantics::Symbol * {
-            assert(false && "unknown FunctionLike beginStmt");
-            return nullptr;
-          }},
-      *beginStmt);
+  const auto *symbol = beginStmt->visit(common::visitors{
+      [](const parser::Statement<parser::ProgramStmt> &stmt)
+          -> const semantics::Symbol * { return stmt.statement.v.symbol; },
+      [](const parser::Statement<parser::FunctionStmt> &stmt)
+          -> const semantics::Symbol * {
+        return std::get<parser::Name>(stmt.statement.t).symbol;
+      },
+      [](const parser::Statement<parser::SubroutineStmt> &stmt)
+          -> const semantics::Symbol * {
+        return std::get<parser::Name>(stmt.statement.t).symbol;
+      },
+      [](const parser::Statement<parser::MpSubprogramStmt> &stmt)
+          -> const semantics::Symbol * { return stmt.statement.v.symbol; },
+      [](const auto &) -> const semantics::Symbol * {
+        llvm_unreachable("unknown FunctionLike beginStmt");
+        return nullptr;
+      }});
   assert(symbol && "parser::Name must have resolved symbol");
   return symbol;
 }
@@ -919,15 +907,15 @@ pft::FunctionLikeUnit *pft::Evaluation::getOwningProcedure() const {
 
 pft::FunctionLikeUnit::FunctionLikeUnit(const parser::MainProgram &func,
                                         const pft::ParentVariant &parent)
-    : ProgramUnit{func, parent} {
-  auto &ps{
+    : ProgramUnit{func, parent}, endStmt{
+                                     getFunctionStmt<parser::EndProgramStmt>(
+                                         func)} {
+  const auto &ps{
       std::get<std::optional<parser::Statement<parser::ProgramStmt>>>(func.t)};
   if (ps.has_value()) {
-    const parser::Statement<parser::ProgramStmt> &statement{ps.value()};
-    beginStmt = &statement;
+    beginStmt = ps.value();
     symbol = getSymbol(beginStmt);
   }
-  endStmt = getFunctionStmt<parser::EndProgramStmt>(func);
 }
 
 pft::FunctionLikeUnit::FunctionLikeUnit(const parser::FunctionSubprogram &func,
