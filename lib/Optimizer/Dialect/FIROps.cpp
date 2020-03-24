@@ -1046,7 +1046,6 @@ mlir::FuncOp fir::createFuncOp(mlir::Location loc, mlir::ModuleOp module,
     return f;
   mlir::OpBuilder modBuilder(module.getBodyRegion());
   // Insert new function at the end of the current module.
-  assert(modBuilder.getInsertionBlock() && "builder must have insertion block");
   modBuilder.setInsertionPoint(modBuilder.getInsertionBlock()->getTerminator());
   return modBuilder.create<mlir::FuncOp>(loc, name, type, attrs);
 }
