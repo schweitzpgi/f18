@@ -13,6 +13,7 @@
 #ifndef FORTRAN_LOWER_PFTBUILDER_H
 #define FORTRAN_LOWER_PFTBUILDER_H
 
+#include "flang/Common/reference.h"
 #include "flang/Common/template.h"
 #include "flang/Parser/parse-tree.h"
 #include "llvm/ADT/DenseMap.h"
@@ -115,54 +116,81 @@ static constexpr bool isFunctionLike{common::HasMember<
                   parser::SeparateModuleSubprogram>>};
 
 using LabelSet = llvm::SmallSet<parser::Label, 5>;
-using SymbolLabelMap = std::map<semantics::Symbol *, LabelSet>;
+using SymbolLabelMap = llvm::DenseMap<const semantics::Symbol *, LabelSet>;
+
+/// Provide a variant like container that can holds constant references.
+/// It is used in the other classes to provide union of const references
+/// to parse-tree nodes.
+template <typename... A>
+class ReferenceVariant {
+public:
+  template <typename B>
+  using ConstRef = common::Reference<const B>;
+
+  ReferenceVariant() = delete;
+  template <typename B>
+  ReferenceVariant(const B &b) : u{ConstRef<B>{b}} {};
+
+  template <typename B>
+  constexpr const B &get() const {
+    return std::get<ConstRef<B>> > (u).get();
+  }
+  template <typename B>
+  constexpr const B *getIf() const {
+    auto *ptr = std::get_if<ConstRef<B>>(&u);
+    return ptr ? &ptr->get() : nullptr;
+  }
+  template <typename B>
+  constexpr bool isA() const {
+    return std::holds_alternative<ConstRef<B>>(u);
+  }
+  template <typename VISITOR>
+  constexpr auto visit(VISITOR &&visitor) const {
+    return std::visit(
+        common::visitors{[&visitor](auto ref) { return visitor(ref.get()); }},
+        u);
+  }
+
+private:
+  std::variant<ConstRef<A>...> u;
+};
+
+template <typename A>
+struct MakeReferenceVariantHelper {};
+template <typename... A>
+struct MakeReferenceVariantHelper<std::variant<A...>> {
+  using type = ReferenceVariant<A...>;
+};
+template <typename... A>
+struct MakeReferenceVariantHelper<std::tuple<A...>> {
+  using type = ReferenceVariant<A...>;
+};
+template <typename A>
+using MakeReferenceVariant = typename MakeReferenceVariantHelper<A>::type;
+
+using EvaluationTuple =
+    common::CombineTuples<ActionStmts, OtherStmts, ConstructStmts, Constructs>;
+/// Hide non-nullable pointers to the parse-tree node.
+/// Build type std::variant<const A* const, const B* const, ...>
+/// from EvaluationTuple type (std::tuple<A, B, ...>).
+using EvaluationVariant = MakeReferenceVariant<EvaluationTuple>;
 
 /// Function-like units contain lists of evaluations.  These can be simple
 /// statements or constructs, where a construct contains its own evaluations.
-struct Evaluation {
-  using EvaluationTuple = common::CombineTuples<ActionStmts, OtherStmts,
-                                                ConstructStmts, Constructs>;
-
-  /// Hide non-nullable pointers to the parse-tree node.
-  /// Build type std::variant<const A* const, const B* const, ...>
-  /// from EvaluationTuple type (std::tuple<A, B, ...>).
-  template <typename A>
-  using MakeRefType = const A *const;
-  using EvaluationVariant = common::CombineVariants<
-      common::MapTemplate<MakeRefType, EvaluationTuple>>;
-  template <typename A>
-  constexpr auto visit(A visitor) const {
-    return std::visit(common::visitors{
-                          [&](const auto *p) { return visitor(*p); },
-                          [&](auto &r) { return visitor(r); },
-                      },
-                      u);
-  }
-  template <typename A>
-  constexpr const A *getIf() const {
-    auto *ptr = std::get_if<MakeRefType<A>>(&u);
-    return ptr ? *ptr : nullptr;
-  }
-  template <typename A>
-  constexpr bool isA() const {
-    return std::holds_alternative<MakeRefType<A>>(u);
-  }
-
-  Evaluation() = delete;
-  Evaluation(const Evaluation &) = delete;
-  Evaluation(Evaluation &&) = default;
+struct Evaluation : EvaluationVariant {
 
   /// General ctor
   template <typename A>
   Evaluation(const A &a, const ParentVariant &parentVariant,
              const parser::CharBlock &position,
              const std::optional<parser::Label> &label)
-      : u{&a}, parentVariant{parentVariant}, position{position}, label{label} {}
+      : EvaluationVariant{a},
+        parentVariant{parentVariant}, position{position}, label{label} {}
 
   /// Construct ctor
   template <typename A>
   Evaluation(const A &a, const ParentVariant &parentVariant)
-      : u{&a}, parentVariant{parentVariant} {
+      : EvaluationVariant{a}, parentVariant{parentVariant} {
     static_assert(pft::isConstruct<A>, "must be a construct");
   }
 
@@ -236,7 +264,6 @@ struct Evaluation {
   // The printIndex member is only set for statements.  It is used for dumps
   // and does not affect FIR generation.  It may also be helpful for debugging.
 
-  EvaluationVariant u;
   ParentVariant parentVariant;
   parser::CharBlock position{};
   std::optional<parser::Label> label{};
@@ -253,21 +280,20 @@ struct Evaluation {
   int printIndex{0}; // (ActionStmt, ConstructStmt) evaluation index for dumps
 };
 
+using ProgramVariant =
+    ReferenceVariant<parser::MainProgram, parser::FunctionSubprogram,
+                     parser::SubroutineSubprogram, parser::Module,
+                     parser::Submodule, parser::SeparateModuleSubprogram,
+                     parser::BlockData>;
 /// A program is a list of program units.
 /// These units can be function like, module like, or block data.
-struct ProgramUnit {
+struct ProgramUnit : ProgramVariant {
   template <typename A>
-  ProgramUnit(const A &ptr, const ParentVariant &parentVariant)
-      : p{&ptr}, parentVariant{parentVariant} {}
+  ProgramUnit(const A &p, const ParentVariant &parentVariant)
+      : ProgramVariant{p}, parentVariant{parentVariant} {}
   ProgramUnit(ProgramUnit &&) = default;
   ProgramUnit(const ProgramUnit &) = delete;
 
-  const std::variant<
-      const parser::MainProgram *, const parser::FunctionSubprogram *,
-      const parser::SubroutineSubprogram *, const parser::Module *,
-      const parser::Submodule *, const parser::SeparateModuleSubprogram *,
-      const parser::BlockData *>
-      p;
   ParentVariant parentVariant;
 };
 
@@ -276,14 +302,14 @@ struct ProgramUnit {
 struct FunctionLikeUnit : public ProgramUnit {
   // wrapper statements for function-like syntactic structures
   using FunctionStatement =
-      std::variant<const parser::Statement<parser::ProgramStmt> *,
-                   const parser::Statement<parser::EndProgramStmt> *,
-                   const parser::Statement<parser::FunctionStmt> *,
-                   const parser::Statement<parser::EndFunctionStmt> *,
-                   const parser::Statement<parser::SubroutineStmt> *,
-                   const parser::Statement<parser::EndSubroutineStmt> *,
-                   const parser::Statement<parser::MpSubprogramStmt> *,
-                   const parser::Statement<parser::EndMpSubprogramStmt> *>;
+      ReferenceVariant<parser::Statement<parser::ProgramStmt>,
+                       parser::Statement<parser::EndProgramStmt>,
+                       parser::Statement<parser::FunctionStmt>,
+                       parser::Statement<parser::EndFunctionStmt>,
+                       parser::Statement<parser::SubroutineStmt>,
+                       parser::Statement<parser::EndSubroutineStmt>,
+                       parser::Statement<parser::MpSubprogramStmt>,
+                       parser::Statement<parser::EndMpSubprogramStmt>>;
 
   FunctionLikeUnit(const parser::MainProgram &f,
                    const ParentVariant &parentVariant);
@@ -296,25 +322,8 @@ struct FunctionLikeUnit : public ProgramUnit {
   FunctionLikeUnit(FunctionLikeUnit &&) = default;
   FunctionLikeUnit(const FunctionLikeUnit &) = delete;
 
-  bool isMainProgram() {
-    return std::holds_alternative<
-        const parser::Statement<parser::EndProgramStmt> *>(endStmt);
-  }
-
-  const parser::FunctionStmt *getFunction() {
-    return getA<parser::FunctionStmt>();
-  }
-  const parser::SubroutineStmt *getSubroutine() {
-    return getA<parser::SubroutineStmt>();
-  }
-  const parser::MpSubprogramStmt *getMpSubprogram() {
-    return getA<parser::MpSubprogramStmt>();
-  }
-
   bool isMainProgram() const {
-    return !beginStmt ||
-           std::holds_alternative<
-               const parser::Statement<parser::ProgramStmt> *>(*beginStmt);
+    return endStmt.isA<parser::Statement<parser::EndProgramStmt>>();
   }
 
   /// Returns reference to the subprogram symbol of this FunctionLikeUnit.
@@ -336,27 +345,16 @@ struct FunctionLikeUnit : public ProgramUnit {
   /// The symbol has MainProgramDetails for named programs, otherwise it has
   /// SubprogramDetails.
   const semantics::Symbol *symbol{nullptr};
-
-private:
-  template <typename A>
-  const A *getA() {
-    if (beginStmt) {
-      if (auto p =
-              std::get_if<const parser::Statement<A> *>(&beginStmt.value()))
-        return &(*p)->statement;
-    }
-    return nullptr;
-  }
 };
 
 /// Module-like units contain a list of function-like units.
 struct ModuleLikeUnit : public ProgramUnit {
   // wrapper statements for module-like syntactic structures
   using ModuleStatement =
-      std::variant<const parser::Statement<parser::ModuleStmt> *,
-                   const parser::Statement<parser::EndModuleStmt> *,
-                   const parser::Statement<parser::SubmoduleStmt> *,
-                   const parser::Statement<parser::EndSubmoduleStmt> *>;
+      ReferenceVariant<parser::Statement<parser::ModuleStmt>,
+                       parser::Statement<parser::EndModuleStmt>,
+                       parser::Statement<parser::SubmoduleStmt>,
+                       parser::Statement<parser::EndSubmoduleStmt>>;
 
   ModuleLikeUnit(const parser::Module &m, const ParentVariant &parentVariant);
   ModuleLikeUnit(const parser::Submodule &m,

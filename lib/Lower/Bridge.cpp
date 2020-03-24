@@ -179,7 +179,8 @@ public:
   }
   mlir::ModuleOp &getModuleOp() override final { return module; }
 
-  std::string mangleName(Fortran::lower::SymbolRef symbol) override final {
+  std::string
+  mangleName(const Fortran::semantics::Symbol &symbol) override final {
     return Fortran::lower::mangle::mangleName(uniquer, symbol);
   }
 
@@ -278,7 +279,7 @@ private:
   }
   void genFIRProcedureExit(const Fortran::semantics::Symbol &symbol) {
     const auto &details = symbol.get<Fortran::semantics::SubprogramDetails>();
-    if (details.isFunction()) {
+    if (Fortran::semantics::IsFunction(symbol)) {
       mlir::Value resultRef = localSymbols.lookupSymbol(details.result());
       mlir::Value r = builder->create<fir::LoadOp>(toLocation(), resultRef);
       builder->create<mlir::ReturnOp>(toLocation(), r);
@@ -1167,7 +1168,7 @@ private:
                           ? eval.evaluationList->front().block
                           : eval.block);
     }
-    std::visit([&](const auto *p) { genFIR(eval, *p); }, eval.u);
+    eval.visit([&](const auto &stmt) { genFIR(eval, stmt); });
     if (unstructuredContext && eval.lowerAsUnstructured() &&
         eval.controlSuccessor && eval.isActionStmt() && blockIsUnterminated()) {
       // Exit from an unstructured IF or SELECT construct block.
@@ -1277,7 +1278,7 @@ private:
   /// Helper to get location from FunctionLikeUnit begin/end
   static Fortran::parser::CharBlock extractLocation(
       Fortran::lower::pft::FunctionLikeUnit::FunctionStatement &fstmt) {
-    return std::visit([](const auto *stmt) { return stmt->source; }, fstmt);
+    return fstmt.visit([](const auto &stmt) { return stmt.source; });
   }
 
   /// Emit return and cleanup after the function has been translated.

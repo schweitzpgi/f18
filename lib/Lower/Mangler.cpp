@@ -31,14 +31,16 @@ void moduleNames(const Fortran::semantics::Scope &scope,
 }
 
 llvm::SmallVector<llvm::StringRef, 2>
-moduleNames(const Fortran::semantics::Scope &scope) {
+moduleNames(const Fortran::semantics::Symbol &symbol) {
+  const auto &scope{symbol.owner()};
   llvm::SmallVector<llvm::StringRef, 2> result;
   moduleNames(scope, result);
   return result;
 }
 
 llvm::Optional<llvm::StringRef>
-hostName(const Fortran::semantics::Scope &scope) {
+hostName(const Fortran::semantics::Symbol &symbol) {
+  const auto &scope{symbol.owner()};
   if (scope.kind() == Fortran::semantics::Scope::Kind::Subprogram) {
     assert(scope.symbol() && "subprogram scope must have a symbol");
     return {toStringRef(scope.symbol()->name())};
@@ -48,39 +50,46 @@ hostName(const Fortran::semantics::Scope &scope) {
 
 } // namespace
 
+static const Fortran::semantics::Symbol *
+findInterfaceIfSeperateMP(const Fortran::semantics::Symbol &symbol) {
+  const auto &scope{symbol.owner()};
+  if (symbol.attrs().test(Fortran::semantics::Attr::MODULE) &&
+      scope.IsSubmodule()) {
+    // FIXME symbol from MpSubprogramStmt do not seem to have
+    // Attr::MODULE set.
+    const auto *iface{scope.parent().FindSymbol(symbol.name())};
+    assert(iface && "Separate module proc must be declared");
+    return iface;
+  }
+  return nullptr;
+}
+
 // Mangle the name of `symbol` to make it unique within FIR's symbol table using
 // the FIR name mangler, `mangler`
 std::string
 Fortran::lower::mangle::mangleName(fir::NameUniquer &uniquer,
-                                   const Fortran::semantics::SymbolRef symbol) {
+                                   const Fortran::semantics::Symbol &symbol) {
   return std::visit(
       Fortran::common::visitors{
           [&](const Fortran::semantics::MainProgramDetails &) {
             return uniquer.doProgramEntry().str();
           },
           [&](const Fortran::semantics::SubprogramDetails &) {
-            const auto *scope{&symbol->owner()};
-            auto &symbolName{symbol->name()};
+            auto &symbolName{symbol.name()};
             // Separate module subprograms must be mangled according to the
             // scope where they were declared (the symbol we have is the
             // definition).
-            if (symbol->attrs().test(Fortran::semantics::Attr::MODULE) &&
-                scope->IsSubmodule()) {
-              // FIXME symbol from MpSubprogramStmt do not seem to have
-              // Attr::MODULE set.
-              const auto *iface{scope->parent().FindSymbol(symbolName)};
-              assert(iface && "Separate module proc must be declared");
-              scope = &iface->owner();
-            }
-            auto modNames{moduleNames(*scope)};
-            return uniquer.doProcedure(modNames, hostName(*scope),
+            const auto *interface = &symbol;
+            if (const auto *mpIface = findInterfaceIfSeperateMP(symbol))
+              interface = mpIface;
+            auto modNames{moduleNames(*interface)};
+            return uniquer.doProcedure(modNames, hostName(*interface),
                                        toStringRef(symbolName));
           },
           [&](const Fortran::semantics::ProcEntityDetails &) {
-            const auto &scope{symbol->owner()};
-            auto &cb{symbol->name()};
-            auto modNames{moduleNames(scope)};
-            return uniquer.doProcedure(modNames, hostName(scope),
+            auto &cb{symbol.name()};
+            auto modNames{moduleNames(symbol)};
+            return uniquer.doProcedure(modNames, hostName(symbol),
                                        toStringRef(cb));
           },
           [](const auto &) -> std::string {
@@ -88,7 +97,7 @@ Fortran::lower::mangle::mangleName(fir::NameUniquer &uniquer,
             return {};
           },
       },
-      symbol->details());
+      symbol.details());
 }
 
 std::string Fortran::lower::mangle::demangleName(llvm::StringRef name) {

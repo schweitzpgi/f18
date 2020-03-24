@@ -115,7 +115,7 @@ public:
   /// Get the ModuleOp
   virtual mlir::ModuleOp &getModuleOp() = 0;
   /// Unique a symbol
-  virtual std::string mangleName(SymbolRef) = 0;
+  virtual std::string mangleName(const semantics::Symbol &) = 0;
 
   virtual ~AbstractConverter() = default;
 };
