@@ -10,8 +10,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef FORTRAN_LOWER_PFTBUILDER_H_
-#define FORTRAN_LOWER_PFTBUILDER_H_
+#ifndef FORTRAN_LOWER_PFTBUILDER_H
+#define FORTRAN_LOWER_PFTBUILDER_H
 
 #include "flang/Common/template.h"
 #include "flang/Parser/parse-tree.h"
@@ -376,13 +376,12 @@ private:
 
 /// Create a PFT (Pre-FIR Tree) from the parse tree.
 ///
-/// A PFT (Pre-FIR Tree) is a light weight tree over the parse tree that is
-/// used to create FIR.  The PFT captures pointers back into the parse tree,
-/// so the parse tree must not be changed between the construction of the
-/// PFT and its last use.  The PFT captures a structured view of a program.
-/// A program is a list of units.  A function like unit contains a list of
-/// evaluations.  An evaluation is either a statement, or a construct with a
-/// nested list of evaluations.
+/// A PFT is a light weight tree over the parse tree that is used to create FIR.
+/// The PFT captures pointers back into the parse tree, so the parse tree must
+/// not be changed between the construction of the PFT and its last use.  The
+/// PFT captures a structured view of a program.  A program is a list of units.
+/// A function like unit contains a list of evaluations.  An evaluation is
+/// either a statement, or a construct with a nested list of evaluations.
 std::unique_ptr<pft::Program> createPFT(const parser::Program &root);
 
 /// Dumper for displaying a PFT.
@@ -390,4 +389,4 @@ void dumpPFT(llvm::raw_ostream &outputStream, pft::Program &pft);
 
 } // namespace Fortran::lower
 
-#endif // FORTRAN_LOWER_PFTBUILDER_H_
+#endif // FORTRAN_LOWER_PFTBUILDER_H
