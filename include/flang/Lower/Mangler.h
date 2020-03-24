@@ -30,12 +30,10 @@ class Symbol;
 }
 
 namespace lower {
-using SymbolRef = common::Reference<const semantics::Symbol>;
-
 namespace mangle {
 
 /// Convert a front-end Symbol to an internal name
-std::string mangleName(fir::NameUniquer &uniquer, const SymbolRef symbol);
+std::string mangleName(fir::NameUniquer &uniquer, const semantics::Symbol &);
 
 std::string demangleName(llvm::StringRef name);
 
