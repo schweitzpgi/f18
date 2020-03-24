@@ -7,16 +7,16 @@ subroutine setall(a, x)
   real :: x
   integer :: i, j
   do i = 2, 9
-!     a(i, 1) = 0.0
+     a(i, 1) = -1.0
      do j = 2, 19
         a(i, j) = x
      end do
-!     a(i, 20) = 0.0
+     a(i, 20) = -2.0
   end do
-!  do j = 1, 20
-!     a(1, j) = 0.0
-!     a(10, j) = 0.0
-!  end do
+  do j = 1, 20
+     a(1, j) = 0.0
+     a(10, j) = -3.0
+  end do
 end subroutine setall
 
 ! Two subroutines that mean the same thing semantically. sub1 has explicit
@@ -32,11 +32,11 @@ end subroutine setall
 ! CHECK: c(6,6) = 7.0
 
 subroutine sub1(a,b,c)
-  real :: a(10,20), b(10,20), c(10,20)
+  real :: a(10,20), b(10,20), c(2:11,20)
   integer :: i, j
   do i = 1, 10
      do j = 1, 20
-        a(i,j) = b(i,j) + c(i,j)
+        a(i,j) = b(i,j) + c(i+1,j)
      end do
   end do
 end subroutine sub1

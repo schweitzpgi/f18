@@ -1044,9 +1044,9 @@ mlir::FuncOp fir::createFuncOp(mlir::Location loc, mlir::ModuleOp module,
                                llvm::ArrayRef<mlir::NamedAttribute> attrs) {
   if (auto f = module.lookupSymbol<mlir::FuncOp>(name))
     return f;
-  mlir::OpBuilder modBuilder(module.getBodyRegion());
-  // Insert new function at the end of the current module.
-  modBuilder.setInsertionPoint(modBuilder.getInsertionBlock()->getTerminator());
+  auto &region = module.getBodyRegion();
+  mlir::OpBuilder modBuilder(region);
+  modBuilder.setInsertionPoint(&region.front(), --region.front().end());
   return modBuilder.create<mlir::FuncOp>(loc, name, type, attrs);
 }
 

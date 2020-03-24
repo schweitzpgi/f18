@@ -1,5 +1,8 @@
 #include <stdio.h>
 
+void _QPsetall(float (*)[20][10], float *);
+void _QPsub1(float (*)[20][10], float (*)[20][10], float (*)[20][10]);
+
 static float arr_a[20][10];
 static float arr_b[20][10];
 static float arr_c[20][10];
