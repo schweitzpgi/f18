@@ -14,6 +14,15 @@
 #include <cassert>
 #include <utility>
 
+template <typename A>
+static const A &removeIndirection(const A &a) {
+  return a;
+}
+template <typename A>
+static const A &removeIndirection(const Fortran::common::Indirection<A> &a) {
+  return a.value();
+}
+
 namespace Fortran::lower {
 namespace {
 
@@ -22,20 +31,11 @@ namespace {
 template <typename A>
 struct RemoveIndirectionHelper {
   using Type = A;
-  static constexpr const Type &unwrap(const A &a) { return a; }
 };
 template <typename A>
 struct RemoveIndirectionHelper<common::Indirection<A>> {
   using Type = A;
-  static constexpr const Type &unwrap(const common::Indirection<A> &a) {
-    return a.value();
-  }
 };
-
-template <typename A>
-const auto &removeIndirection(const A &a) {
-  return RemoveIndirectionHelper<A>::unwrap(a);
-}
 
 template <typename A>
 struct UnwrapStmt {
@@ -704,32 +704,6 @@ private:
   pft::Evaluation *lastLexicalEvaluation{nullptr};
 };
 
-template <typename Label, typename A>
-constexpr bool hasLabel(const A &stmt) {
-  auto isLabel{
-      [](const auto &v) { return std::holds_alternative<Label>(v.u); }};
-  if constexpr (std::is_same_v<A, parser::ReadStmt> ||
-                std::is_same_v<A, parser::WriteStmt>) {
-    return std::any_of(std::begin(stmt.controls), std::end(stmt.controls),
-                       isLabel);
-  }
-  if constexpr (std::is_same_v<A, parser::WaitStmt>) {
-    return std::any_of(std::begin(stmt.v), std::end(stmt.v), isLabel);
-  }
-  if constexpr (std::is_same_v<Label, parser::ErrLabel>) {
-    if constexpr (common::HasMember<
-                      A, std::tuple<parser::OpenStmt, parser::CloseStmt,
-                                    parser::BackspaceStmt, parser::EndfileStmt,
-                                    parser::RewindStmt, parser::FlushStmt>>)
-      return std::any_of(std::begin(stmt.v), std::end(stmt.v), isLabel);
-    if constexpr (std::is_same_v<A, parser::InquireStmt>) {
-      const auto &specifiers{std::get<std::list<parser::InquireSpec>>(stmt.u)};
-      return std::any_of(std::begin(specifiers), std::end(specifiers), isLabel);
-    }
-  }
-  return false;
-}
-
 class PFTDumper {
 public:
   void dumpPFT(llvm::raw_ostream &outputStream, pft::Program &pft) {
@@ -878,18 +852,18 @@ private:
   std::size_t nextIndex{1}; // 0 is the root
 };
 
+} // namespace
+
 template <typename A, typename T>
-pft::FunctionLikeUnit::FunctionStatement getFunctionStmt(const T &func) {
+static pft::FunctionLikeUnit::FunctionStatement getFunctionStmt(const T &func) {
   return pft::FunctionLikeUnit::FunctionStatement{
       &std::get<parser::Statement<A>>(func.t)};
 }
 template <typename A, typename T>
-pft::ModuleLikeUnit::ModuleStatement getModuleStmt(const T &mod) {
+static pft::ModuleLikeUnit::ModuleStatement getModuleStmt(const T &mod) {
   return pft::ModuleLikeUnit::ModuleStatement{
       &std::get<parser::Statement<A>>(mod.t)};
 }
-
-} // namespace
 
 llvm::cl::opt<bool> clDisableStructuredFir(
     "no-structured-fir", llvm::cl::desc("disable generation of structured FIR"),
