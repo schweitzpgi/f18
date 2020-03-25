@@ -32,7 +32,7 @@ void moduleNames(const Fortran::semantics::Scope &scope,
 
 llvm::SmallVector<llvm::StringRef, 2>
 moduleNames(const Fortran::semantics::Symbol &symbol) {
-  const auto &scope{symbol.owner()};
+  const auto &scope = symbol.owner();
   llvm::SmallVector<llvm::StringRef, 2> result;
   moduleNames(scope, result);
   return result;
@@ -40,7 +40,7 @@ moduleNames(const Fortran::semantics::Symbol &symbol) {
 
 llvm::Optional<llvm::StringRef>
 hostName(const Fortran::semantics::Symbol &symbol) {
-  const auto &scope{symbol.owner()};
+  const auto &scope = symbol.owner();
   if (scope.kind() == Fortran::semantics::Scope::Kind::Subprogram) {
     assert(scope.symbol() && "subprogram scope must have a symbol");
     return {toStringRef(scope.symbol()->name())};
@@ -52,12 +52,12 @@ hostName(const Fortran::semantics::Symbol &symbol) {
 
 static const Fortran::semantics::Symbol *
 findInterfaceIfSeperateMP(const Fortran::semantics::Symbol &symbol) {
-  const auto &scope{symbol.owner()};
+  const auto &scope = symbol.owner();
   if (symbol.attrs().test(Fortran::semantics::Attr::MODULE) &&
       scope.IsSubmodule()) {
     // FIXME symbol from MpSubprogramStmt do not seem to have
     // Attr::MODULE set.
-    const auto *iface{scope.parent().FindSymbol(symbol.name())};
+    const auto *iface = scope.parent().FindSymbol(symbol.name());
     assert(iface && "Separate module proc must be declared");
     return iface;
   }
@@ -75,20 +75,20 @@ Fortran::lower::mangle::mangleName(fir::NameUniquer &uniquer,
             return uniquer.doProgramEntry().str();
           },
           [&](const Fortran::semantics::SubprogramDetails &) {
-            auto &symbolName{symbol.name()};
+            auto &symbolName = symbol.name();
             // Separate module subprograms must be mangled according to the
             // scope where they were declared (the symbol we have is the
             // definition).
             const auto *interface = &symbol;
             if (const auto *mpIface = findInterfaceIfSeperateMP(symbol))
               interface = mpIface;
-            auto modNames{moduleNames(*interface)};
+            auto modNames = moduleNames(*interface);
             return uniquer.doProcedure(modNames, hostName(*interface),
                                        toStringRef(symbolName));
           },
           [&](const Fortran::semantics::ProcEntityDetails &) {
-            auto &cb{symbol.name()};
-            auto modNames{moduleNames(symbol)};
+            auto &cb = symbol.name();
+            auto modNames = moduleNames(symbol);
             return uniquer.doProcedure(modNames, hostName(symbol),
                                        toStringRef(cb));
           },
@@ -101,6 +101,6 @@ Fortran::lower::mangle::mangleName(fir::NameUniquer &uniquer,
 }
 
 std::string Fortran::lower::mangle::demangleName(llvm::StringRef name) {
-  auto result{fir::NameUniquer::deconstruct(name)};
+  auto result = fir::NameUniquer::deconstruct(name);
   return result.second.name;
 }

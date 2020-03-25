@@ -1190,11 +1190,10 @@ private:
     assert(!builder && "expected nullptr");
     // get mangled name
     std::string name;
-    if (funit.isMainProgram()) {
+    if (funit.isMainProgram())
       name = uniquer.doProgramEntry();
-    } else {
+    else
       name = mangleName(funit.getSubprogramSymbol());
-    }
     mlir::FuncOp func =
         Fortran::lower::FirOpBuilder::getNamedFunction(module, name);
 
