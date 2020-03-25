@@ -34,7 +34,7 @@
   {                                                                            \
     if (disableToDoAssertions)                                                 \
       mlir::emitError(toLocation(), __FILE__)                                  \
-          << ":" << __LINE__ << " not implemented";                            \
+          << ':' << __LINE__ << " not implemented";                            \
     else                                                                       \
       llvm_unreachable("not yet implemented");                                 \
   }
@@ -157,9 +157,14 @@ public:
   }
 
   mlir::Location getCurrentLocation() override final { return toLocation(); }
+
+  /// Generate a dummy location.
   mlir::Location genLocation() override final {
+    // Note: builder may not be instantiated yet
     return mlir::UnknownLoc::get(&mlirContext);
   }
+
+  /// Generate a `Location` from the `CharBlock`.
   mlir::Location
   genLocation(const Fortran::parser::CharBlock &block) override final {
     if (cooked) {
@@ -1126,13 +1131,18 @@ private:
     }
   }
 
-  mlir::FuncOp createNewFunction(llvm::StringRef name,
+  mlir::FuncOp createNewFunction(mlir::Location loc, llvm::StringRef name,
                                  const Fortran::semantics::Symbol *symbol) {
     mlir::FunctionType ty =
         symbol ? genFunctionType(*symbol)
                : mlir::FunctionType::get(llvm::None, llvm::None, &mlirContext);
-    return Fortran::lower::FirOpBuilder::createFunction(toLocation(), module,
-                                                        name, ty);
+    return Fortran::lower::FirOpBuilder::createFunction(loc, module, name, ty);
+  }
+
+  static Fortran::parser::CharBlock functionStmtSource(
+      const Fortran::lower::pft::FunctionLikeUnit::FunctionStatement &stmt) {
+    return stmt.visit(
+        Fortran::common::visitors{[](const auto &x) { return x.source; }});
   }
 
   /// Prepare to translate a new function
@@ -1144,11 +1154,16 @@ private:
       name = uniquer.doProgramEntry();
     else
       name = mangleName(funit.getSubprogramSymbol());
+
+    // FIXME: do NOT use unknown for the anonymous PROGRAM case. We probably
+    // should just stash the location in the funit regardless.
+    mlir::Location loc = funit.beginStmt.has_value()
+                             ? toLocation(functionStmtSource(*funit.beginStmt))
+                             : mlir::UnknownLoc::get(&mlirContext);
     mlir::FuncOp func =
         Fortran::lower::FirOpBuilder::getNamedFunction(module, name);
-
     if (!func)
-      func = createNewFunction(name, funit.symbol);
+      func = createNewFunction(loc, name, funit.symbol);
     builder = new Fortran::lower::FirOpBuilder(func);
     assert(builder && "FirOpBuilder did not instantiate");
     func.addEntryBlock();
