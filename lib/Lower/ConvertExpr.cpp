@@ -231,7 +231,10 @@ class ExprLowering {
   }
 
   mlir::Value genval(const Fortran::evaluate::BOZLiteralConstant &) { TODO(); }
-  mlir::Value genval(const Fortran::evaluate::ProcedureRef &) { TODO(); }
+  mlir::Value genval(const Fortran::evaluate::ProcedureRef &procRef) {
+    llvm::SmallVector<mlir::Type, 1> resTy;
+    return genProcedureRef(procRef, resTy);
+  }
   mlir::Value genval(const Fortran::evaluate::ProcedureDesignator &) { TODO(); }
   mlir::Value genval(const Fortran::evaluate::NullPointer &) { TODO(); }
   mlir::Value genval(const Fortran::evaluate::StructureConstructor &) {
@@ -795,66 +798,89 @@ class ExprLowering {
   mlir::Value genval(const Fortran::evaluate::FunctionRef<A> &funRef) {
     TODO(); // Derived type functions (user + intrinsics)
   }
+
+  mlir::Value
+  genIntrinsicRef(const Fortran::evaluate::ProcedureRef &procRef,
+                  const Fortran::evaluate::SpecificIntrinsic &intrinsic,
+                  mlir::ArrayRef<mlir::Type> resultType) {
+    if (resultType.size() == 1)
+      TODO(); // Intrinsic subroutine
+
+    llvm::SmallVector<mlir::Value, 2> operands;
+    // Lower arguments
+    // For now, logical arguments for intrinsic are lowered to `fir.logical`
+    // so that TRANSFER can work. For some arguments, it could lead to useless
+    // conversions (e.g scalar MASK of MERGE will be converted to `i1`), but
+    // the generated code is at least correct. To improve this, the intrinsic
+    // lowering facility should control argument lowering.
+    auto restorer = Fortran::common::ScopedSet(genLogicalAsI1, false);
+    for (const auto &arg : procRef.arguments()) {
+      if (auto *expr = Fortran::evaluate::UnwrapExpr<
+              Fortran::evaluate::Expr<Fortran::evaluate::SomeType>>(arg)) {
+        operands.push_back(genval(*expr));
+      } else {
+        operands.push_back(nullptr); // optional
+      }
+    }
+    // Let the intrinsic library lower the intrinsic procedure call
+    llvm::StringRef name{intrinsic.name};
+    return intrinsics.genval(getLoc(), builder, name, resultType[0], operands);
+  }
+
+  mlir::Value genProcedureRef(const Fortran::evaluate::ProcedureRef procRef,
+                              mlir::ArrayRef<mlir::Type> resultType) {
+    if (const auto *intrinsic{procRef.proc().GetSpecificIntrinsic()}) {
+      return genIntrinsicRef(procRef, *intrinsic, resultType[0]);
+    }
+    // Implicit interface implementation only
+    // TODO: Explicit interface, we need to use Characterize here,
+    // evaluate::IntrinsicProcTable is required to use it.
+    llvm::SmallVector<mlir::Type, 2> argTypes;
+    llvm::SmallVector<mlir::Value, 2> operands;
+    // Logical arguments of user functions must be lowered to `fir.logical`
+    // and not `i1`.
+    auto restorer = Fortran::common::ScopedSet(genLogicalAsI1, false);
+    for (const auto &arg : procRef.arguments()) {
+      if (!arg.has_value())
+        TODO(); // optional arguments
+      const auto *expr = arg->UnwrapExpr();
+      if (!expr)
+        TODO(); // assumed type arguments
+      if (const auto *sym =
+              Fortran::evaluate::UnwrapWholeSymbolDataRef(*expr)) {
+        mlir::Value argRef = symMap.lookupSymbol(*sym);
+        assert(argRef && "could not get symbol reference");
+        argTypes.push_back(argRef.getType());
+        operands.push_back(argRef);
+      } else {
+        // TODO create temps for expressions
+        TODO();
+      }
+    }
+    mlir::FunctionType funTy =
+        mlir::FunctionType::get(argTypes, resultType, builder.getContext());
+    auto funName = applyNameMangling(procRef.proc());
+    ;
+    [[maybe_unused]] mlir::FuncOp func = getFunction(funName, funTy);
+    auto call = builder.create<fir::CallOp>(
+        getLoc(), resultType, builder.getSymbolRefAttr(funName), operands);
+
+    if (resultType.size() == 0)
+      return {}; // subroutine call
+    // For now, Fortran returned values are implemented with a single MLIR
+    // function return value.
+    assert(call.getNumResults() == 1 &&
+           "Expected exactly one result in FUNCTION call");
+    return call.getResult(0);
+  }
+
   template <Fortran::common::TypeCategory TC, int KIND>
   mlir::Value
   genval(const Fortran::evaluate::FunctionRef<Fortran::evaluate::Type<TC, KIND>>
              &funRef) {
-    if (const auto &intrinsic{funRef.proc().GetSpecificIntrinsic()}) {
-      mlir::Type ty = converter.genType(TC, KIND);
-      llvm::SmallVector<mlir::Value, 2> operands;
-      // Lower arguments
-      // For now, logical arguments for intrinsic are lowered to `fir.logical`
-      // so that TRANSFER can work. For some arguments, it could lead to useless
-      // conversions (e.g scalar MASK of MERGE will be converted to `i1`), but
-      // the generated code is at least correct. To improve this, the intrinsic
-      // lowering facility should control argument lowering.
-      auto restorer = Fortran::common::ScopedSet(genLogicalAsI1, false);
-      for (const auto &arg : funRef.arguments()) {
-        if (auto *expr = Fortran::evaluate::UnwrapExpr<
-                Fortran::evaluate::Expr<Fortran::evaluate::SomeType>>(arg)) {
-          operands.push_back(genval(*expr));
-        } else {
-          operands.push_back(nullptr); // optional
-        }
-      }
-      // Let the intrinsic library lower the intrinsic function call
-      llvm::StringRef name{intrinsic->name};
-      return intrinsics.genval(getLoc(), builder, name, ty, operands);
-    } else {
-      // implicit interface implementation only
-      // TODO: explicit interface
-      llvm::SmallVector<mlir::Type, 2> argTypes;
-      llvm::SmallVector<mlir::Value, 2> operands;
-      // Logical arguments of user functions must be lowered to `fir.logical`
-      // and not `i1`.
-      auto restorer = Fortran::common::ScopedSet(genLogicalAsI1, false);
-      for (const auto &arg : funRef.arguments()) {
-        assert(arg.has_value() &&
-               "optional argument requires explicit interface");
-        const auto *expr = arg->UnwrapExpr();
-        assert(expr && "assumed type argument requires explicit interface");
-        if (const auto *sym =
-                Fortran::evaluate::UnwrapWholeSymbolDataRef(*expr)) {
-          mlir::Value argRef = symMap.lookupSymbol(*sym);
-          assert(argRef && "could not get symbol reference");
-          argTypes.push_back(argRef.getType());
-          operands.push_back(argRef);
-        } else {
-          // TODO create temps for expressions
-          TODO();
-        }
-      }
-      mlir::Type resultType = converter.genType(TC, KIND);
-      mlir::FunctionType funTy =
-          mlir::FunctionType::get(argTypes, resultType, builder.getContext());
-      mlir::FuncOp func = getFunction(applyNameMangling(funRef.proc()), funTy);
-      auto call = builder.create<mlir::CallOp>(getLoc(), func, operands);
-      // For now, Fortran return value are implemented with a single MLIR
-      // function return value.
-      assert(call.getNumResults() == 1 &&
-             "Expected exactly one result in FUNCTION call");
-      return call.getResult(0);
-    }
+    llvm::SmallVector<mlir::Type, 1> resTy;
+    resTy.push_back(converter.genType(TC, KIND));
+    return genProcedureRef(funRef, resTy);
   }
 
   template <typename A>

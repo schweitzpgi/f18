@@ -329,66 +329,16 @@ private:
   }
 
   /// Lowering of CALL statement
-  ///
-  /// 1. Determine what function is being called/dispatched to
-  /// 2. Build a tuple of arguments to be passed to that function
-  /// 3. Emit fir.call/fir.dispatch on arguments
   void genFIR(Fortran::lower::pft::Evaluation &eval,
               const Fortran::parser::CallStmt &stmt) {
-    llvm::SmallVector<mlir::Type, 8> argTy;
-    llvm::SmallVector<mlir::Type, 2> resTy;
-    llvm::StringRef funName;
-    std::vector<Fortran::semantics::Symbol *> argsList;
     setCurrentPosition(stmt.v.source);
-    std::visit(Fortran::common::visitors{
-                   [&](const Fortran::parser::Name &name) {
-                     auto *sym = name.symbol;
-                     auto n = sym->name();
-                     funName = llvm::StringRef{n.begin(), n.size()};
-                     auto &details =
-                         sym->get<Fortran::semantics::SubprogramDetails>();
-                     // TODO ProcEntityDetails?
-                     // TODO bindName()?
-                     argsList = details.dummyArgs();
-                   },
-                   [&](const Fortran::parser::ProcComponentRef &) { TODO(); },
-               },
-               std::get<Fortran::parser::ProcedureDesignator>(stmt.v.t).u);
-    for (auto *d : argsList) {
-      Fortran::semantics::SymbolRef sr = *d;
-      // FIXME:
-      argTy.push_back(fir::ReferenceType::get(genType(sr)));
-    }
-    auto funTy = mlir::FunctionType::get(argTy, resTy, builder->getContext());
-    // FIXME: mangle name
-    [[maybe_unused]] mlir::FuncOp func = getFunc(funName, funTy);
-    std::vector<mlir::Value> actuals;
-    for (auto &aa :
-         std::get<std::list<Fortran::parser::ActualArgSpec>>(stmt.v.t)) {
-      auto &kw = std::get<std::optional<Fortran::parser::Keyword>>(aa.t);
-      auto &arg = std::get<Fortran::parser::ActualArg>(aa.t);
-      mlir::Value fe;
-      std::visit(
-          Fortran::common::visitors{
-              [&](const Fortran::common::Indirection<Fortran::parser::Expr>
-                      &e) {
-                // FIXME: needs to match argument, assumes trivial by-ref
-                fe = genExprAddr(*Fortran::semantics::GetExpr(e));
-              },
-              [&](const Fortran::parser::AltReturnSpec &) { TODO(); },
-              [&](const Fortran::parser::ActualArg::PercentRef &) { TODO(); },
-              [&](const Fortran::parser::ActualArg::PercentVal &) { TODO(); },
-          },
-          arg.u);
-      if (kw.has_value()) {
-        TODO();
-        continue;
-      }
-      actuals.push_back(fe);
-    }
-
-    builder->create<fir::CallOp>(toLocation(), resTy,
-                                 builder->getSymbolRefAttr(funName), actuals);
+    assert(stmt.typedCall && "Call was not analyzed");
+    // The actual lowering is forwarded to expression lowering
+    // where the code is shared with function reference.
+    Fortran::semantics::SomeExpr expr{*stmt.typedCall};
+    auto res = createFIRExpr(toLocation(), &expr);
+    if (res)
+      TODO(); // Alternate returns
   }
 
   void genFIR(Fortran::lower::pft::Evaluation &eval,
