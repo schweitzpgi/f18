@@ -11,6 +11,7 @@
 #include "flang/Optimizer/Dialect/FIROpsSupport.h"
 #include "flang/Optimizer/Dialect/FIRType.h"
 #include "mlir/ADT/TypeSwitch.h"
+#include "mlir/Dialect/CommonFolders.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/Function.h"
@@ -58,6 +59,15 @@ static bool verifyRecordLenParams(mlir::Type inType, unsigned numLenParams) {
 }
 
 //===----------------------------------------------------------------------===//
+// AddfOp
+//===----------------------------------------------------------------------===//
+
+mlir::OpFoldResult fir::AddfOp::fold(llvm::ArrayRef<mlir::Attribute> opnds) {
+  return mlir::constFoldBinaryOp<FloatAttr>(
+      opnds, [](APFloat a, APFloat b) { return a + b; });
+}
+
+//===----------------------------------------------------------------------===//
 // AllocaOp
 //===----------------------------------------------------------------------===//
 
@@ -98,6 +108,33 @@ mlir::Type fir::AllocMemOp::wrapResultType(mlir::Type intype) {
       intype.isa<PointerType>() || intype.isa<FunctionType>())
     return {};
   return HeapType::get(intype);
+}
+
+//===----------------------------------------------------------------------===//
+// BoxAddrOp
+//===----------------------------------------------------------------------===//
+
+mlir::OpFoldResult fir::BoxAddrOp::fold(llvm::ArrayRef<mlir::Attribute> opnds) {
+  if (auto v = val().getDefiningOp()) {
+    if (auto box = dyn_cast<fir::EmboxOp>(v))
+      return box.memref();
+    if (auto box = dyn_cast<fir::EmboxCharOp>(v))
+      return box.memref();
+  }
+  return {};
+}
+
+//===----------------------------------------------------------------------===//
+// BoxCharLenOp
+//===----------------------------------------------------------------------===//
+
+mlir::OpFoldResult
+fir::BoxCharLenOp::fold(llvm::ArrayRef<mlir::Attribute> opnds) {
+  if (auto v = val().getDefiningOp()) {
+    if (auto box = dyn_cast<fir::EmboxCharOp>(v))
+      return box.len();
+  }
+  return {};
 }
 
 //===----------------------------------------------------------------------===//
@@ -265,6 +302,16 @@ static void printCmpcOp(OpAsmPrinter &p, fir::CmpcOp op) { printCmpOp(p, op); }
 mlir::ParseResult fir::parseCmpcOp(mlir::OpAsmParser &parser,
                                    mlir::OperationState &result) {
   return parseCmpOp<fir::CmpcOp>(parser, result);
+}
+
+//===----------------------------------------------------------------------===//
+// ConvertOp
+//===----------------------------------------------------------------------===//
+
+mlir::OpFoldResult fir::ConvertOp::fold(llvm::ArrayRef<mlir::Attribute> opnds) {
+  if (value().getType() == getType())
+    return value();
+  return {};
 }
 
 //===----------------------------------------------------------------------===//
@@ -612,6 +659,15 @@ fir::LoopOp fir::getForInductionVarOwner(mlir::Value val) {
 }
 
 //===----------------------------------------------------------------------===//
+// MulfOp
+//===----------------------------------------------------------------------===//
+
+mlir::OpFoldResult fir::MulfOp::fold(llvm::ArrayRef<mlir::Attribute> opnds) {
+  return mlir::constFoldBinaryOp<FloatAttr>(
+      opnds, [](APFloat a, APFloat b) { return a * b; });
+}
+
+//===----------------------------------------------------------------------===//
 // SelectOp
 //===----------------------------------------------------------------------===//
 
@@ -932,6 +988,15 @@ bool fir::StringLitOp::isWideValue() {
 }
 
 //===----------------------------------------------------------------------===//
+// SubfOp
+//===----------------------------------------------------------------------===//
+
+mlir::OpFoldResult fir::SubfOp::fold(llvm::ArrayRef<mlir::Attribute> opnds) {
+  return mlir::constFoldBinaryOp<FloatAttr>(
+      opnds, [](APFloat a, APFloat b) { return a - b; });
+}
+
+//===----------------------------------------------------------------------===//
 // WhereOp
 //===----------------------------------------------------------------------===//
 
@@ -1044,9 +1109,9 @@ mlir::FuncOp fir::createFuncOp(mlir::Location loc, mlir::ModuleOp module,
                                llvm::ArrayRef<mlir::NamedAttribute> attrs) {
   if (auto f = module.lookupSymbol<mlir::FuncOp>(name))
     return f;
-  mlir::OpBuilder modBuilder(module.getBodyRegion());
-  // Insert new function at the end of the current module.
-  modBuilder.setInsertionPoint(modBuilder.getInsertionBlock()->getTerminator());
+  auto &region = module.getBodyRegion();
+  mlir::OpBuilder modBuilder(region);
+  modBuilder.setInsertionPoint(&region.front(), --region.front().end());
   return modBuilder.create<mlir::FuncOp>(loc, name, type, attrs);
 }
 
