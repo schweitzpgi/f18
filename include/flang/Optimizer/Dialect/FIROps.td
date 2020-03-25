@@ -1143,9 +1143,6 @@ def fir_EmboxOp : fir_Op<"embox", [MemoryEffects<[MemAlloc]>]> {
 }
 
 def fir_EmboxCharOp : fir_Op<"emboxchar", [MemoryEffects<[MemAlloc]>]> {
-  let arguments = (ins AnyReferenceLike:$memref, AnyIntegerLike:$len);
-  let results = (outs fir_BoxCharType);
-
   let summary = "boxes a given CHARACTER reference and its LEN parameter";
 
   let description = [{
@@ -1166,6 +1163,10 @@ def fir_EmboxCharOp : fir_Op<"emboxchar", [MemoryEffects<[MemAlloc]>]> {
     In the above `%4` is a memory reference to a buffer of 10 CHARACTER units.
     This buffer and its LEN value (10) are wrapped into a pair in `%6`.
   }];
+
+  let arguments = (ins AnyReferenceLike:$memref, AnyIntegerLike:$len);
+  
+  let results = (outs fir_BoxCharType);
 
   let assemblyFormat = [{
     $memref `,` $len attr-dict `:` functional-type(operands, results)
@@ -1358,6 +1359,8 @@ def fir_BoxAddrOp : fir_SimpleOneResultOp<"box_addr", []> {
   let arguments = (ins fir_BoxType:$val);
 
   let results = (outs AnyReferenceLike);
+
+  let hasFolder = 1;
 }
 
 def fir_BoxCharLenOp : fir_SimpleOp<"boxchar_len", []> {
@@ -1375,6 +1378,8 @@ def fir_BoxCharLenOp : fir_SimpleOp<"boxchar_len", []> {
   let arguments = (ins fir_BoxCharType:$val);
 
   let results = (outs AnyIntegerLike);
+
+  let hasFolder = 1;
 }
 
 def fir_BoxDimsOp : fir_Op<"box_dims", []> {
@@ -2305,9 +2310,15 @@ class RealArithmeticOp<string mnemonic, list<OpTrait> traits = []> :
       fir_ArithmeticOp<mnemonic, traits>,
       Arguments<(ins AnyRealLike:$lhs, AnyRealLike:$rhs)>;
 
-def fir_AddfOp : RealArithmeticOp<"addf", [Commutative]>;
-def fir_SubfOp : RealArithmeticOp<"subf">;
-def fir_MulfOp : RealArithmeticOp<"mulf", [Commutative]>;
+def fir_AddfOp : RealArithmeticOp<"addf", [Commutative]> {
+  let hasFolder = 1;
+}
+def fir_SubfOp : RealArithmeticOp<"subf"> {
+  let hasFolder = 1;
+}
+def fir_MulfOp : RealArithmeticOp<"mulf", [Commutative]> {
+  let hasFolder = 1;
+}
 def fir_DivfOp : RealArithmeticOp<"divf">;
 def fir_ModfOp : RealArithmeticOp<"modf">;
 // Pow is a builtin call and not a primitive
@@ -2492,6 +2503,8 @@ def fir_ConvertOp : fir_OneResultOp<"convert", []> {
   let assemblyFormat = [{
     $value attr-dict `:` functional-type($value, results)
   }];
+
+  let hasFolder = 1;
 }
 
 def FortranTypeAttr : Attr<And<[CPred<"$_self.isa<TypeAttr>()">,
