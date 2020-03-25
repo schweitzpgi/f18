@@ -107,6 +107,8 @@ bool IsOrContainsEventOrLockComponent(const Symbol &);
 bool IsSaved(const Symbol &);
 bool CanBeTypeBoundProc(const Symbol *);
 bool IsInitialized(const Symbol &);
+// Given a subroutine symbol, tells if the subroutine has alternate returns
+bool HasAlternateReturns(const Symbol &);
 
 // Return an ultimate component of type that matches predicate, or nullptr.
 const Symbol *FindUltimateComponent(const DerivedTypeSpec &type,

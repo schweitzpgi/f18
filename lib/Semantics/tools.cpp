@@ -1314,4 +1314,13 @@ void LabelEnforce::SayWithConstruct(SemanticsContext &context,
   context.Say(stmtLocation, message)
       .Attach(constructLocation, GetEnclosingConstructMsg());
 }
+
+bool HasAlternateReturns(const Symbol &sub) {
+  for (const auto *args : sub.get<SubprogramDetails>().dummyArgs()) {
+    if (!args) {
+      return true;
+    }
+  }
+  return false;
+}
 }
