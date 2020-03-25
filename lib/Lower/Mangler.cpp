@@ -69,35 +69,36 @@ findInterfaceIfSeperateMP(const Fortran::semantics::Symbol &symbol) {
 std::string
 Fortran::lower::mangle::mangleName(fir::NameUniquer &uniquer,
                                    const Fortran::semantics::Symbol &symbol) {
+  /// Resolve host and module association before mangling
+  const auto &ultimateSymbol = symbol.GetUltimate();
+  auto symbolName = ultimateSymbol.name();
   return std::visit(
       Fortran::common::visitors{
           [&](const Fortran::semantics::MainProgramDetails &) {
             return uniquer.doProgramEntry().str();
           },
           [&](const Fortran::semantics::SubprogramDetails &) {
-            auto &symbolName = symbol.name();
             // Separate module subprograms must be mangled according to the
             // scope where they were declared (the symbol we have is the
             // definition).
-            const auto *interface = &symbol;
-            if (const auto *mpIface = findInterfaceIfSeperateMP(symbol))
+            const auto *interface = &ultimateSymbol;
+            if (const auto *mpIface = findInterfaceIfSeperateMP(ultimateSymbol))
               interface = mpIface;
             auto modNames = moduleNames(*interface);
             return uniquer.doProcedure(modNames, hostName(*interface),
                                        toStringRef(symbolName));
           },
           [&](const Fortran::semantics::ProcEntityDetails &) {
-            auto &cb = symbol.name();
-            auto modNames = moduleNames(symbol);
-            return uniquer.doProcedure(modNames, hostName(symbol),
-                                       toStringRef(cb));
+            auto modNames = moduleNames(ultimateSymbol);
+            return uniquer.doProcedure(modNames, hostName(ultimateSymbol),
+                                       toStringRef(symbolName));
           },
           [](const auto &) -> std::string {
             assert(false);
             return {};
           },
       },
-      symbol.details());
+      ultimateSymbol.details());
 }
 
 std::string Fortran::lower::mangle::demangleName(llvm::StringRef name) {
