@@ -57,7 +57,7 @@ static llvm::cl::opt<std::string> inputFilename(llvm::cl::Positional,
 
 static llvm::cl::opt<std::string>
     outputFilename("o", llvm::cl::desc("Specify the output filename"),
-                   llvm::cl::value_desc("filename"), llvm::cl::init("a.mlir"));
+                   llvm::cl::value_desc("filename"));
 
 static llvm::cl::list<std::string>
     includeDirs("I", llvm::cl::desc("include search paths"));
@@ -170,9 +170,12 @@ static void convertFortranSourceToMLIR(
   burnside.lower(parseTree, nameUniquer);
   mlir::ModuleOp mlirModule = burnside.getModule();
   std::error_code ec;
-  llvm::raw_fd_ostream out(outputFilename, ec);
+  std::string outputName = outputFilename;
+  if (!outputName.size())
+    outputName = llvm::sys::path::stem(inputFilename).str().append(".mlir");
+  llvm::raw_fd_ostream out(outputName, ec);
   if (ec) {
-    llvm::errs() << "could not open output file " << outputFilename << '\n';
+    llvm::errs() << "could not open output file " << outputName << '\n';
     return;
   }
   if (emitFIR) {
@@ -195,10 +198,10 @@ static void convertFortranSourceToMLIR(
     // Continue to lower from MLIR down to LLVM IR. Emit LLVM and MLIR.
     pm.addPass(fir::createFIRToLLVMPass(nameUniquer));
     std::error_code ec;
-    llvm::ToolOutputFile outFile(outputFilename + ".ll", ec,
+    llvm::ToolOutputFile outFile(outputName + ".ll", ec,
                                  llvm::sys::fs::OF_None);
     if (ec) {
-      llvm::errs() << "can't open output file " + outputFilename + ".ll";
+      llvm::errs() << "can't open output file " + outputName + ".ll";
       return;
     }
     pm.addPass(fir::createLLVMDialectToLLVMPass(outFile.os()));
