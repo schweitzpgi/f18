@@ -9,6 +9,7 @@
 #include "flang/Lower/PFTBuilder.h"
 #include "flang/Parser/dump-parse-tree.h"
 #include "flang/Parser/parse-tree-visitor.h"
+#include "flang/Semantics/symbol.h"
 #include "llvm/Support/CommandLine.h"
 #include <algorithm>
 #include <cassert>
@@ -486,11 +487,11 @@ private:
             if (!t->isA<parser::FormatStmt>()) {
               markBranchTarget(eval, label);
             }
-            auto iter = assignSymbolLabelMap->find(sym);
+            auto iter = assignSymbolLabelMap->find(*sym);
             if (iter == assignSymbolLabelMap->end()) {
               pft::LabelSet labelSet{};
               labelSet.insert(label);
-              assignSymbolLabelMap->try_emplace(sym, labelSet);
+              assignSymbolLabelMap->try_emplace(*sym, labelSet);
             } else {
               iter->second.insert(label);
             }

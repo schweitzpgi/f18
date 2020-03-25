@@ -116,7 +116,8 @@ static constexpr bool isFunctionLike{common::HasMember<
                   parser::SeparateModuleSubprogram>>};
 
 using LabelSet = llvm::SmallSet<parser::Label, 5>;
-using SymbolLabelMap = llvm::DenseMap<const semantics::Symbol *, LabelSet>;
+using SymbolRef = common::Reference<const semantics::Symbol>;
+using SymbolLabelMap = llvm::DenseMap<SymbolRef, LabelSet>;
 
 /// Provide a variant like container that can holds constant references.
 /// It is used in the other classes to provide union of const references
