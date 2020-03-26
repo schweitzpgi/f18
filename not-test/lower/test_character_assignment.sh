@@ -26,7 +26,7 @@ testObject=test.o
 testExec=./test_exec
 testLog=test.log
 llFile=a.mlir.ll
-$BBC -emit-llvm -disable-fir2std $F_SRC 2>$bbcLog
+$BBC -emit-llvm -disable-fir2std -o a.mlir $F_SRC 2>$bbcLog
 [[ $? -ne 0 ]] && die "bbc test.f90 compilation failure"
 sed -i 's/_QP//g' -i $llFile
 $LLC $llFile -o $assembly

@@ -80,12 +80,6 @@ static constexpr FuncTypeBuilderFunc getTypeModel() {
   return std::get<A>(newIOTable).getTypeModel();
 }
 
-inline bool isCharacterLiteral(mlir::Type argTy) {
-  if (auto arrTy = argTy.dyn_cast<fir::SequenceType>())
-    return arrTy.getEleTy().isa<fir::CharacterType>();
-  return false;
-}
-
 inline int64_t getLength(mlir::Type argTy) {
   return argTy.cast<fir::SequenceType>().getShape()[0];
 }
@@ -160,44 +154,13 @@ static mlir::FuncOp getOutputRuntimeFunc(Fortran::lower::FirOpBuilder &builder,
 static llvm::SmallVector<mlir::Value, 4>
 splitArguments(Fortran::lower::FirOpBuilder &builder, mlir::Location loc,
                mlir::Value arg) {
-  mlir::Value zero;
-  mlir::Value one;
-  mlir::Type argTy = arg.getType();
-  mlir::MLIRContext *context = argTy.getContext();
-  const bool isComplex = argTy.isa<fir::CplxType>();
-  const bool isCharLit = isCharacterLiteral(argTy);
-  const bool isBoxChar = argTy.isa<fir::BoxCharType>();
-
-  if (isComplex || isCharLit || isBoxChar) {
-    // Only create these constants when needed and not every time
-    zero = builder.create<mlir::ConstantOp>(loc, builder.getI64IntegerAttr(0));
-    one = builder.create<mlir::ConstantOp>(loc, builder.getI64IntegerAttr(1));
+  if (builder.isCharacter(arg)) {
+    auto dataLen = builder.materializeCharacter(arg);
+    return {dataLen.first, dataLen.second};
   }
-  if (isComplex) {
-    auto eleTy =
-        fir::RealType::get(context, argTy.cast<fir::CplxType>().getFKind());
-    mlir::Value realPart =
-        builder.create<fir::ExtractValueOp>(loc, eleTy, arg, zero);
-    mlir::Value imaginaryPart =
-        builder.create<fir::ExtractValueOp>(loc, eleTy, arg, one);
-    return {realPart, imaginaryPart};
-  }
-  if (isBoxChar) {
-    mlir::Type ptrTy =
-        fir::ReferenceType::get(mlir::IntegerType::get(8, context));
-    mlir::Type sizeTy = mlir::IntegerType::get(64, context);
-    mlir::Value pointerPart =
-        builder.create<fir::ExtractValueOp>(loc, ptrTy, arg, zero);
-    mlir::Value sizePart =
-        builder.create<fir::ExtractValueOp>(loc, sizeTy, arg, one);
-    return {pointerPart, sizePart};
-  }
-  if (isCharLit) {
-    mlir::Value variable = builder.create<fir::AllocaOp>(loc, argTy);
-    builder.create<fir::StoreOp>(loc, arg, variable);
-    mlir::Value sizePart = builder.create<mlir::ConstantOp>(
-        loc, builder.getI64IntegerAttr(getLength(argTy)));
-    return {variable, sizePart};
+  if (arg.getType().isa<fir::CplxType>()) {
+    auto parts = builder.extractParts(arg);
+    return {parts.first, parts.second};
   }
   return {arg};
 }
@@ -295,15 +258,12 @@ lowerStringLit(Fortran::lower::AbstractConverter &converter, mlir::Location loc,
                mlir::Type ty2 = {}) {
   auto &builder = converter.getFirOpBuilder();
   auto *expr = Fortran::semantics::GetExpr(syntax);
-  auto buffer = converter.genExprValue(expr, loc);
-  auto buff = builder.create<fir::ConvertOp>(loc, ty0, buffer);
-  mlir::Type ty = buffer.getType();
-  auto lenVal = ty.cast<fir::SequenceType>().getShape()[0];
-  auto len = builder.create<mlir::ConstantOp>(
-      loc, builder.getIntegerAttr(ty1, lenVal));
+  auto str = converter.genExprValue(expr, loc);
+  auto dataLen = builder.materializeCharacter(str);
+  auto buff = builder.create<fir::ConvertOp>(loc, ty0, dataLen.first);
+  auto len = builder.create<fir::ConvertOp>(loc, ty1, dataLen.second);
   if (ty2) {
-    mlir::Type eleTy = ty.cast<fir::SequenceType>().getEleTy();
-    auto kindVal = eleTy.cast<fir::CharacterType>().getFKind();
+    auto kindVal = builder.getCharacterKind(str);
     auto kind = builder.create<mlir::ConstantOp>(
         loc, builder.getIntegerAttr(ty2, kindVal));
     return {buff, len, kind};
