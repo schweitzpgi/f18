@@ -94,6 +94,10 @@ static llvm::cl::opt<bool> warnIsError("Werror",
                                        llvm::cl::desc("warnings are errors"),
                                        llvm::cl::init(false));
 
+static llvm::cl::opt<bool> dumpSymbols("dump-symbols",
+                                       llvm::cl::desc("dump the symbol table"),
+                                       llvm::cl::init(false));
+
 //===----------------------------------------------------------------------===//
 
 namespace {
@@ -126,6 +130,8 @@ static void convertFortranSourceToMLIR(
       options.isFixedForm = suffix == "f" || suffix == "F" || suffix == "ff";
     }
   }
+
+  // prep for prescan and parse
   options.searchDirectories = includeDirs;
   Fortran::parser::Parsing parsing{semanticsContext.allSources()};
   parsing.Prescan(path, options);
@@ -136,6 +142,8 @@ static void convertFortranSourceToMLIR(
     exitStatus = EXIT_FAILURE;
     return;
   }
+
+  // parse the input Fortran
   parsing.Parse(llvm::outs());
   parsing.messages().Emit(llvm::errs(), parsing.cooked());
   if (!parsing.consumedWholeFile()) {
@@ -151,6 +159,8 @@ static void convertFortranSourceToMLIR(
     exitStatus = EXIT_FAILURE;
     return;
   }
+
+  // run semantics
   auto &parseTree{*parsing.parseTree()};
   Fortran::semantics::Semantics semantics{semanticsContext, parseTree,
                                           parsing.cooked()};
@@ -161,6 +171,8 @@ static void convertFortranSourceToMLIR(
     exitStatus = EXIT_FAILURE;
     return;
   }
+  if (dumpSymbols)
+    semantics.DumpSymbols(llvm::outs());
 
   // MLIR+FIR
   fir::NameUniquer nameUniquer;
