@@ -111,7 +111,7 @@ contains
 end submodule
 
 
-! CHECK-LABEL: func @MAIN_() {
+! CHECK-LABEL: func @_QQmain() {
 program test
 ! CHECK: }
 end program
