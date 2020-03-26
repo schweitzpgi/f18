@@ -841,45 +841,6 @@ private:
     TODO();
   }
 
-  void genCharacterAssignment(const Fortran::evaluate::Assignment &assignment) {
-    // Helper to get address and length from an Expr that is a character
-    // variable designator
-    auto getAddrAndLength =
-        [&](const Fortran::lower::SomeExpr &charDesignatorExpr)
-        -> Fortran::lower::CharValue {
-      auto addr = genExprAddr(charDesignatorExpr);
-      const auto &charExpr =
-          std::get<Fortran::evaluate::Expr<Fortran::evaluate::SomeCharacter>>(
-              charDesignatorExpr.u);
-      auto lenExpr = charExpr.LEN();
-      assert(lenExpr.has_value() &&
-             "could not get expression to compute character length");
-      auto len =
-          genExprValue(Fortran::evaluate::AsGenericExpr(std::move(*lenExpr)));
-      return {addr, len};
-    };
-
-    builder->setLocation(toLocation());
-
-    // RHS evaluation.
-    // FIXME:  Only works with rhs that are variable reference.
-    // Other expression evaluation are not simple copies.
-    auto rhs = getAddrAndLength(assignment.rhs);
-    // A temp is needed to evaluate rhs until proven it does not depend on lhs.
-    auto tempToEvalRhs =
-        builder->createCharacterTemp(builder->getCharacterType(rhs), rhs.len);
-    builder->createCopy(tempToEvalRhs, rhs, rhs.len);
-
-    // Copy the minimum of the lhs and rhs lengths and pad the lhs remainder
-    auto lhs = getAddrAndLength(assignment.lhs);
-    auto cmpLen = builder->createHere<mlir::CmpIOp>(mlir::CmpIPredicate::slt,
-                                                    lhs.len, rhs.len);
-    auto copyCount =
-        builder->createHere<mlir::SelectOp>(cmpLen, lhs.len, rhs.len);
-    builder->createCopy(lhs, tempToEvalRhs, copyCount);
-    builder->createPadding(lhs, copyCount, lhs.len);
-  }
-
   void genFIR(Fortran::lower::pft::Evaluation &eval,
               const Fortran::parser::AssignmentStmt &stmt) {
     assert(stmt.typedAssignment && stmt.typedAssignment->v &&
@@ -927,7 +888,10 @@ private:
                                                 genExprAddr(assignment.lhs));
                 } else if (isCharacterCategory(lhsType->category())) {
                   // Fortran 2018 10.2.1.3 p10 and p11
-                  genCharacterAssignment(assignment);
+                  // Generating value for lhs to get fir.boxchar.
+                  auto lhs{genExprValue(assignment.lhs)};
+                  auto rhs{genExprValue(assignment.rhs)};
+                  builder->createAssign(lhs, rhs);
                 } else {
                   assert(lhsType->category() == Fortran::lower::DerivedCat);
                   // Fortran 2018 10.2.1.3 p12 and p13
@@ -1136,6 +1100,82 @@ private:
     return Fortran::lower::FirOpBuilder::createFunction(loc, module, name, ty);
   }
 
+  /// Evaluate specification expressions of local symbol and add
+  /// the resulting mlir::value to localSymbols.
+  /// Before evaluating a specification expression, the symbols
+  /// appearing in the expression are gathered, and if they are also
+  /// local symbols, their specification are evaluated first. In case
+  /// a circular dependency occurs, this will crash.
+  void instantiateLocalVariable(
+      const Fortran::semantics::Symbol &symbol,
+      Fortran::lower::SymMap &dummyArgs,
+      llvm::DenseSet<Fortran::semantics::SymbolRef> attempted) {
+    if (localSymbols.lookupSymbol(symbol))
+      return; // already instantiated
+
+    if (IsProcedure(symbol))
+      return;
+
+    if (symbol.has<Fortran::semantics::UseDetails>() ||
+        symbol.has<Fortran::semantics::HostAssocDetails>())
+      TODO(); // Need to keep the localSymbols of other units ?
+
+    if (attempted.find(symbol) != attempted.end())
+      TODO(); // Complex dependencies in specification expressions.
+
+    attempted.insert(symbol);
+    mlir::Value localValue;
+    auto *type{symbol.GetType()};
+    assert(type && "expected type for local symbol");
+
+    if (type->category() == Fortran::semantics::DeclTypeSpec::Character) {
+      const auto &lenghtParam{type->characterTypeSpec().length()};
+      if (auto expr{lenghtParam.GetExplicit()}) {
+        for (const auto &requiredSymbol :
+             Fortran::evaluate::CollectSymbols(*expr)) {
+          instantiateLocalVariable(requiredSymbol, dummyArgs, attempted);
+        }
+        auto lenValue =
+            genExprValue(Fortran::evaluate::AsGenericExpr(std::move(*expr)));
+        if (auto actual = dummyArgs.lookupSymbol(symbol)) {
+          auto unboxed = builder->createUnboxChar(actual);
+          localValue = builder->createEmboxChar(unboxed.first, lenValue);
+        } else {
+          // TODO: propagate symbol name to FIR.
+          localValue = builder->createCharacterTemp(genType(symbol), lenValue);
+        }
+      } else if (lenghtParam.isDeferred()) {
+        TODO();
+      } else {
+        // Assumed
+        localValue = dummyArgs.lookupSymbol(symbol);
+        assert(localValue &&
+               "expected dummy arguments when length not explicit");
+      }
+      localSymbols.addSymbol(symbol, localValue);
+    } else if (!type->AsIntrinsic()) {
+      TODO(); // Derived type / polymorphic
+    } else {
+      if (auto actualValue = dummyArgs.lookupSymbol(symbol))
+        localSymbols.addSymbol(symbol, actualValue);
+      else
+        createTemporary(toLocation(), symbol);
+    }
+    if (const auto *details =
+            symbol.detailsIf<Fortran::semantics::ObjectEntityDetails>()) {
+      if (!details->shape().empty())
+        TODO(); // handle bounds specification expressions
+      if (!details->coshape().empty())
+        TODO(); // handle cobounds specification expressions
+      if (details->init())
+        TODO(); // init
+    } else {
+      assert(symbol.has<Fortran::semantics::ProcEntityDetails>());
+      TODO(); // Procedure pointers
+    }
+    attempted.erase(symbol);
+  }
+
   /// Prepare to translate a new function
   void startNewFunction(Fortran::lower::pft::FunctionLikeUnit &funit) {
     assert(!builder && "expected nullptr");
@@ -1156,6 +1196,7 @@ private:
     func.addEntryBlock();
     builder->setInsertionPointToStart(&func.front());
 
+    Fortran::lower::SymMap dummyAssociations;
     // plumb function's arguments
     if (funit.symbol && !funit.isMainProgram()) {
       auto *entryBlock = &func.front();
@@ -1164,13 +1205,26 @@ private:
       for (const auto &v :
            llvm::zip(details.dummyArgs(), entryBlock->getArguments())) {
         if (std::get<0>(v)) {
-          localSymbols.addSymbol(*std::get<0>(v), std::get<1>(v));
+          dummyAssociations.addSymbol(*std::get<0>(v), std::get<1>(v));
         } else {
           TODO(); // handle alternate return
         }
       }
-      if (details.isFunction())
-        createTemporary(toLocation(), details.result());
+
+      // Go through the symbol scope and evaluate specification expressions
+      llvm::DenseSet<Fortran::semantics::SymbolRef> attempted;
+      assert(funit.symbol->scope() && "subprogram symbol must have a scope");
+      // TODO: This loop through scope symbols offers no stability guarantee
+      // regarding the order. This should not be a problem given how
+      // instantiateLocalVariable is implemented, but may harm reproducibility.
+      // A solution would be to sort the symbol based on their source location.
+      for (const auto &iter : *funit.symbol->scope()) {
+        instantiateLocalVariable(iter.second.get(), dummyAssociations,
+                                 attempted);
+      }
+
+      // if (details.isFunction())
+      //  createTemporary(toLocation(), details.result());
     }
 
     // Create most function blocks in advance.
