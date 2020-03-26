@@ -1139,6 +1139,7 @@ private:
     return Fortran::lower::FirOpBuilder::createFunction(loc, module, name, ty);
   }
 
+  /// Helper to get location from FunctionLikeUnit begin/end statements.
   static Fortran::parser::CharBlock functionStmtSource(
       const Fortran::lower::pft::FunctionLikeUnit::FunctionStatement &stmt) {
     return stmt.visit(
@@ -1149,11 +1150,9 @@ private:
   void startNewFunction(Fortran::lower::pft::FunctionLikeUnit &funit) {
     assert(!builder && "expected nullptr");
     // get mangled name
-    std::string name;
-    if (funit.isMainProgram())
-      name = uniquer.doProgramEntry();
-    else
-      name = mangleName(funit.getSubprogramSymbol());
+    std::string name = funit.isMainProgram()
+                           ? uniquer.doProgramEntry().str()
+                           : mangleName(funit.getSubprogramSymbol());
 
     // FIXME: do NOT use unknown for the anonymous PROGRAM case. We probably
     // should just stash the location in the funit regardless.
@@ -1239,16 +1238,9 @@ private:
     }
   }
 
-  /// Helper to get location from FunctionLikeUnit begin/end
-  static Fortran::parser::CharBlock extractLocation(
-      Fortran::lower::pft::FunctionLikeUnit::FunctionStatement &fstmt) {
-    return fstmt.visit([](const auto &stmt) { return stmt.source; });
-  }
-
   /// Emit return and cleanup after the function has been translated.
   void endNewFunction(Fortran::lower::pft::FunctionLikeUnit &funit) {
-    auto loc = extractLocation(funit.endStmt);
-    setCurrentPosition(loc);
+    setCurrentPosition(functionStmtSource(funit.endStmt));
 
     if (funit.isMainProgram()) {
       genFIRProgramExit();
@@ -1263,23 +1255,12 @@ private:
 
   /// Lower a procedure-like construct
   void lowerFunc(Fortran::lower::pft::FunctionLikeUnit &funit) {
-
-    if (funit.beginStmt) {
-      auto loc = extractLocation(funit.endStmt);
-      setCurrentPosition(loc);
-    } else {
-      // TODO: get location of anonymous main program
-    }
-
     startNewFunction(funit);
-
     // lower this procedure
     for (auto &eval : funit.evaluationList) {
       genFIR(eval);
     }
-
     endNewFunction(funit);
-
     // recursively lower internal procedures
     for (auto &f : funit.nestedFunctions) {
       lowerFunc(f);

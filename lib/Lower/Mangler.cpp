@@ -69,7 +69,7 @@ findInterfaceIfSeperateMP(const Fortran::semantics::Symbol &symbol) {
 std::string
 Fortran::lower::mangle::mangleName(fir::NameUniquer &uniquer,
                                    const Fortran::semantics::Symbol &symbol) {
-  /// Resolve host and module association before mangling
+  // Resolve host and module association before mangling
   const auto &ultimateSymbol = symbol.GetUltimate();
   auto symbolName = ultimateSymbol.name();
   return std::visit(
