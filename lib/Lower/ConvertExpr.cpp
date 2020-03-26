@@ -198,21 +198,13 @@ class ExprLowering {
                                 genval(ex.right()));
   }
 
+  /// Returns a reference to a symbol or its box/boxChar descriptor if it has
+  /// one.
   mlir::Value gen(Fortran::semantics::SymbolRef sym) {
     // FIXME: not all symbols are local
     auto addr = builder.createTemporary(
         getLoc(), symMap, converter.genType(sym), llvm::None, &*sym);
     assert(addr && "failed generating symbol address");
-    // Get address from descriptor if symbol has one.
-    auto type = addr.getType();
-    if (auto boxCharType = type.dyn_cast<fir::BoxCharType>()) {
-      auto refType = fir::ReferenceType::get(boxCharType.getEleTy());
-      auto lenType = builder.getIntegerType(64);
-      addr = builder.create<fir::UnboxCharOp>(getLoc(), refType, lenType, addr)
-                 .getResult(0);
-    } else if (type.isa<fir::BoxType>()) {
-      TODO();
-    }
     return addr;
   }
 
@@ -243,12 +235,9 @@ class ExprLowering {
     mlir::Value res{};
     switch (desc.field()) {
     case Fortran::evaluate::DescriptorInquiry::Field::Len:
-      if (auto boxCharType = descType.dyn_cast<fir::BoxCharType>()) {
-        auto refType = fir::ReferenceType::get(boxCharType.getEleTy());
-        auto lenType = mlir::IntegerType::get(64, builder.getContext());
-        res = builder
-                  .create<fir::UnboxCharOp>(getLoc(), refType, lenType, descRef)
-                  .getResult(1);
+      if (descType.isa<fir::BoxCharType>()) {
+        auto lenType{mlir::IntegerType::get(64, builder.getContext())};
+        res = builder.create<fir::BoxCharLenOp>(getLoc(), lenType, descRef);
       } else if (descType.isa<fir::BoxType>()) {
         TODO();
       } else {
@@ -581,37 +570,24 @@ class ExprLowering {
   mlir::Value genval(const Fortran::evaluate::ComplexPart &) { TODO(); }
 
   mlir::Value gen(const Fortran::evaluate::Substring &s) {
-    // Get base address
-    auto baseAddr = std::visit(
+    // Get base string
+    auto baseString = std::visit(
         Fortran::common::visitors{
             [&](const Fortran::evaluate::DataRef &x) { return gen(x); },
             [&](const Fortran::evaluate::StaticDataObject::Pointer &)
                 -> mlir::Value { TODO(); },
         },
         s.parent());
-    // Get a SequenceType to compute address with fir::CoordinateOp
-    auto charRefType = baseAddr.getType();
-    auto arrayRefType = Fortran::lower::getSequenceRefType(charRefType);
-    auto arrayView =
-        builder.create<fir::ConvertOp>(getLoc(), arrayRefType, baseAddr);
-    // Compute lower bound
-    auto indexType = mlir::IndexType::get(builder.getContext());
-    auto lowerBoundExpr = s.lower();
-    auto lowerBoundValue = builder.create<fir::ConvertOp>(
-        getLoc(), indexType, genval(lowerBoundExpr));
-    // FIR CoordinateOp is zero based but Fortran substring are one based.
-    auto one = builder.create<mlir::ConstantOp>(
-        getLoc(), indexType, builder.getIntegerAttr(indexType, 1));
-    auto offsetIndex =
-        builder.create<mlir::SubIOp>(getLoc(), lowerBoundValue, one)
-            .getResult();
-    // Get address from offset and base address
-    return builder.create<fir::CoordinateOp>(getLoc(), charRefType, arrayView,
-                                             offsetIndex);
+    llvm::SmallVector<mlir::Value, 2> bounds;
+    bounds.push_back(genval(s.lower()));
+    if (auto upperBound{s.upper()}) {
+      bounds.push_back(genval(*upperBound));
+    }
+    return builder.createSubstring(baseString, bounds);
   }
 
   mlir::Value gendef(const Fortran::evaluate::Substring &ss) { return gen(ss); }
-  mlir::Value genval(const Fortran::evaluate::Substring &) { TODO(); }
+  mlir::Value genval(const Fortran::evaluate::Substring &ss) { return gen(ss); }
   mlir::Value genval(const Fortran::evaluate::Triplet &trip) { TODO(); }
 
   mlir::Value genval(const Fortran::evaluate::Subscript &subs) {
