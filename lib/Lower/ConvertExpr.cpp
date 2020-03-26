@@ -860,8 +860,7 @@ class ExprLowering {
     mlir::FunctionType funTy =
         mlir::FunctionType::get(argTypes, resultType, builder.getContext());
     auto funName = applyNameMangling(procRef.proc());
-    ;
-    [[maybe_unused]] mlir::FuncOp func = getFunction(funName, funTy);
+    getFunction(funName, funTy);
     auto call = builder.create<fir::CallOp>(
         getLoc(), resultType, builder.getSymbolRefAttr(funName), operands);
 
