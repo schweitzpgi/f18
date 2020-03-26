@@ -110,7 +110,8 @@ struct NameUniquer {
                          llvm::StringRef name);
 
   /// Entry point for the PROGRAM (called by the runtime)
-  constexpr static llvm::StringRef doProgramEntry() { return "MAIN_"; }
+  /// Can be overridden with the `--main-entry-name=<name>` option.
+  static llvm::StringRef doProgramEntry();
 
   /// Decompose `uniquedName` into the parse name, symbol type, and scope info
   static std::pair<NameKind, DeconstructedName>
