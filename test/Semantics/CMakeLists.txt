@@ -1,3 +1,5 @@
+configure_file(test_errors.sh.in ${FLANG_BINARY_DIR}/test/Semantics/test_errors.sh @ONLY)
+
 # Run tests with test_errors.sh. It compiles the test with f18 and compares
 # actual errors produced with expected ones listed in the source.
 
