@@ -5,7 +5,7 @@
 void _QQmain();
 
 /* C main stub */
-int main(int argc, char **argv, char **envp)
+int main(int argc, const char *argv[], const char *envp[])
 {
   RTNAME(ProgramStart)(argc, argv, envp);
   _QQmain();
