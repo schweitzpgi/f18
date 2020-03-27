@@ -130,7 +130,7 @@ public:
 
   ReferenceVariant() = delete;
   template <typename B>
-  ReferenceVariant(const B &b) : u{ConstRef<B>{b}} {};
+  ReferenceVariant(const B &b) : u{ConstRef<B>{b}} {}
 
   template <typename B>
   constexpr const B &get() const {
