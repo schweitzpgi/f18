@@ -1576,8 +1576,8 @@ def fir_CoordinateOp : fir_Op<"coordinate_of", []> {
 
     ```mlir
       %i = ... : index
-      %h = ... : !fir.heap<!fir.array<?:f32>>
-      %p = fir.coordinate_of %h, %i : (!fir.heap<!fir.array<?:f32>>, index) -> !fir.ref<f32>
+      %h = ... : !fir.heap<!fir.array<100 x f32>>
+      %p = fir.coordinate_of %h, %i : (!fir.heap<!fir.array<100 x f32>>, index) -> !fir.ref<f32>
     ```
 
     In the example, `%p` will be a pointer to the `%i`-th f32 value in the

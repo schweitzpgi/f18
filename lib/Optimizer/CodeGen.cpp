@@ -1260,6 +1260,9 @@ struct CoordinateOpConversion
     mlir::Value base = operands[0];
     auto firRef = coor.ref();
     auto firTy = firRef.getType();
+    mlir::Type cpnTy = getReferenceEleTy(firTy);
+    bool columnIsDeferred = false;
+    bool hasSubdimension = hasSubDimensions(cpnTy);
 
     // if argument 0 is boxed, get the base pointer from the box
     if (auto boxTy = firTy.dyn_cast<fir::BoxType>()) {
@@ -1287,13 +1290,22 @@ struct CoordinateOpConversion
       auto p = genGEP(loc, pty, rewriter, base, c0, c0_);
       // base = box->data : ptr
       base = rewriter.create<mlir::LLVM::LoadOp>(loc, pty, p);
-    }
 
-    mlir::Type cpnTy = getReferenceEleTy(firTy);
-
-    if (FIRToLLVMTypeConverter::dynamicallySized(cpnTy)) {
-      TODO();
+      // If the base has dynamic shape, it has to be boxed as the dimension
+      // information is saved in the box.
+      if (FIRToLLVMTypeConverter::dynamicallySized(cpnTy)) {
+	TODO();
+	return success();
+      }
+    } else {
+      if (FIRToLLVMTypeConverter::dynamicallySized(cpnTy))
+	return mlir::emitError(loc, "bare reference to unknown shape");
     }
+    if (!hasSubdimension)
+      columnIsDeferred = true;
+
+    if (!validCoordinate(cpnTy, operands.drop_front(1)))
+      return mlir::emitError(loc, "coordinate has incorrect dimension");
 
     // if arrays has known shape
     const bool hasKnownShape =
@@ -1301,9 +1313,8 @@ struct CoordinateOpConversion
 
     // If only the column is `?`, then we can simply place the column value in
     // the 0-th GEP position.
-    bool columnIsDeferred = false;
-    if (!hasKnownShape)
-      if (auto arrTy = cpnTy.dyn_cast<fir::SequenceType>()) {
+    if (auto arrTy = cpnTy.dyn_cast<fir::SequenceType>()) {
+      if (!hasKnownShape) {
         const auto sz = arrTy.getDimension();
         if (arraysHaveKnownShape(arrTy.getEleTy(),
                                  operands.drop_front(1 + sz))) {
@@ -1318,10 +1329,11 @@ struct CoordinateOpConversion
             columnIsDeferred = true;
         }
       }
+    }
 
     if (hasKnownShape || columnIsDeferred) {
       SmallVector<mlir::Value, 8> offs;
-      if (hasKnownShape)
+      if (hasKnownShape && hasSubdimension)
         offs.push_back(c0);
       const auto sz = operands.size();
       llvm::Optional<int> dims;
@@ -1329,6 +1341,9 @@ struct CoordinateOpConversion
       for (std::remove_const_t<decltype(sz)> i = 1; i < sz; ++i) {
         auto nxtOpnd = operands[i];
 
+	if (!cpnTy)
+	  return mlir::emitError(loc, "invalid coordinate/check failed");
+	    
         // check if the i-th coordinate relates to an array
         if (dims.hasValue()) {
           arrIdx.push_back(nxtOpnd);
@@ -1361,7 +1376,7 @@ struct CoordinateOpConversion
         } else if (auto strTy = cpnTy.dyn_cast<mlir::TupleType>()) {
           cpnTy = strTy.getType(getIntValue(nxtOpnd));
         } else {
-          llvm_unreachable("unhandled type");
+          cpnTy = nullptr;
         }
         offs.push_back(nxtOpnd);
       }
@@ -1412,6 +1427,11 @@ struct CoordinateOpConversion
     return failure();
   }
 
+  bool hasSubDimensions(mlir::Type type) const {
+    return type.isa<fir::SequenceType>() || type.isa<fir::RecordType>() ||
+      type.isa<mlir::TupleType>();
+  }
+  
   /// Walk the abstract memory layout and determine if the path traverses any
   /// array types with unknown shape. Return true iff all the array types have a
   /// constant shape along the path.
@@ -1430,10 +1450,36 @@ struct CoordinateOpConversion
       } else if (auto strTy = type.dyn_cast<mlir::TupleType>()) {
         type = strTy.getType(getIntValue(nxtOpnd));
       } else {
-        return false;
+	return true;
       }
     }
-    return i == sz;
+    return true;
+  }
+
+  bool validCoordinate(mlir::Type type, OperandTy coors) const {
+    const auto sz = coors.size();
+    std::remove_const_t<decltype(sz)> i = 0;
+    bool subEle = false;
+    bool ptrEle = false;
+    for (; i < sz; ++i) {
+      auto nxtOpnd = coors[i];
+      if (auto arrTy = type.dyn_cast<fir::SequenceType>()) {
+	subEle = true;
+        i += arrTy.getDimension() - 1;
+        type = arrTy.getEleTy();
+      } else if (auto strTy = type.dyn_cast<fir::RecordType>()) {
+	subEle = true;
+        type = strTy.getType(getIntValue(nxtOpnd));
+      } else if (auto strTy = type.dyn_cast<mlir::TupleType>()) {
+	subEle = true;
+        type = strTy.getType(getIntValue(nxtOpnd));
+      } else {
+	ptrEle = true;
+      }
+    }
+    if (ptrEle)
+      return (!subEle) && (sz == 1);
+    return subEle && (i == sz);
   }
 
   /// Returns the element type of the reference `refTy`.
