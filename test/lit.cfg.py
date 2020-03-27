@@ -66,6 +66,7 @@ if config.flang_llvm_tools_dir != "" :
     llvm_config.with_environment('PATH', config.flang_llvm_tools_dir, append_path=True)
 
 config.substitutions.append(('%B', config.flang_obj_root))
+config.substitutions.append(("%L", config.llvm_lib_dir))
 
 # For each occurrence of a flang tool name, replace it with the full path to
 # the build directory holding that tool.  We explicitly specify the directories
