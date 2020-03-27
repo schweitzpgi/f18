@@ -9,6 +9,9 @@
 #include "flang/Optimizer/Support/InternalNames.h"
 #include "mlir/IR/Diagnostics.h"
 #include "llvm/ADT/Optional.h"
+#include "llvm/Support/CommandLine.h"
+
+static llvm::cl::opt<std::string> mainEntryName("main-entry-name", llvm::cl::desc("override the name of the default PROGRAM entry (may be helpful for using other runtimes)"));
 
 constexpr std::int64_t BAD_VALUE = -1;
 
@@ -186,6 +189,12 @@ fir::NameUniquer::doVariable(llvm::ArrayRef<llvm::StringRef> modules,
   return result.append(toLower(name));
 }
 
+llvm::StringRef fir::NameUniquer::doProgramEntry() {
+  if (mainEntryName.size())
+    return mainEntryName;
+  return "_QQmain";
+}
+
 std::pair<fir::NameUniquer::NameKind, fir::NameUniquer::DeconstructedName>
 fir::NameUniquer::deconstruct(llvm::StringRef uniq) {
   if (uniq.startswith("_Q")) {
@@ -229,7 +238,8 @@ fir::NameUniquer::deconstruct(llvm::StringRef uniq) {
         break;
       case 'Q':
         nk = NameKind::GENERATED;
-        name = readName(uniq, i, i + 1, end);
+        name = uniq;
+	i = end;
         break;
       case 'T':
         nk = NameKind::DERIVED_TYPE;
