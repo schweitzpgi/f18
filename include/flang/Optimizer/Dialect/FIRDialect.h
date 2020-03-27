@@ -50,7 +50,7 @@ public:
 inline void registerFIR() {
   // we want to register exactly once
   [[maybe_unused]] static bool init_once = [] {
-    mlir::registerDialect<mlir::AffineOpsDialect>();
+    mlir::registerDialect<mlir::AffineDialect>();
     mlir::registerDialect<mlir::LLVM::LLVMDialect>();
     mlir::registerDialect<mlir::loop::LoopOpsDialect>();
     mlir::registerDialect<mlir::StandardOpsDialect>();
@@ -65,7 +65,7 @@ inline void registerFIR() {
 inline void registerGeneralPasses() {
   mlir::createCanonicalizerPass();
   mlir::createCSEPass();
-  mlir::createVectorizePass({});
+  mlir::createSuperVectorizePass({});
   mlir::createLoopUnrollPass();
   mlir::createLoopUnrollAndJamPass();
   mlir::createSimplifyAffineStructuresPass();
