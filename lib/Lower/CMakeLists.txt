@@ -14,7 +14,7 @@ add_library(FortranLower
 
 target_link_libraries(FortranLower
   FIRSupport
-  MLIRAffineOps
+  MLIRAffine
   MLIRLLVMIR
   MLIRLoopToStandard
   MLIRStandardOps
