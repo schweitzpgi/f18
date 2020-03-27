@@ -232,7 +232,8 @@ void lowerPrintStatement(AbstractConverter &converter, mlir::Location loc,
 
   // Initiate io
   mlir::Value defaultUnit = builder.create<mlir::ConstantOp>(
-      loc, builder.getIntegerAttr(beginFuncTy.getInput(0), 1));
+      loc, builder.getIntegerAttr(beginFuncTy.getInput(0),
+				  Fortran::runtime::io::DefaultUnit));
   mlir::Value null =
       builder.create<mlir::ConstantOp>(loc, builder.getI64IntegerAttr(0));
   mlir::Value srcFileName =
