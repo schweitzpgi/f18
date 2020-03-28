@@ -1124,8 +1124,8 @@ private:
                           : eval.block);
     }
     eval.visit([&](const auto &stmt) { genFIR(eval, stmt); });
-    if (unstructuredContext && eval.lowerAsUnstructured() &&
-        eval.controlSuccessor && eval.isActionStmt() && blockIsUnterminated()) {
+    if (unstructuredContext && eval.isActionStmt() && eval.controlSuccessor &&
+        eval.controlSuccessor->block && blockIsUnterminated()) {
       // Exit from an unstructured IF or SELECT construct block.
       genFIRUnconditionalBranch(eval.controlSuccessor);
     }
