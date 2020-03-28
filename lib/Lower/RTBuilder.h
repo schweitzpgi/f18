@@ -22,7 +22,6 @@
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/StandardTypes.h"
 #include "llvm/ADT/SmallVector.h"
-#include <cstddef>
 #include <functional>
 
 // List the runtime headers we want to be able to dissect
@@ -176,6 +175,7 @@ struct RuntimeTableKey<RT(ATs...)> {
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wgnu-string-literal-operator-template"
 #endif
+
 // clang++ generates warnings about usage of a GNU extension, ignore them
 template <char... Cs>
 using RuntimeIdentifier = std::integer_sequence<char, Cs...>;
@@ -183,6 +183,7 @@ template <typename T, T... Cs>
 static constexpr RuntimeIdentifier<Cs...> operator""_rt_ident() {
   return {};
 }
+
 #if defined(__clang__)
 #pragma clang diagnostic pop
 #endif
