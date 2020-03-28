@@ -435,7 +435,7 @@ private:
   /// top-level statements of a program.
   void analyzeBranches(pft::Evaluation *parentConstruct,
                        std::list<pft::Evaluation> &evaluationList) {
-    pft::Evaluation *lastIfConstructEvaluation{nullptr};
+    pft::Evaluation *lastConstructStmtEvaluation{nullptr};
     pft::Evaluation *lastIfStmtEvaluation{nullptr};
     for (auto &eval : evaluationList) {
       eval.visit(common::visitors{
@@ -513,8 +513,17 @@ private:
           [&](const parser::SelectCaseStmt &s) {
             insertConstructName(s, parentConstruct);
             eval.lexicalSuccessor->isNewBlock = true;
+            lastConstructStmtEvaluation = &eval;
           },
-          [&](const parser::CaseStmt &) { eval.isNewBlock = true; },
+          [&](const parser::CaseStmt &) {
+            eval.isNewBlock = true;
+            lastConstructStmtEvaluation->controlSuccessor = &eval;
+            lastConstructStmtEvaluation = &eval;
+          },
+          [&](const parser::EndSelectStmt &) {
+            eval.lexicalSuccessor->isNewBlock = true;
+            lastConstructStmtEvaluation = nullptr;
+          },
           [&](const parser::ChangeTeamStmt &s) {
             insertConstructName(s, parentConstruct);
           },
@@ -583,26 +592,28 @@ private:
           [&](const parser::IfThenStmt &s) {
             insertConstructName(s, parentConstruct);
             eval.lexicalSuccessor->isNewBlock = true;
-            lastIfConstructEvaluation = &eval;
+            lastConstructStmtEvaluation = &eval;
           },
           [&](const parser::ElseIfStmt &) {
             eval.isNewBlock = true;
             eval.lexicalSuccessor->isNewBlock = true;
-            lastIfConstructEvaluation->controlSuccessor = &eval;
-            lastIfConstructEvaluation = &eval;
+            lastConstructStmtEvaluation->controlSuccessor = &eval;
+            lastConstructStmtEvaluation = &eval;
           },
           [&](const parser::ElseStmt &) {
             eval.isNewBlock = true;
-            lastIfConstructEvaluation->controlSuccessor = &eval;
-            lastIfConstructEvaluation = &eval;
+            lastConstructStmtEvaluation->controlSuccessor = &eval;
+            lastConstructStmtEvaluation = nullptr;
           },
           [&](const parser::EndIfStmt &) {
             if (parentConstruct->lowerAsUnstructured()) {
               parentConstruct->constructExit->isNewBlock = true;
             }
-            lastIfConstructEvaluation->controlSuccessor =
-                parentConstruct->constructExit;
-            lastIfConstructEvaluation = nullptr;
+            if (lastConstructStmtEvaluation) {
+              lastConstructStmtEvaluation->controlSuccessor =
+                  parentConstruct->constructExit;
+              lastConstructStmtEvaluation = nullptr;
+            }
           },
           [&](const parser::SelectRankStmt &s) {
             insertConstructName(s, parentConstruct);
@@ -621,7 +632,10 @@ private:
             // EndBlockStmt may have code.
             eval.constructExit = &eval.evaluationList->back();
           },
-          [&](const parser::CaseConstruct &) { setConstructExit(eval); },
+          [&](const parser::CaseConstruct &) {
+            setConstructExit(eval);
+            eval.isUnstructured = true;
+          },
           [&](const parser::ChangeTeamConstruct &) {
             // EndChangeTeamStmt may have code.
             eval.constructExit = &eval.evaluationList->back();
@@ -632,8 +646,14 @@ private:
           },
           [&](const parser::DoConstruct &) { setConstructExit(eval); },
           [&](const parser::IfConstruct &) { setConstructExit(eval); },
-          [&](const parser::SelectRankConstruct &) { setConstructExit(eval); },
-          [&](const parser::SelectTypeConstruct &) { setConstructExit(eval); },
+          [&](const parser::SelectRankConstruct &) {
+            setConstructExit(eval);
+            eval.isUnstructured = true;
+          },
+          [&](const parser::SelectTypeConstruct &) {
+            setConstructExit(eval);
+            eval.isUnstructured = true;
+          },
 
           [&](const auto &stmt) {
             using A = std::decay_t<decltype(stmt)>;
