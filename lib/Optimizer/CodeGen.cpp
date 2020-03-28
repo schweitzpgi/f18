@@ -1294,12 +1294,12 @@ struct CoordinateOpConversion
       // If the base has dynamic shape, it has to be boxed as the dimension
       // information is saved in the box.
       if (FIRToLLVMTypeConverter::dynamicallySized(cpnTy)) {
-	TODO();
-	return success();
+        TODO();
+        return success();
       }
     } else {
       if (FIRToLLVMTypeConverter::dynamicallySized(cpnTy))
-	return mlir::emitError(loc, "bare reference to unknown shape");
+        return mlir::emitError(loc, "bare reference to unknown shape");
     }
     if (!hasSubdimension)
       columnIsDeferred = true;
@@ -1341,9 +1341,9 @@ struct CoordinateOpConversion
       for (std::remove_const_t<decltype(sz)> i = 1; i < sz; ++i) {
         auto nxtOpnd = operands[i];
 
-	if (!cpnTy)
-	  return mlir::emitError(loc, "invalid coordinate/check failed");
-	    
+        if (!cpnTy)
+          return mlir::emitError(loc, "invalid coordinate/check failed");
+
         // check if the i-th coordinate relates to an array
         if (dims.hasValue()) {
           arrIdx.push_back(nxtOpnd);
@@ -1429,9 +1429,9 @@ struct CoordinateOpConversion
 
   bool hasSubDimensions(mlir::Type type) const {
     return type.isa<fir::SequenceType>() || type.isa<fir::RecordType>() ||
-      type.isa<mlir::TupleType>();
+           type.isa<mlir::TupleType>();
   }
-  
+
   /// Walk the abstract memory layout and determine if the path traverses any
   /// array types with unknown shape. Return true iff all the array types have a
   /// constant shape along the path.
@@ -1450,7 +1450,7 @@ struct CoordinateOpConversion
       } else if (auto strTy = type.dyn_cast<mlir::TupleType>()) {
         type = strTy.getType(getIntValue(nxtOpnd));
       } else {
-	return true;
+        return true;
       }
     }
     return true;
@@ -1464,17 +1464,17 @@ struct CoordinateOpConversion
     for (; i < sz; ++i) {
       auto nxtOpnd = coors[i];
       if (auto arrTy = type.dyn_cast<fir::SequenceType>()) {
-	subEle = true;
+        subEle = true;
         i += arrTy.getDimension() - 1;
         type = arrTy.getEleTy();
       } else if (auto strTy = type.dyn_cast<fir::RecordType>()) {
-	subEle = true;
+        subEle = true;
         type = strTy.getType(getIntValue(nxtOpnd));
       } else if (auto strTy = type.dyn_cast<mlir::TupleType>()) {
-	subEle = true;
+        subEle = true;
         type = strTy.getType(getIntValue(nxtOpnd));
       } else {
-	ptrEle = true;
+        ptrEle = true;
       }
     }
     if (ptrEle)
