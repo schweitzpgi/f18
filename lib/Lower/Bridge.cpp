@@ -1139,13 +1139,6 @@ private:
     return Fortran::lower::FirOpBuilder::createFunction(loc, module, name, ty);
   }
 
-  /// Helper to get location from FunctionLikeUnit begin/end statements.
-  static Fortran::parser::CharBlock functionStmtSource(
-      const Fortran::lower::pft::FunctionLikeUnit::FunctionStatement &stmt) {
-    return stmt.visit(
-        Fortran::common::visitors{[](const auto &x) { return x.source; }});
-  }
-
   /// Prepare to translate a new function
   void startNewFunction(Fortran::lower::pft::FunctionLikeUnit &funit) {
     assert(!builder && "expected nullptr");
@@ -1156,9 +1149,7 @@ private:
 
     // FIXME: do NOT use unknown for the anonymous PROGRAM case. We probably
     // should just stash the location in the funit regardless.
-    mlir::Location loc = funit.beginStmt.has_value()
-                             ? toLocation(functionStmtSource(*funit.beginStmt))
-                             : mlir::UnknownLoc::get(&mlirContext);
+    mlir::Location loc = toLocation(funit.getStartingSourceLoc());
     mlir::FuncOp func =
         Fortran::lower::FirOpBuilder::getNamedFunction(module, name);
     if (!func)
@@ -1240,7 +1231,8 @@ private:
 
   /// Emit return and cleanup after the function has been translated.
   void endNewFunction(Fortran::lower::pft::FunctionLikeUnit &funit) {
-    setCurrentPosition(functionStmtSource(funit.endStmt));
+    setCurrentPosition(
+        Fortran::lower::pft::FunctionLikeUnit::stmtSourceLoc(funit.endStmt));
 
     if (funit.isMainProgram()) {
       genFIRProgramExit();

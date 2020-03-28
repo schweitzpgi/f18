@@ -134,7 +134,7 @@ public:
 
   template <typename B>
   constexpr const B &get() const {
-    return std::get<ConstRef<B>> > (u).get();
+    return std::get<ConstRef<B>>> (u).get();
   }
   template <typename B>
   constexpr const B *getIf() const {
@@ -327,11 +327,25 @@ struct FunctionLikeUnit : public ProgramUnit {
     return endStmt.isA<parser::Statement<parser::EndProgramStmt>>();
   }
 
+  /// Get the starting source location for this function like unit
+  parser::CharBlock getStartingSourceLoc() {
+    if (beginStmt)
+      return stmtSourceLoc(*beginStmt);
+    if (evaluationList.size())
+      return evaluationList.front().position;
+    return stmtSourceLoc(endStmt);
+  }
+
   /// Returns reference to the subprogram symbol of this FunctionLikeUnit.
   /// Dies if the FunctionLikeUnit is not a subprogram.
   const semantics::Symbol &getSubprogramSymbol() const {
     assert(symbol && "not inside a procedure");
     return *symbol;
+  }
+
+  /// Helper to get location from FunctionLikeUnit begin/end statements.
+  static parser::CharBlock stmtSourceLoc(const FunctionStatement &stmt) {
+    return stmt.visit(common::visitors{[](const auto &x) { return x.source; }});
   }
 
   /// Anonymous programs do not have a begin statement
