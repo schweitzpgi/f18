@@ -8,12 +8,10 @@
 
 #include "flang/Lower/Runtime.h"
 #include "flang/Lower/FIRBuilder.h"
-#include "flang/Optimizer/Dialect/FIRType.h"
 #include "mlir/IR/StandardTypes.h"
 #include "mlir/IR/Types.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/ErrorHandling.h"
-#include <cassert>
 
 namespace Fortran::lower {
 

@@ -9,13 +9,8 @@
 #include "flang/Lower/FIRBuilder.h"
 #include "flang/Lower/Bridge.h"
 #include "flang/Lower/ConvertType.h"
-#include "flang/Optimizer/Dialect/FIROps.h"
 #include "flang/Optimizer/Dialect/FIROpsSupport.h"
-#include "flang/Optimizer/Dialect/FIRType.h"
 #include "flang/Semantics/symbol.h"
-#include "mlir/IR/Module.h"
-#include "mlir/IR/Value.h"
-#include "llvm/ADT/StringRef.h"
 #include "llvm/Support/ErrorHandling.h"
 
 void Fortran::lower::SymMap::addSymbol(Fortran::semantics::SymbolRef symbol,

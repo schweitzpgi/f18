@@ -17,17 +17,13 @@
 #define FORTRAN_LOWER_FIRBUILDER_H
 
 #include "flang/Common/reference.h"
+#include "flang/Optimizer/Dialect/FIROps.h"
 #include "flang/Optimizer/Dialect/FIRType.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Function.h"
 #include "mlir/IR/Module.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/Optional.h"
-
-namespace fir {
-class ExtractValueOp;
-class InsertValueOp;
-} // namespace fir
 
 namespace Fortran {
 namespace semantics {
@@ -61,6 +57,10 @@ struct CharValue {
   mlir::Value buffer;
   mlir::Value len;
 };
+
+//===----------------------------------------------------------------------===//
+// FirOpBuilder interface extensions
+//===----------------------------------------------------------------------===//
 
 // TODO: Used CRTP to extend the FirOpBuilder interface, but this leads to some
 // complex and downright ugly template code.
@@ -207,6 +207,20 @@ public:
                               llvm::ArrayRef<mlir::Value> shape) {
     SymMap fakeMap;
     return createTemporary(getLoc(), fakeMap, type, shape);
+  }
+
+  /// Create a global value.
+  fir::GlobalOp createGlobal(mlir::Location loc, mlir::Type type,
+                             llvm::StringRef name, mlir::Attribute value = {},
+                             mlir::StringAttr linkage = {},
+                             bool isConst = false);
+
+  /// Create a global constant (read-only) value.
+  fir::GlobalOp createGlobalConstant(mlir::Location loc, mlir::Type type,
+                                     llvm::StringRef name,
+                                     mlir::Attribute value = {},
+                                     mlir::StringAttr linkage = {}) {
+    return createGlobal(loc, type, name, value, linkage, /*isConst=*/true);
   }
 
   mlir::Block *createBlock() {
