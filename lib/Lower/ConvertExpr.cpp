@@ -16,8 +16,6 @@
 #include "flang/Lower/FIRBuilder.h"
 #include "flang/Lower/Runtime.h"
 #include "flang/Optimizer/Dialect/FIRDialect.h"
-#include "flang/Optimizer/Dialect/FIROps.h"
-#include "flang/Optimizer/Dialect/FIRType.h"
 #include "flang/Semantics/expression.h"
 #include "flang/Semantics/symbol.h"
 #include "flang/Semantics/type.h"

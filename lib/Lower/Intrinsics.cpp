@@ -17,14 +17,9 @@
 #include "flang/Lower/ConvertType.h"
 #include "flang/Lower/FIRBuilder.h"
 #include "flang/Lower/Runtime.h"
-#include "flang/Optimizer/Dialect/FIROps.h"
-#include "flang/Optimizer/Dialect/FIRType.h"
-#include "llvm/ADT/Optional.h"
-#include "llvm/ADT/Twine.h"
 #include "llvm/Support/ErrorHandling.h"
 #include <algorithm>
-#include <string>
-#include <unordered_map> // FIXME: not allowed in LLVM?
+#include <unordered_map> // FIXME: must be removed
 #include <utility>
 
 namespace Fortran::lower {
@@ -540,7 +535,6 @@ static std::string typeToString(mlir::Type t) {
 
 static std::string getIntrinsicWrapperName(const llvm::StringRef &intrinsic,
                                            mlir::FunctionType funTy) {
-  // TODO: use Twine here?
   std::string name{"fir." + intrinsic.str() + "."};
   assert(funTy.getNumResults() == 1 && "only function mangling supported");
   name += typeToString(funTy.getResult(0));

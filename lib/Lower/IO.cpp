@@ -12,11 +12,9 @@
 #include "flang/Lower/Bridge.h"
 #include "flang/Lower/FIRBuilder.h"
 #include "flang/Lower/Runtime.h"
-#include "flang/Optimizer/Dialect/FIROps.h"
 #include "flang/Parser/parse-tree.h"
 #include "flang/Semantics/tools.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
-#include "mlir/IR/Builders.h"
 
 #define TODO() llvm_unreachable("not yet implemented")
 
@@ -236,6 +234,29 @@ static mlir::Value getDefaultLineNo(Fortran::lower::FirOpBuilder &builder,
                                           builder.getIntegerAttr(toType, 0));
 }
 
+template <typename A>
+static std::tuple<mlir::Value, mlir::Value, mlir::Value>
+lowerStringLit(Fortran::lower::AbstractConverter &converter, mlir::Location loc,
+               const A &syntax, mlir::Type ty0, mlir::Type ty1,
+               mlir::Type ty2 = {}) {
+  auto &builder = converter.getFirOpBuilder();
+  auto *expr = Fortran::semantics::GetExpr(syntax);
+  auto buffer = converter.genExprValue(expr, loc);
+  auto buff = builder.create<fir::ConvertOp>(loc, ty0, buffer);
+  mlir::Type ty = buffer.getType();
+  auto lenVal = ty.cast<fir::SequenceType>().getShape()[0];
+  auto len = builder.create<mlir::ConstantOp>(
+      loc, builder.getIntegerAttr(ty1, lenVal));
+  if (ty2) {
+    mlir::Type eleTy = ty.cast<fir::SequenceType>().getEleTy();
+    auto kindVal = eleTy.cast<fir::CharacterType>().getFKind();
+    auto kind = builder.create<mlir::ConstantOp>(
+        loc, builder.getIntegerAttr(ty2, kindVal));
+    return {buff, len, kind};
+  }
+  return {buff, len, mlir::Value{}};
+}
+
 //===----------------------------------------------------------------------===//
 // Handle I/O statement specifiers.
 // These are threaded together for a single statement via the passed cookie.
@@ -249,17 +270,12 @@ mlir::Value genIOOption<Fortran::parser::FileNameExpr>(
     Fortran::lower::AbstractConverter &converter, mlir::Location loc,
     mlir::Value cookie, const Fortran::parser::FileNameExpr &spec) {
   auto &builder = converter.getFirOpBuilder();
-  auto *expr = Fortran::semantics::GetExpr(spec);
-  auto filename = converter.genExprValue(expr, loc);
   auto ioFunc = getIORuntimeFunc<mkIOKey(SetFile)>(builder);
   mlir::FunctionType ioFuncTy = ioFunc.getType();
-  // FIXME: next two line are INCORRECT!
-  auto buffer = getDefaultFilename(builder, loc, ioFuncTy.getInput(1));
-  auto len = getDefaultLineNo(builder, loc, ioFuncTy.getInput(2));
-  // FIXME: assuming KIND=1 for now
-  auto kind = builder.create<mlir::ConstantOp>(
-      loc, builder.getIntegerAttr(ioFuncTy.getInput(3), 1));
-  llvm::SmallVector<mlir::Value, 4> ioArgs{cookie, buffer, len, kind};
+  auto tup = lowerStringLit(converter, loc, spec, ioFuncTy.getInput(1),
+                            ioFuncTy.getInput(2), ioFuncTy.getInput(3));
+  llvm::SmallVector<mlir::Value, 4> ioArgs{cookie, std::get<0>(tup),
+                                           std::get<1>(tup), std::get<2>(tup)};
   return builder.create<mlir::CallOp>(loc, ioFunc, ioArgs).getResult(0);
 }
 
@@ -311,69 +327,107 @@ mlir::Value genIOOption<Fortran::parser::ConnectSpec::CharExpr>(
   case Fortran::parser::ConnectSpec::CharExpr::Kind::Dispose:
     llvm_unreachable("DISPOSE not part of the runtime::io interface");
   }
-  auto *charArg = Fortran::semantics::GetExpr(
-      std::get<Fortran::parser::ScalarDefaultCharExpr>(spec.t));
-  auto charLit = converter.genExprValue(charArg, loc);
-  charLit.dump();
-  mlir::Value buff{};
-  mlir::Value len{};
-  llvm::SmallVector<mlir::Value, 4> ioArgs = {cookie, buff, len};
+  mlir::FunctionType ioFuncTy = ioFunc.getType();
+  auto tup = lowerStringLit(
+      converter, loc, std::get<Fortran::parser::ScalarDefaultCharExpr>(spec.t),
+      ioFuncTy.getInput(1), ioFuncTy.getInput(2));
+  llvm::SmallVector<mlir::Value, 4> ioArgs = {cookie, std::get<0>(tup),
+                                              std::get<1>(tup)};
   return builder.create<mlir::CallOp>(loc, ioFunc, ioArgs).getResult(0);
 }
 
 template <>
-mlir::Value genIOOption<Fortran::parser::MsgVariable>(
-    Fortran::lower::AbstractConverter &converter, mlir::Location loc,
-    mlir::Value cookie, const Fortran::parser::MsgVariable &spec) {
-  TODO();
-}
-template <>
-mlir::Value genIOOption<Fortran::parser::StatVariable>(
-    Fortran::lower::AbstractConverter &converter, mlir::Location loc,
-    mlir::Value cookie, const Fortran::parser::StatVariable &spec) {
-  TODO();
-}
-template <>
 mlir::Value genIOOption<Fortran::parser::ConnectSpec::Recl>(
     Fortran::lower::AbstractConverter &converter, mlir::Location loc,
     mlir::Value cookie, const Fortran::parser::ConnectSpec::Recl &spec) {
-  TODO();
+  auto &builder = converter.getFirOpBuilder();
+  mlir::FuncOp ioFunc = getIORuntimeFunc<mkIOKey(SetRecl)>(builder);
+  mlir::FunctionType ioFuncTy = ioFunc.getType();
+  auto expr = converter.genExprValue(Fortran::semantics::GetExpr(spec.v), loc);
+  auto reclVal =
+      builder.create<fir::ConvertOp>(loc, ioFuncTy.getInput(1), expr);
+  llvm::SmallVector<mlir::Value, 4> ioArgs = {cookie, reclVal};
+  return builder.create<mlir::CallOp>(loc, ioFunc, ioArgs).getResult(0);
 }
 template <>
 mlir::Value genIOOption<Fortran::parser::StatusExpr>(
     Fortran::lower::AbstractConverter &converter, mlir::Location loc,
     mlir::Value cookie, const Fortran::parser::StatusExpr &spec) {
-  TODO();
+  auto &builder = converter.getFirOpBuilder();
+  mlir::FuncOp ioFunc = getIORuntimeFunc<mkIOKey(SetStatus)>(builder);
+  mlir::FunctionType ioFuncTy = ioFunc.getType();
+  auto tup = lowerStringLit(converter, loc, spec.v, ioFuncTy.getInput(1),
+                            ioFuncTy.getInput(2));
+  llvm::SmallVector<mlir::Value, 4> ioArgs = {cookie, std::get<0>(tup),
+                                              std::get<1>(tup)};
+  return builder.create<mlir::CallOp>(loc, ioFunc, ioArgs).getResult(0);
 }
 
 template <>
+mlir::Value genIOOption<Fortran::parser::MsgVariable>(
+    Fortran::lower::AbstractConverter &, mlir::Location, mlir::Value cookie,
+    const Fortran::parser::MsgVariable &) {
+  // see error handling
+  return cookie;
+}
+template <>
+mlir::Value genIOOption<Fortran::parser::StatVariable>(
+    Fortran::lower::AbstractConverter &, mlir::Location, mlir::Value cookie,
+    const Fortran::parser::StatVariable &) {
+  // see error handling
+  return cookie;
+}
+template <>
 mlir::Value
 genIOOption<Fortran::parser::ErrLabel>(Fortran::lower::AbstractConverter &,
-                                       mlir::Location loc, mlir::Value cookie,
+                                       mlir::Location, mlir::Value cookie,
                                        const Fortran::parser::ErrLabel &) {
   // see error handling
   return cookie;
 }
 
-static bool hasFileUnit(const Fortran::parser::OpenStmt &stmt) {
-  for (const auto &spec : stmt.v)
-    if (std::holds_alternative<Fortran::parser::FileUnitNumber>(spec.u))
-      return true;
-  return false;
-}
+namespace {
+struct ErrorHandling {
+  bool hasErrorHandlers() { return ioStat || err || end || eor || ioMsg; }
+  bool ioStat{};
+  bool err{};
+  bool end{};
+  bool eor{};
+  bool ioMsg{};
+};
+} // namespace
 
-static bool hasNewUnit(const Fortran::parser::OpenStmt &stmt) {
-  for (const auto &spec : stmt.v)
-    if (std::holds_alternative<Fortran::parser::ConnectSpec::Newunit>(spec.u))
-      return true;
-  return false;
-}
-
-/// Get the file unit from the specifier list.
 template <typename A>
-const Fortran::semantics::SomeExpr *getFileUnit(const A &stmt) {
+void genErrorOption(ErrorHandling &handle, const A &) {}
+template <>
+void genErrorOption<Fortran::parser::MsgVariable>(
+    ErrorHandling &eh, const Fortran::parser::MsgVariable &) {
+  eh.ioMsg = true;
+}
+template <>
+void genErrorOption<Fortran::parser::StatVariable>(
+    ErrorHandling &eh, const Fortran::parser::StatVariable &) {
+  eh.ioStat = true;
+}
+template <>
+void genErrorOption<Fortran::parser::ErrLabel>(
+    ErrorHandling &eh, const Fortran::parser::ErrLabel &) {
+  eh.err = true;
+}
+
+template <typename SEEK, typename A>
+static bool hasMem(const A &stmt) {
   for (const auto &spec : stmt.v)
-    if (auto *f = std::get_if<Fortran::parser::FileUnitNumber>(&spec.u))
+    if (std::holds_alternative<SEEK>(spec.u))
+      return true;
+  return false;
+}
+
+/// Get the sought expression from the specifier list.
+template <typename SEEK, typename A>
+static const Fortran::semantics::SomeExpr *getMem(const A &stmt) {
+  for (const auto &spec : stmt.v)
+    if (auto *f = std::get_if<SEEK>(&spec.u))
       return Fortran::semantics::GetExpr(f->v);
   llvm_unreachable("must have a file unit");
 }
@@ -381,8 +435,9 @@ const Fortran::semantics::SomeExpr *getFileUnit(const A &stmt) {
 /// For each specifier, build the appropriate call, threading the cookie, and
 /// return the final ssa-value of the cookie.
 template <typename A>
-mlir::Value threadSpecs(Fortran::lower::AbstractConverter &converter,
-                        mlir::Location loc, mlir::Value cookie, const A &stmt) {
+static mlir::Value threadSpecs(Fortran::lower::AbstractConverter &converter,
+                               mlir::Location loc, mlir::Value cookie,
+                               const A &stmt) {
   for (const auto &spec : stmt.v) {
     cookie = std::visit(
         Fortran::common::visitors{
@@ -399,10 +454,33 @@ mlir::Value threadSpecs(Fortran::lower::AbstractConverter &converter,
 }
 
 template <typename A>
-mlir::Value threadErrors(Fortran::lower::AbstractConverter &converter,
-                         mlir::Location loc, mlir::Value cookie,
-                         const A &stmt) {
-  // FIXME -- implement!
+static mlir::Value threadErrors(Fortran::lower::AbstractConverter &converter,
+                                mlir::Location loc, mlir::Value cookie,
+                                const A &stmt) {
+  ErrorHandling eh{};
+  for (const auto &spec : stmt.v)
+    std::visit(Fortran::common::visitors{[&](const auto &x) {
+                 genErrorOption(eh, x);
+               }},
+               spec.u);
+  if (eh.hasErrorHandlers()) {
+    auto &builder = converter.getFirOpBuilder();
+    mlir::FuncOp ioFunc = getIORuntimeFunc<mkIOKey(EnableHandlers)>(builder);
+    mlir::FunctionType ioFuncTy = ioFunc.getType();
+    auto hasIoStat = builder.create<mlir::ConstantOp>(
+        loc, builder.getIntegerAttr(ioFuncTy.getInput(1), eh.ioStat));
+    auto hasErr = builder.create<mlir::ConstantOp>(
+        loc, builder.getIntegerAttr(ioFuncTy.getInput(2), eh.err));
+    auto hasEnd = builder.create<mlir::ConstantOp>(
+        loc, builder.getIntegerAttr(ioFuncTy.getInput(3), eh.end));
+    auto hasEor = builder.create<mlir::ConstantOp>(
+        loc, builder.getIntegerAttr(ioFuncTy.getInput(4), eh.eor));
+    auto hasIoMsg = builder.create<mlir::ConstantOp>(
+        loc, builder.getIntegerAttr(ioFuncTy.getInput(5), eh.ioMsg));
+    llvm::SmallVector<mlir::Value, 4> ioArgs = {cookie, hasIoStat, hasErr,
+                                                hasEnd, hasEor,    hasIoMsg};
+    cookie = builder.create<mlir::CallOp>(loc, ioFunc, ioArgs).getResult(0);
+  }
   return cookie;
 }
 
@@ -442,51 +520,6 @@ static void lowerPrintStatement(Fortran::lower::AbstractConverter &converter,
   genEndIO(builder, loc, cookie);
 }
 
-/// 3 of the 4 cases in a position (or flush) spec concern the error handling of
-/// the statement. We handle those 3 cases here.
-static mlir::Value lowerErrorHandlingPositionOrFlush(
-    Fortran::lower::AbstractConverter &converter, mlir::Value endRes,
-    const std::list<Fortran::parser::PositionOrFlushSpec> &specs) {
-  mlir::Value result;
-  auto &builder = converter.getFirOpBuilder();
-  auto loc = converter.getCurrentLocation();
-  for (auto &sp : specs) {
-    std::visit(
-        Fortran::common::visitors{
-            [](const Fortran::parser::FileUnitNumber &) {
-              // this is passed to the BeginFoo function
-              // do nothing here
-            },
-            [&](const Fortran::parser::MsgVariable &var) {
-              // call GetIoMsg, passing it the address of `var` and a length (in
-              // bytes, or?). Effectively, we have to decompose a boxchar here.
-              // TODO: this has to be a CHARACTER type, no?
-              mlir::Value varAddr =
-                  converter.genExprAddr(Fortran::semantics::GetExpr(var), loc);
-              mlir::FuncOp getIoMsg =
-                  getIORuntimeFunc<mkIOKey(GetIoMsg)>(builder);
-              llvm::SmallVector<mlir::Value, 1> ioMsgArgs{
-                  builder.create<fir::ConvertOp>(
-                      loc, getModel<char *>()(builder.getContext()), varAddr)
-                  /*, FIXME add length here */};
-              builder.create<mlir::CallOp>(loc, getIoMsg, ioMsgArgs);
-            },
-            [&](const Fortran::parser::StatVariable &var) {
-              /* store `endRes` to the variable `var` */
-              mlir::Value varAddr =
-                  converter.genExprAddr(Fortran::semantics::GetExpr(var), loc);
-              builder.create<fir::StoreOp>(loc, endRes, varAddr);
-            },
-            [&](const Fortran::parser::ErrLabel &label) {
-              /* pass the `endRes` value for `fir.switch` op */
-              result = endRes;
-            },
-        },
-        sp.u);
-  }
-  return result;
-}
-
 //===----------------------------------------------------------------------===//
 // Generators for each I/O statement type.
 //===----------------------------------------------------------------------===//
@@ -498,15 +531,16 @@ static mlir::Value genBasicIOStmt(Fortran::lower::AbstractConverter &converter,
   auto loc = converter.getCurrentLocation();
   auto beginFunc = getIORuntimeFunc<K>(builder);
   mlir::FunctionType beginFuncTy = beginFunc.getType();
-  auto unit = converter.genExprValue(getFileUnit(stmt), loc);
+  auto unit = converter.genExprValue(
+      getMem<Fortran::parser::FileUnitNumber>(stmt), loc);
   auto un = builder.create<fir::ConvertOp>(loc, beginFuncTy.getInput(0), unit);
   auto file = getDefaultFilename(builder, loc, beginFuncTy.getInput(1));
   auto line = getDefaultLineNo(builder, loc, beginFuncTy.getInput(2));
   llvm::SmallVector<mlir::Value, 4> args{un, file, line};
   auto cookie = builder.create<mlir::CallOp>(loc, beginFunc, args).getResult(0);
+  cookie = threadErrors(converter, loc, cookie, stmt);
   cookie = threadSpecs(converter, loc, cookie, stmt);
-  auto endVal = genEndIO(builder, converter.getCurrentLocation(), cookie);
-  return threadErrors(converter, loc, endVal, stmt);
+  return genEndIO(builder, converter.getCurrentLocation(), cookie);
 }
 
 mlir::Value Fortran::lower::genBackspaceStatement(
@@ -540,10 +574,11 @@ Fortran::lower::genOpenStatement(Fortran::lower::AbstractConverter &converter,
   mlir::FuncOp beginFunc;
   llvm::SmallVector<mlir::Value, 4> beginArgs;
   auto loc = converter.getCurrentLocation();
-  if (hasFileUnit(stmt)) {
+  if (hasMem<Fortran::parser::FileUnitNumber>(stmt)) {
     beginFunc = getIORuntimeFunc<mkIOKey(BeginOpenUnit)>(builder);
     mlir::FunctionType beginFuncTy = beginFunc.getType();
-    auto unit = converter.genExprValue(getFileUnit(stmt), loc);
+    auto unit = converter.genExprValue(
+        getMem<Fortran::parser::FileUnitNumber>(stmt), loc);
     beginArgs.push_back(
         builder.create<fir::ConvertOp>(loc, beginFuncTy.getInput(0), unit));
     beginArgs.push_back(
@@ -551,7 +586,7 @@ Fortran::lower::genOpenStatement(Fortran::lower::AbstractConverter &converter,
     beginArgs.push_back(
         getDefaultLineNo(builder, loc, beginFuncTy.getInput(2)));
   } else {
-    assert(hasNewUnit(stmt));
+    assert(hasMem<Fortran::parser::ConnectSpec::Newunit>(stmt));
     beginFunc = getIORuntimeFunc<mkIOKey(BeginOpenNewUnit)>(builder);
     mlir::FunctionType beginFuncTy = beginFunc.getType();
     beginArgs.push_back(
@@ -561,15 +596,40 @@ Fortran::lower::genOpenStatement(Fortran::lower::AbstractConverter &converter,
   }
   auto cookie =
       builder.create<mlir::CallOp>(loc, beginFunc, beginArgs).getResult(0);
+  cookie = threadErrors(converter, loc, cookie, stmt);
   cookie = threadSpecs(converter, loc, cookie, stmt);
-  auto endVal = genEndIO(builder, loc, cookie);
-  return threadErrors(converter, loc, endVal, stmt);
+  return genEndIO(builder, loc, cookie);
 }
 
 mlir::Value
 Fortran::lower::genCloseStatement(Fortran::lower::AbstractConverter &converter,
                                   const Fortran::parser::CloseStmt &stmt) {
   return genBasicIOStmt<mkIOKey(BeginClose)>(converter, stmt);
+}
+
+mlir::Value
+Fortran::lower::genWaitStatement(Fortran::lower::AbstractConverter &converter,
+                                 const Fortran::parser::WaitStmt &stmt) {
+  auto &builder = converter.getFirOpBuilder();
+  auto loc = converter.getCurrentLocation();
+  bool hasId = hasMem<Fortran::parser::IdExpr>(stmt);
+  mlir::FuncOp beginFunc =
+      hasId ? getIORuntimeFunc<mkIOKey(BeginWait)>(builder)
+            : getIORuntimeFunc<mkIOKey(BeginWaitAll)>(builder);
+  mlir::FunctionType beginFuncTy = beginFunc.getType();
+  auto unit = converter.genExprValue(
+      getMem<Fortran::parser::FileUnitNumber>(stmt), loc);
+  auto un = builder.create<fir::ConvertOp>(loc, beginFuncTy.getInput(0), unit);
+  llvm::SmallVector<mlir::Value, 4> args{un};
+  if (hasId) {
+    auto id =
+        converter.genExprValue(getMem<Fortran::parser::IdExpr>(stmt), loc);
+    args.push_back(
+        builder.create<fir::ConvertOp>(loc, beginFuncTy.getInput(1), id));
+  }
+  auto cookie = builder.create<mlir::CallOp>(loc, beginFunc, args).getResult(0);
+  cookie = threadErrors(converter, loc, cookie, stmt);
+  return genEndIO(builder, converter.getCurrentLocation(), cookie);
 }
 
 void Fortran::lower::genPrintStatement(
