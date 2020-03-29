@@ -34,6 +34,7 @@ struct OpenStmt;
 struct PrintStmt;
 struct ReadStmt;
 struct RewindStmt;
+struct WaitStmt;
 struct WriteStmt;
 } // namespace parser
 
@@ -71,6 +72,9 @@ mlir::Value genReadStatement(AbstractConverter &, const parser::ReadStmt &);
 
 /// Generate IO call(s) for REWIND; return the IOSTAT code
 mlir::Value genRewindStatement(AbstractConverter &, const parser::RewindStmt &);
+
+/// Generate IO call(s) for WAIT; return the IOSTAT code
+mlir::Value genWaitStatement(AbstractConverter &, const parser::WaitStmt &);
 
 /// Generate IO call(s) for WRITE; return the IOSTAT code
 mlir::Value genWriteStatement(AbstractConverter &, const parser::WriteStmt &);

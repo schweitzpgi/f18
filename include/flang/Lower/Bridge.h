@@ -120,6 +120,8 @@ public:
   virtual ~AbstractConverter() = default;
 };
 
+/// The lowering bridge converts the front-end parse trees and semantics
+/// checking residual to MLIR (FIR dialect) code.
 class LoweringBridge {
 public:
   static LoweringBridge

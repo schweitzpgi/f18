@@ -16,14 +16,11 @@
 #include "flang/Lower/PFTBuilder.h"
 #include "flang/Lower/Runtime.h"
 #include "flang/Optimizer/Dialect/FIRDialect.h"
-#include "flang/Optimizer/Dialect/FIROps.h"
-#include "flang/Optimizer/Dialect/FIRType.h"
 #include "flang/Optimizer/Support/InternalNames.h"
 #include "flang/Parser/parse-tree.h"
 #include "flang/Semantics/tools.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
-#include "mlir/IR/Builders.h"
 #include "mlir/Parser.h"
 #include "mlir/Target/LLVMIR.h"
 #include "llvm/Support/CommandLine.h"
@@ -365,8 +362,8 @@ private:
   }
 
   void genFIR(Fortran::lower::pft::Evaluation &eval,
-              const Fortran::parser::WaitStmt &) {
-    TODO();
+              const Fortran::parser::WaitStmt &stmt) {
+    genWaitStatement(*this, stmt);
   }
   void genFIR(Fortran::lower::pft::Evaluation &eval,
               const Fortran::parser::WhereStmt &) {
