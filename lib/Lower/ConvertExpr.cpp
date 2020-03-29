@@ -71,8 +71,7 @@ class ExprLowering {
     case Fortran::common::RelationalOperator::GE:
       return mlir::CmpIPredicate::sge;
     }
-    assert(false && "unhandled INTEGER relational operator");
-    return {};
+    llvm_unreachable("unhandled INTEGER relational operator");
   }
 
   /// Convert parser's REAL relational operators to MLIR.
@@ -100,7 +99,6 @@ class ExprLowering {
       return mlir::CmpFPredicate::OGE;
     }
     llvm_unreachable("unhandled REAL relational operator");
-    return {};
   }
 
   /// Generate an integral constant of `value`
@@ -173,8 +171,7 @@ class ExprLowering {
       inputs.push_back(output);
       return mlir::FunctionType::get(inputs, output, builder.getContext());
     } else {
-      assert(false);
-      return {};
+      llvm_unreachable("this category is not implemented");
     }
   }
 
@@ -257,7 +254,7 @@ class ExprLowering {
       } else if (descType.isa<fir::BoxType>()) {
         TODO();
       } else {
-        assert(false && "not a descriptor");
+        llvm_unreachable("not a descriptor");
       }
       break;
     default:
@@ -476,12 +473,11 @@ class ExprLowering {
       break;
     case Fortran::evaluate::LogicalOperator::Not:
       // lib/evaluate expression for .NOT. is Fortran::evaluate::Not<KIND>.
-      assert(false && ".NOT. is not a binary operator");
+      llvm_unreachable(".NOT. is not a binary operator");
       break;
     }
-    if (!result) {
-      assert(false && "unhandled logical operation");
-    }
+    if (!result)
+      llvm_unreachable("unhandled logical operation");
     return result;
   }
 
@@ -515,14 +511,12 @@ class ExprLowering {
       auto opt = con.GetScalarValue();
       if (opt.has_value())
         return genIntegerConstant<KIND>(builder.getContext(), opt->ToInt64());
-      assert(false && "integer constant has no value");
-      return {};
+      llvm_unreachable("integer constant has no value");
     } else if constexpr (TC == Fortran::lower::LogicalCat) {
       auto opt = con.GetScalarValue();
       if (opt.has_value())
         return genLogicalConstantAsI1(builder.getContext(), opt->IsTrue());
-      assert(false && "logical constant has no value");
-      return {};
+      llvm_unreachable("logical constant has no value");
     } else if constexpr (TC == Fortran::lower::RealCat) {
       auto opt = con.GetScalarValue();
       if (opt.has_value()) {
@@ -545,8 +539,7 @@ class ExprLowering {
           return genRealConstant<KIND>(builder.getContext(), floatVal);
         }
       }
-      assert(false && "real constant has no value");
-      return {};
+      llvm_unreachable("real constant has no value");
     } else if constexpr (TC == Fortran::lower::ComplexCat) {
       auto opt = con.GetScalarValue();
       if (opt.has_value()) {
@@ -557,13 +550,11 @@ class ExprLowering {
             Fortran::evaluate::Expr<TR>{
                 Fortran::evaluate::Constant<TR>{opt->AIMAG()}}});
       }
-      assert(false && "array of complex unhandled");
-      return {};
+      llvm_unreachable("array of complex unhandled");
     } else if constexpr (TC == Fortran::lower::CharacterCat) {
       return genCharLit<KIND>(con.GetScalarValue().value(), con.LEN());
     } else {
-      assert(false && "unhandled constant");
-      return {};
+      llvm_unreachable("unhandled constant");
     }
   }
 
@@ -577,8 +568,7 @@ class ExprLowering {
       auto res = builder.create<mlir::ConstantOp>(getLoc(), type, attr);
       return res.getResult();
     } else {
-      assert(false && "unhandled constant of unknown kind");
-      return {};
+      llvm_unreachable("unhandled constant of unknown kind");
     }
   }
 
@@ -918,9 +908,9 @@ class ExprLowering {
       } else if (auto seqType{type.dyn_cast_or_null<fir::SequenceType>()}) {
         // TODO: Conversions at array level should probably be avoided.
         // This depends on how array expressions will be lowered.
-        assert(false && "logical array loads not yet implemented");
+        llvm_unreachable("logical array loads not yet implemented");
       } else {
-        assert(false && "unexpected logical type in expression");
+        llvm_unreachable("unexpected logical type in expression");
       }
     }
     return result;
@@ -928,8 +918,7 @@ class ExprLowering {
 
   template <typename A>
   mlir::Value gendef(const A &) {
-    assert(false && "expression error");
-    return {};
+    llvm_unreachable("expression error");
   }
 
   std::string
