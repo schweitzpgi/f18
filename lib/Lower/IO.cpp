@@ -632,6 +632,134 @@ Fortran::lower::genWaitStatement(Fortran::lower::AbstractConverter &converter,
   return genEndIO(builder, converter.getCurrentLocation(), cookie);
 }
 
+//===----------------------------------------------------------------------===//
+// Data transfer statements.
+//
+// There are several dimensions to the API with regard to data transfer
+// statements that need to be considered.
+//
+//   - input (READ) vs. output (WRITE, PRINT)
+//   - formatted vs. list vs. unformatted
+//   - synchronous vs. asynchronous
+//   - namelist vs. list
+//   - external vs. internal + default KIND vs. internal + other KIND
+//===----------------------------------------------------------------------===//
+
+template <typename A>
+static bool isDataTransferFormatted(const A &stmt) {
+  return true;
+}
+template <typename A>
+static bool isDataTransferList(const A &stmt) {
+  return true;
+}
+template <typename A>
+static bool isDataTransferInternal(const A &stmt) {
+  return false;
+}
+template <typename A>
+static bool isDataTransferInternalNotDefaultKind(const A &stmt) {
+  return false;
+}
+template <typename A>
+static bool isDataTransferAsynchronous(const A &stmt) {
+  return false;
+}
+template <typename A>
+static bool isDataTransferNamelist(const A &stmt) {
+  return false;
+}
+
+template <typename A>
+static mlir::Value genDataTransfer(Fortran::lower::AbstractConverter &converter,
+                                   const A &stmt, bool isInput,
+                                   bool hasIOCtrl) {
+  auto &builder = converter.getFirOpBuilder();
+  bool isFormatted = isDataTransferFormatted(stmt);
+  bool isList = isFormatted ? isDataTransferList(stmt) : false;
+  bool isIntern = hasIOCtrl ? isDataTransferInternal(stmt) : false;
+  bool isOtherIntern =
+      isIntern ? isDataTransferInternalNotDefaultKind(stmt) : false;
+  bool isAsynch = hasIOCtrl ? isDataTransferAsynchronous(stmt) : false;
+  bool isNml = hasIOCtrl ? isDataTransferNamelist(stmt) : false;
+
+  // Determine the correct IO API call to make.
+  mlir::FuncOp ioFunc;
+  if (isInput) {
+    if (isAsynch) {
+      ioFunc = getIORuntimeFunc<mkIOKey(BeginAsynchronousInput)>(builder);
+      llvm_unreachable("asynchronous not implemented in runtime");
+    } else if (isFormatted) {
+      if (isIntern) {
+        if (isNml) {
+          ioFunc =
+              getIORuntimeFunc<mkIOKey(BeginInternalNamelistInput)>(builder);
+        } else if (isOtherIntern) {
+          if (isList)
+            ioFunc =
+                getIORuntimeFunc<mkIOKey(BeginInternalArrayListInput)>(builder);
+          else
+            ioFunc =
+                getIORuntimeFunc<mkIOKey(BeginInternalArrayFormattedInput)>(
+                    builder);
+        } else if (isList) {
+          ioFunc = getIORuntimeFunc<mkIOKey(BeginInternalListInput)>(builder);
+        } else {
+          ioFunc =
+              getIORuntimeFunc<mkIOKey(BeginInternalFormattedInput)>(builder);
+        }
+      } else if (isNml) {
+        ioFunc = getIORuntimeFunc<mkIOKey(BeginExternalNamelistInput)>(builder);
+      } else if (isList) {
+        ioFunc = getIORuntimeFunc<mkIOKey(BeginExternalListInput)>(builder);
+      } else {
+        ioFunc =
+            getIORuntimeFunc<mkIOKey(BeginExternalFormattedInput)>(builder);
+      }
+    } else {
+      ioFunc = getIORuntimeFunc<mkIOKey(BeginUnformattedInput)>(builder);
+    }
+  } else {
+    if (isAsynch) {
+      ioFunc = getIORuntimeFunc<mkIOKey(BeginAsynchronousOutput)>(builder);
+      llvm_unreachable("asynchronous not implemented in runtime");
+    } else if (isFormatted) {
+      if (isIntern) {
+        if (isNml) {
+          ioFunc =
+              getIORuntimeFunc<mkIOKey(BeginInternalNamelistOutput)>(builder);
+        } else if (isOtherIntern) {
+          if (isList)
+            ioFunc = getIORuntimeFunc<mkIOKey(BeginInternalArrayListOutput)>(
+                builder);
+          else
+            ioFunc =
+                getIORuntimeFunc<mkIOKey(BeginInternalArrayFormattedOutput)>(
+                    builder);
+        } else if (isList) {
+          ioFunc = getIORuntimeFunc<mkIOKey(BeginInternalListOutput)>(builder);
+        } else {
+          ioFunc =
+              getIORuntimeFunc<mkIOKey(BeginInternalFormattedOutput)>(builder);
+        }
+      } else if (isNml) {
+        ioFunc =
+            getIORuntimeFunc<mkIOKey(BeginExternalNamelistOutput)>(builder);
+      } else if (isList) {
+        ioFunc = getIORuntimeFunc<mkIOKey(BeginExternalListOutput)>(builder);
+      } else {
+        ioFunc =
+            getIORuntimeFunc<mkIOKey(BeginExternalFormattedOutput)>(builder);
+      }
+    } else {
+      ioFunc = getIORuntimeFunc<mkIOKey(BeginUnformattedOutput)>(builder);
+    }
+  }
+  return {};
+}
+
+// PRINT does not take an io-control-spec. It only has a format specifier, so it
+// is a simplified case of WRITE.
 void Fortran::lower::genPrintStatement(
     Fortran::lower::AbstractConverter &converter,
     const Fortran::parser::PrintStmt &stmt) {
@@ -650,27 +778,16 @@ void Fortran::lower::genPrintStatement(
 }
 
 mlir::Value
-Fortran::lower::genReadStatement(Fortran::lower::AbstractConverter &converter,
-                                 const Fortran::parser::ReadStmt &) {
-  auto &builder = converter.getFirOpBuilder();
-  mlir::FuncOp beginFunc;
-  // if (...
-  beginFunc = getIORuntimeFunc<mkIOKey(BeginExternalListInput)>(builder);
-  // else if (...
-  TODO();
-  return {};
+Fortran::lower::genWriteStatement(Fortran::lower::AbstractConverter &converter,
+                                  const Fortran::parser::WriteStmt &stmt) {
+  return genDataTransfer(converter, stmt, /*isInput=*/false,
+                         /*hasIOCtrl=*/true);
 }
 
 mlir::Value
-Fortran::lower::genWriteStatement(Fortran::lower::AbstractConverter &converter,
-                                  const Fortran::parser::WriteStmt &) {
-  auto &builder = converter.getFirOpBuilder();
-  mlir::FuncOp beginFunc;
-  // if (...
-  beginFunc = getIORuntimeFunc<mkIOKey(BeginExternalListOutput)>(builder);
-  // else if (...
-  TODO();
-  return {};
+Fortran::lower::genReadStatement(Fortran::lower::AbstractConverter &converter,
+                                 const Fortran::parser::ReadStmt &stmt) {
+  return genDataTransfer(converter, stmt, /*isInput=*/true, /*hasIOCtrl=*/true);
 }
 
 mlir::Value Fortran::lower::genInquireStatement(
