@@ -72,6 +72,13 @@ constexpr TypeBuilderFunc getModel<const char *>() {
   return getModel<char *>();
 }
 template <>
+constexpr TypeBuilderFunc getModel<void **>() {
+  return [](mlir::MLIRContext *context) -> mlir::Type {
+    return fir::ReferenceType::get(
+        fir::PointerType::get(mlir::IntegerType::get(8, context)));
+  };
+}
+template <>
 constexpr TypeBuilderFunc getModel<std::int64_t>() {
   return [](mlir::MLIRContext *context) -> mlir::Type {
     return mlir::IntegerType::get(64, context);
