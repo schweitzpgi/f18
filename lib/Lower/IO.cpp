@@ -114,23 +114,7 @@ static mlir::Value genEndIO(Fortran::lower::FirOpBuilder &builder,
   return call.getResult(0);
 }
 
-using FormatItems = std::optional<std::pair<mlir::Value, mlir::Value>>;
-
-/// Translate a list of format-items into a set of call-backs that can be
-/// emitted into the MLIR stream before each data item is processed
-static FormatItems lowerFormat(Fortran::lower::AbstractConverter &converter,
-                               const Fortran::parser::Format &format) {
-  FormatItems formatItems;
-  std::visit(Fortran::common::visitors{
-                 [](const Fortran::parser::DefaultCharExpr
-                        &) { /* string expression */ },
-                 [](const Fortran::parser::Label &) { /* FORMAT statement */ },
-                 [](const Fortran::parser::Star &) {},
-             },
-             format.u);
-  return formatItems;
-}
-
+/// Get the OutputXyz routine to output a value with type `type`.
 static mlir::FuncOp getOutputRuntimeFunc(Fortran::lower::FirOpBuilder &builder,
                                          mlir::Type type) {
   if (auto ty = type.dyn_cast<mlir::IntegerType>()) {
@@ -218,6 +202,7 @@ static void genOutputRuntimeFunc(Fortran::lower::FirOpBuilder &builder,
   builder.create<mlir::CallOp>(loc, outputFunc, actuals);
 }
 
+/// Get the InputXyz routine to input a value with type `type`.
 static mlir::FuncOp getInputRuntimeFunc(Fortran::lower::FirOpBuilder &builder,
                                         mlir::Type type) {
   if (auto ty = type.dyn_cast<mlir::IntegerType>()) {
@@ -288,6 +273,8 @@ static mlir::Value getDefaultScratchLen(Fortran::lower::FirOpBuilder &builder,
                                           builder.getIntegerAttr(toType, 0));
 }
 
+/// Lower a string literal. Many arguments to the runtime are conveyed as
+/// Fortran CHARACTER literals.
 template <typename A>
 static std::tuple<mlir::Value, mlir::Value, mlir::Value>
 lowerStringLit(Fortran::lower::AbstractConverter &converter, mlir::Location loc,
@@ -316,6 +303,7 @@ lowerStringLit(Fortran::lower::AbstractConverter &converter, mlir::Location loc,
 // These are threaded together for a single statement via the passed cookie.
 //===----------------------------------------------------------------------===//
 
+/// Generic to build an integral argument to the runtime.
 template <typename A, typename B>
 mlir::Value genIntIOOption(Fortran::lower::AbstractConverter &converter,
                            mlir::Location loc, mlir::Value cookie,
@@ -329,6 +317,8 @@ mlir::Value genIntIOOption(Fortran::lower::AbstractConverter &converter,
   return builder.create<mlir::CallOp>(loc, ioFunc, ioArgs).getResult(0);
 }
 
+/// Generic to build a string argument to the runtime. This passes a CHARACTER
+/// as a pointer to the buffer and a LEN parameter.
 template <typename A, typename B>
 mlir::Value genCharIOOption(Fortran::lower::AbstractConverter &converter,
                             mlir::Location loc, mlir::Value cookie,
@@ -343,10 +333,10 @@ mlir::Value genCharIOOption(Fortran::lower::AbstractConverter &converter,
   return builder.create<mlir::CallOp>(loc, ioFunc, ioArgs).getResult(0);
 }
 
-// default case: do nothing
 template <typename A>
 mlir::Value genIOOption(Fortran::lower::AbstractConverter &converter,
                         mlir::Location loc, mlir::Value cookie, const A &spec) {
+  // default case: do nothing
   return {};
 }
 
@@ -512,6 +502,10 @@ mlir::Value genIOOption<Fortran::parser::IoControlSpec::Rec>(
   return genIntIOOption<mkIOKey(SetRec)>(converter, loc, cookie, spec);
 }
 
+//===----------------------------------------------------------------------===//
+// Gathering of I/O statement error specifiers (if any).
+//===----------------------------------------------------------------------===//
+
 namespace {
 struct ErrorHandling {
   bool hasErrorHandlers() { return ioStat || err || end || eor || ioMsg; }
@@ -558,6 +552,7 @@ static bool hasX(const A &list) {
       return true;
   return false;
 }
+
 template <typename SEEK, typename A>
 static bool hasMem(const A &stmt) {
   return hasX<SEEK>(stmt.v);
@@ -639,8 +634,8 @@ static bool isDataTransferFormatted(const A &stmt) {
   return stmt.format || hasIOControl<Fortran::parser::Format>(stmt);
 }
 template <>
-constexpr bool isDataTransferFormatted<const Fortran::parser::PrintStmt &>(
-    const Fortran::parser::PrintStmt &stmt) {
+constexpr bool isDataTransferFormatted<Fortran::parser::PrintStmt>(
+    const Fortran::parser::PrintStmt &) {
   // PRINT is always formatted
   return true;
 }
@@ -654,7 +649,7 @@ static bool isDataTransferList(const A &stmt) {
   return false;
 }
 template <>
-bool isDataTransferList<const Fortran::parser::PrintStmt &>(
+bool isDataTransferList<Fortran::parser::PrintStmt>(
     const Fortran::parser::PrintStmt &stmt) {
   return std::holds_alternative<Fortran::parser::Star>(
       std::get<Fortran::parser::Format>(stmt.t).u);
@@ -668,11 +663,21 @@ static bool isDataTransferInternal(const A &stmt) {
     return std::holds_alternative<Fortran::parser::Variable>(unit->u);
   return false;
 }
+template <>
+constexpr bool isDataTransferInternal<Fortran::parser::PrintStmt>(
+    const Fortran::parser::PrintStmt &) {
+  return false;
+}
 
 template <typename A>
 static bool isDataTransferInternalNotDefaultKind(const A &stmt) {
   // FIXME - same as isDataTransferInternal, but the KIND of the expression is
   // not the default KIND.
+  return false;
+}
+template <>
+constexpr bool isDataTransferInternalNotDefaultKind<Fortran::parser::PrintStmt>(
+    const Fortran::parser::PrintStmt &) {
   return false;
 }
 
@@ -685,10 +690,20 @@ static bool isDataTransferAsynchronous(const A &stmt) {
   }
   return false;
 }
+template <>
+constexpr bool isDataTransferAsynchronous<Fortran::parser::PrintStmt>(
+    const Fortran::parser::PrintStmt &) {
+  return false;
+}
 
 template <typename A>
 static bool isDataTransferNamelist(const A &stmt) {
   // FIXME - is this a namelist?
+  return false;
+}
+template <>
+constexpr bool isDataTransferNamelist<Fortran::parser::PrintStmt>(
+    const Fortran::parser::PrintStmt &) {
   return false;
 }
 
@@ -928,78 +943,82 @@ void populateArguments(llvm::SmallVector<mlir::Value, 8> &ioArgs,
                        bool isList, bool isIntern, bool isOtherIntern,
                        bool isAsynch, bool isNml) {
   if constexpr (hasIOCtrl) {
+    // READ/WRITE cases have a wide variety of argument permutations
     if (isAsynch || !isFormatted) {
-      // unit
+      // unit (always first), ...
       ioArgs.push_back(
           getIOUnit(converter, loc, stmt, ioFuncTy.getInput(ioArgs.size())));
       if (isAsynch) {
-        // ?, [buff, LEN]
+        // unknown-thingy, [buff, LEN]
         llvm_unreachable("not implemented");
       }
+      return;
     }
-    assert(isFormatted);
+    assert(isFormatted && "formatted data transfer");
     if (!isIntern) {
       if (isNml) {
-        // namelist group
+        // namelist group, ...
         llvm_unreachable("not implemented");
       } else if (!isList) {
-        // [format, LEN]
+        // | [format, LEN], ...
         ioArgs.push_back(
             getFormat(converter, loc, stmt, ioFuncTy.getInput(ioArgs.size())));
         ioArgs.push_back(getFormatLen(converter, loc, stmt,
                                       ioFuncTy.getInput(ioArgs.size())));
       }
-      // unit
+      // unit (always last)
       ioArgs.push_back(
           getIOUnit(converter, loc, stmt, ioFuncTy.getInput(ioArgs.size())));
-    } else {
-      if (isNml || isOtherIntern) {
-        // descriptor
-        ioArgs.push_back(getDescriptor(converter, loc, stmt,
-                                       ioFuncTy.getInput(ioArgs.size())));
-        if (isNml) {
-          // namelist group
-          llvm_unreachable("not implemented");
-        }
-        if (isOtherIntern && !isList) {
-          // [format, LEN]
-          ioArgs.push_back(getFormat(converter, loc, stmt,
-                                     ioFuncTy.getInput(ioArgs.size())));
-          ioArgs.push_back(getFormatLen(converter, loc, stmt,
-                                        ioFuncTy.getInput(ioArgs.size())));
-        }
-      } else {
-        // [buff, LEN]
-        ioArgs.push_back(
-            getBuffer(converter, loc, stmt, ioFuncTy.getInput(ioArgs.size())));
-        ioArgs.push_back(getBufferLen(converter, loc, stmt,
-                                      ioFuncTy.getInput(ioArgs.size())));
-        if (!isList) {
-          // [format, LEN]
-          ioArgs.push_back(getFormat(converter, loc, stmt,
-                                     ioFuncTy.getInput(ioArgs.size())));
-          ioArgs.push_back(getFormatLen(converter, loc, stmt,
-                                        ioFuncTy.getInput(ioArgs.size())));
-        }
-      }
-      // [scratch, LEN]
-      auto &builder = converter.getFirOpBuilder();
-      ioArgs.push_back(
-          getDefaultScratch(builder, loc, ioFuncTy.getInput(ioArgs.size())));
-      ioArgs.push_back(
-          getDefaultScratchLen(builder, loc, ioFuncTy.getInput(ioArgs.size())));
+      return;
     }
+    assert(isIntern && "internal data transfer");
+    if (isNml || isOtherIntern) {
+      // descriptor, ...
+      ioArgs.push_back(getDescriptor(converter, loc, stmt,
+                                     ioFuncTy.getInput(ioArgs.size())));
+      if (isNml) {
+        // namelist group, ...
+        llvm_unreachable("not implemented");
+      } else if (isOtherIntern && !isList) {
+        // | [format, LEN], ...
+        ioArgs.push_back(
+            getFormat(converter, loc, stmt, ioFuncTy.getInput(ioArgs.size())));
+        ioArgs.push_back(getFormatLen(converter, loc, stmt,
+                                      ioFuncTy.getInput(ioArgs.size())));
+      }
+    } else {
+      // | [buff, LEN], ...
+      ioArgs.push_back(
+          getBuffer(converter, loc, stmt, ioFuncTy.getInput(ioArgs.size())));
+      ioArgs.push_back(
+          getBufferLen(converter, loc, stmt, ioFuncTy.getInput(ioArgs.size())));
+      if (!isList) {
+        // [format, LEN], ...
+        ioArgs.push_back(
+            getFormat(converter, loc, stmt, ioFuncTy.getInput(ioArgs.size())));
+        ioArgs.push_back(getFormatLen(converter, loc, stmt,
+                                      ioFuncTy.getInput(ioArgs.size())));
+      }
+    }
+    // [scratch, LEN] (always last)
+    auto &builder = converter.getFirOpBuilder();
+    ioArgs.push_back(
+        getDefaultScratch(builder, loc, ioFuncTy.getInput(ioArgs.size())));
+    ioArgs.push_back(
+        getDefaultScratchLen(builder, loc, ioFuncTy.getInput(ioArgs.size())));
   } else {
     if (!isList) {
-      // [format, LEN]
+      // [format, LEN], ...
       ioArgs.push_back(
           getFormat(converter, loc, stmt, ioFuncTy.getInput(ioArgs.size())));
       ioArgs.push_back(
           getFormatLen(converter, loc, stmt, ioFuncTy.getInput(ioArgs.size())));
     }
-    // unit
-    ioArgs.push_back(
-        getIOUnit(converter, loc, stmt, ioFuncTy.getInput(ioArgs.size())));
+    // unit (always last)
+    auto &builder = converter.getFirOpBuilder();
+    ioArgs.push_back(builder.create<mlir::ConstantOp>(
+        loc, builder.getIntegerAttr(ioFuncTy.getInput(ioArgs.size()),
+                                    Fortran::runtime::io::DefaultUnit)));
   }
 }
 
@@ -1012,18 +1031,18 @@ const std::list<Fortran::parser::OutputItem> &getOutputItems(const A &stmt) {
   }
 };
 
-template <bool isInput, bool hasIOCtrl, typename A>
+template <bool isInput, bool hasIOCtrl = true, typename A>
 static mlir::Value genDataTransfer(Fortran::lower::AbstractConverter &converter,
                                    const A &stmt) {
   auto &builder = converter.getFirOpBuilder();
   auto loc = converter.getCurrentLocation();
   const bool isFormatted = isDataTransferFormatted(stmt);
   const bool isList = isFormatted ? isDataTransferList(stmt) : false;
-  const bool isIntern = hasIOCtrl ? isDataTransferInternal(stmt) : false;
+  const bool isIntern = isDataTransferInternal(stmt);
   const bool isOtherIntern =
       isIntern ? isDataTransferInternalNotDefaultKind(stmt) : false;
-  const bool isAsynch = hasIOCtrl ? isDataTransferAsynchronous(stmt) : false;
-  const bool isNml = hasIOCtrl ? isDataTransferNamelist(stmt) : false;
+  const bool isAsynch = isDataTransferAsynchronous(stmt);
+  const bool isNml = isDataTransferNamelist(stmt);
 
   // Determine the correct IO API call to make.
   mlir::FuncOp ioFunc = getBeginDataTransfer<isInput>(
@@ -1087,63 +1106,24 @@ static mlir::Value genDataTransfer(Fortran::lower::AbstractConverter &converter,
   return genEndIO(builder, loc, cookie);
 }
 
-// PRINT does not take an io-control-spec. It only has a format specifier, so
-// it is a simplified case of WRITE.
 void Fortran::lower::genPrintStatement(
     Fortran::lower::AbstractConverter &converter,
     const Fortran::parser::PrintStmt &stmt) {
-  llvm::SmallVector<mlir::Value, 4> args;
-  for (auto &item : std::get<std::list<Fortran::parser::OutputItem>>(stmt.t)) {
-    if (auto *pe = std::get_if<Fortran::parser::Expr>(&item.u)) {
-      auto loc = converter.genLocation(pe->source);
-      args.push_back(
-          converter.genExprValue(Fortran::semantics::GetExpr(*pe), loc));
-    } else {
-      TODO(); // TODO implied do
-    }
-  }
-  auto loc = converter.getCurrentLocation();
-  auto &builder = converter.getFirOpBuilder();
-  const auto &format = std::get<Fortran::parser::Format>(stmt.t);
-  auto formatItems = lowerFormat(converter, format);
-  mlir::FuncOp beginFunc;
-  if (formatItems.has_value()) {
-    // has a format
-    TODO();
-  } else {
-    beginFunc = getIORuntimeFunc<mkIOKey(BeginExternalListOutput)>(builder);
-  }
-  mlir::FunctionType beginFuncTy = beginFunc.getType();
-
-  // Initiate io
-  mlir::Value defaultUnit = builder.create<mlir::ConstantOp>(
-      loc, builder.getIntegerAttr(beginFuncTy.getInput(0),
-                                  Fortran::runtime::io::DefaultUnit));
-  auto srcFileName = getDefaultFilename(builder, loc, beginFuncTy.getInput(1));
-  auto lineNo = getDefaultLineNo(builder, loc, beginFuncTy.getInput(2));
-  llvm::SmallVector<mlir::Value, 4> beginArgs{defaultUnit, srcFileName, lineNo};
-  mlir::Value cookie =
-      builder.create<mlir::CallOp>(loc, beginFunc, beginArgs).getResult(0);
-
-  // Call data transfer runtime function
-  for (mlir::Value arg : args) {
-    // need some special handling for COMPLEX and CHARACTER
-    auto operands = splitArguments(builder, loc, arg);
-    genOutputRuntimeFunc(builder, loc, arg.getType(), cookie, operands);
-  }
-  genEndIO(builder, loc, cookie);
+  // PRINT does not take an io-control-spec. It only has a format specifier, so
+  // it is a simplified case of WRITE.
+  genDataTransfer</*isInput=*/false, /*ioCtrl=*/false>(converter, stmt);
 }
 
 mlir::Value
 Fortran::lower::genWriteStatement(Fortran::lower::AbstractConverter &converter,
                                   const Fortran::parser::WriteStmt &stmt) {
-  return genDataTransfer</*isInput=*/false, /*ioCtrl=*/true>(converter, stmt);
+  return genDataTransfer</*isInput=*/false>(converter, stmt);
 }
 
 mlir::Value
 Fortran::lower::genReadStatement(Fortran::lower::AbstractConverter &converter,
                                  const Fortran::parser::ReadStmt &stmt) {
-  return genDataTransfer</*isInput=*/true, /*ioCtrl=*/true>(converter, stmt);
+  return genDataTransfer</*isInput=*/true>(converter, stmt);
 }
 
 mlir::Value Fortran::lower::genInquireStatement(
