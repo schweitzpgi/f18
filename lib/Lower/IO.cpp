@@ -590,19 +590,28 @@ static const auto *getIOControl(const A &stmt) {
 }
 
 template <typename A>
+static bool formatIsActuallyNamelist(const A &format) {
+  if (auto *e = std::get_if<Fortran::parser::DefaultCharExpr>(&format.u)) {
+    // TODO
+  }
+  return false;
+}
+
+template <typename A>
 static bool isDataTransferFormatted(const A &stmt) {
-  return stmt.format || hasIOControl<Fortran::parser::Format>(stmt);
+  if (stmt.format)
+    return !formatIsActuallyNamelist(*stmt.format);
+  return hasIOControl<Fortran::parser::Format>(stmt);
 }
 template <>
 constexpr bool isDataTransferFormatted<Fortran::parser::PrintStmt>(
     const Fortran::parser::PrintStmt &) {
-  // PRINT is always formatted
-  return true;
+  return true; // PRINT is always formatted
 }
 
 template <typename A>
 static bool isDataTransferList(const A &stmt) {
-  if (stmt.format.has_value())
+  if (stmt.format)
     return std::holds_alternative<Fortran::parser::Star>(stmt.format->u);
   if (auto *mem = getIOControl<Fortran::parser::Format>(stmt))
     return std::holds_alternative<Fortran::parser::Star>(mem->u);
@@ -629,10 +638,21 @@ constexpr bool isDataTransferInternal<Fortran::parser::PrintStmt>(
   return false;
 }
 
+static bool hasNonDefaultCharKind(const Fortran::parser::Variable &var) {
+  // TODO
+  return false;
+}
+
 template <typename A>
 static bool isDataTransferInternalNotDefaultKind(const A &stmt) {
-  // FIXME - same as isDataTransferInternal, but the KIND of the expression is
-  // not the default KIND.
+  // same as isDataTransferInternal, but the KIND of the expression is not the
+  // default KIND.
+  if (stmt.iounit.has_value())
+    if (auto *var = std::get_if<Fortran::parser::Variable>(&stmt.iounit->u))
+      return hasNonDefaultCharKind(*var);
+  if (auto *unit = getIOControl<Fortran::parser::IoUnit>(stmt))
+    if (auto *var = std::get_if<Fortran::parser::Variable>(&unit->u))
+      return hasNonDefaultCharKind(*var);
   return false;
 }
 template <>
@@ -658,8 +678,9 @@ constexpr bool isDataTransferAsynchronous<Fortran::parser::PrintStmt>(
 
 template <typename A>
 static bool isDataTransferNamelist(const A &stmt) {
-  // FIXME - is this a namelist?
-  return false;
+  if (stmt.format)
+    return formatIsActuallyNamelist(*stmt.format);
+  return hasIOControl<Fortran::parser::Name>(stmt);
 }
 template <>
 constexpr bool isDataTransferNamelist<Fortran::parser::PrintStmt>(
@@ -667,47 +688,71 @@ constexpr bool isDataTransferNamelist<Fortran::parser::PrintStmt>(
   return false;
 }
 
-template <typename A>
-mlir::Value getFormat(Fortran::lower::AbstractConverter &converter,
-                      mlir::Location loc, const A &stmt, mlir::Type toType) {
-  const Fortran::lower::SomeExpr *expr = {};
-  return converter.genExprValue(expr, loc);
+static std::tuple<mlir::Value, mlir::Value, mlir::Value>
+genFormat(Fortran::lower::AbstractConverter &converter, mlir::Location loc,
+          const Fortran::parser::Format &format, mlir::Type ty0,
+          mlir::Type ty1) {
+  if (auto *e = std::get_if<Fortran::parser::DefaultCharExpr>(&format.u))
+    return lowerStringLit(converter, loc, *e, ty0, ty1);
+  TODO(); // handle Label case
 }
 
 template <typename A>
-mlir::Value getFormatLen(Fortran::lower::AbstractConverter &converter,
-                         mlir::Location loc, const A &stmt, mlir::Type toType) {
-  const Fortran::lower::SomeExpr *expr = {};
-  return converter.genExprValue(expr, loc);
+std::tuple<mlir::Value, mlir::Value, mlir::Value>
+getFormat(Fortran::lower::AbstractConverter &converter, mlir::Location loc,
+          const A &stmt, mlir::Type ty0, mlir::Type ty1) {
+  if (stmt.format && !formatIsActuallyNamelist(*stmt.format))
+    return genFormat(converter, loc, *stmt.format, ty0, ty1);
+  return genFormat(converter, loc, *getIOControl<Fortran::parser::Format>(stmt),
+                   ty0, ty1);
+}
+template <>
+std::tuple<mlir::Value, mlir::Value, mlir::Value>
+getFormat<Fortran::parser::PrintStmt>(
+    Fortran::lower::AbstractConverter &converter, mlir::Location loc,
+    const Fortran::parser::PrintStmt &stmt, mlir::Type ty0, mlir::Type ty1) {
+  return genFormat(converter, loc, std::get<Fortran::parser::Format>(stmt.t),
+                   ty0, ty1);
 }
 
-template <typename A>
-mlir::Value getBuffer(Fortran::lower::AbstractConverter &converter,
-                      mlir::Location loc, const A &stmt, mlir::Type toType) {
-  const Fortran::lower::SomeExpr *expr = {};
-  return converter.genExprValue(expr, loc);
+static std::tuple<mlir::Value, mlir::Value, mlir::Value>
+genBuffer(Fortran::lower::AbstractConverter &converter, mlir::Location loc,
+          const Fortran::parser::IoUnit &iounit, mlir::Type ty0,
+          mlir::Type ty1) {
+  auto &var = std::get<Fortran::parser::Variable>(iounit.u);
+  TODO();
 }
-
 template <typename A>
-mlir::Value getBufferLen(Fortran::lower::AbstractConverter &converter,
-                         mlir::Location loc, const A &stmt, mlir::Type toType) {
-  const Fortran::lower::SomeExpr *expr = {};
-  return converter.genExprValue(expr, loc);
+std::tuple<mlir::Value, mlir::Value, mlir::Value>
+getBuffer(Fortran::lower::AbstractConverter &converter, mlir::Location loc,
+          const A &stmt, mlir::Type ty0, mlir::Type ty1) {
+  if (stmt.iounit)
+    return genBuffer(converter, loc, *stmt.iounit, ty0, ty1);
+  return genBuffer(converter, loc, *getIOControl<Fortran::parser::IoUnit>(stmt),
+                   ty0, ty1);
 }
 
 template <typename A>
 mlir::Value getDescriptor(Fortran::lower::AbstractConverter &converter,
                           mlir::Location loc, const A &stmt,
                           mlir::Type toType) {
-  const Fortran::lower::SomeExpr *expr = {};
-  return converter.genExprValue(expr, loc);
+  TODO();
+}
+
+static mlir::Value genIOUnit(Fortran::lower::AbstractConverter &converter,
+                             mlir::Location loc,
+                             const Fortran::parser::IoUnit &iounit,
+                             mlir::Type toType) {
+  TODO();
 }
 
 template <typename A>
 mlir::Value getIOUnit(Fortran::lower::AbstractConverter &converter,
-                      mlir::Location loc, const A &stmt, mlir::Type toType) {
-  const Fortran::lower::SomeExpr *expr = {};
-  return converter.genExprValue(expr, loc);
+                      mlir::Location loc, const A &stmt, mlir::Type ty) {
+  if (stmt.iounit)
+    return genIOUnit(converter, loc, *stmt.iounit, ty);
+  return genIOUnit(converter, loc, *getIOControl<Fortran::parser::IoUnit>(stmt),
+                   ty);
 }
 
 //===----------------------------------------------------------------------===//
@@ -902,6 +947,7 @@ void populateArguments(llvm::SmallVector<mlir::Value, 8> &ioArgs,
                        mlir::FunctionType ioFuncTy, bool isFormatted,
                        bool isList, bool isIntern, bool isOtherIntern,
                        bool isAsynch, bool isNml) {
+  auto &builder = converter.getFirOpBuilder();
   if constexpr (hasIOCtrl) {
     // READ/WRITE cases have a wide variety of argument permutations
     if (isAsynch || !isFormatted) {
@@ -921,10 +967,11 @@ void populateArguments(llvm::SmallVector<mlir::Value, 8> &ioArgs,
         llvm_unreachable("not implemented");
       } else if (!isList) {
         // | [format, LEN], ...
-        ioArgs.push_back(
-            getFormat(converter, loc, stmt, ioFuncTy.getInput(ioArgs.size())));
-        ioArgs.push_back(getFormatLen(converter, loc, stmt,
-                                      ioFuncTy.getInput(ioArgs.size())));
+        auto pair =
+            getFormat(converter, loc, stmt, ioFuncTy.getInput(ioArgs.size()),
+                      ioFuncTy.getInput(ioArgs.size() + 1));
+        ioArgs.push_back(std::get<0>(pair));
+        ioArgs.push_back(std::get<1>(pair));
       }
       // unit (always last)
       ioArgs.push_back(
@@ -941,27 +988,29 @@ void populateArguments(llvm::SmallVector<mlir::Value, 8> &ioArgs,
         llvm_unreachable("not implemented");
       } else if (isOtherIntern && !isList) {
         // | [format, LEN], ...
-        ioArgs.push_back(
-            getFormat(converter, loc, stmt, ioFuncTy.getInput(ioArgs.size())));
-        ioArgs.push_back(getFormatLen(converter, loc, stmt,
-                                      ioFuncTy.getInput(ioArgs.size())));
+        auto pair =
+            getFormat(converter, loc, stmt, ioFuncTy.getInput(ioArgs.size()),
+                      ioFuncTy.getInput(ioArgs.size() + 1));
+        ioArgs.push_back(std::get<0>(pair));
+        ioArgs.push_back(std::get<1>(pair));
       }
     } else {
       // | [buff, LEN], ...
-      ioArgs.push_back(
-          getBuffer(converter, loc, stmt, ioFuncTy.getInput(ioArgs.size())));
-      ioArgs.push_back(
-          getBufferLen(converter, loc, stmt, ioFuncTy.getInput(ioArgs.size())));
+      auto pair =
+          getBuffer(converter, loc, stmt, ioFuncTy.getInput(ioArgs.size()),
+                    ioFuncTy.getInput(ioArgs.size() + 1));
+      ioArgs.push_back(std::get<0>(pair));
+      ioArgs.push_back(std::get<1>(pair));
       if (!isList) {
         // [format, LEN], ...
-        ioArgs.push_back(
-            getFormat(converter, loc, stmt, ioFuncTy.getInput(ioArgs.size())));
-        ioArgs.push_back(getFormatLen(converter, loc, stmt,
-                                      ioFuncTy.getInput(ioArgs.size())));
+        auto pair =
+            getFormat(converter, loc, stmt, ioFuncTy.getInput(ioArgs.size()),
+                      ioFuncTy.getInput(ioArgs.size() + 1));
+        ioArgs.push_back(std::get<0>(pair));
+        ioArgs.push_back(std::get<1>(pair));
       }
     }
     // [scratch, LEN] (always last)
-    auto &builder = converter.getFirOpBuilder();
     ioArgs.push_back(
         getDefaultScratch(builder, loc, ioFuncTy.getInput(ioArgs.size())));
     ioArgs.push_back(
@@ -969,13 +1018,13 @@ void populateArguments(llvm::SmallVector<mlir::Value, 8> &ioArgs,
   } else {
     if (!isList) {
       // [format, LEN], ...
-      ioArgs.push_back(
-          getFormat(converter, loc, stmt, ioFuncTy.getInput(ioArgs.size())));
-      ioArgs.push_back(
-          getFormatLen(converter, loc, stmt, ioFuncTy.getInput(ioArgs.size())));
+      auto pair =
+          getFormat(converter, loc, stmt, ioFuncTy.getInput(ioArgs.size()),
+                    ioFuncTy.getInput(ioArgs.size() + 1));
+      ioArgs.push_back(std::get<0>(pair));
+      ioArgs.push_back(std::get<1>(pair));
     }
     // unit (always last)
-    auto &builder = converter.getFirOpBuilder();
     ioArgs.push_back(builder.create<mlir::ConstantOp>(
         loc, builder.getIntegerAttr(ioFuncTy.getInput(ioArgs.size()),
                                     Fortran::runtime::io::DefaultUnit)));
