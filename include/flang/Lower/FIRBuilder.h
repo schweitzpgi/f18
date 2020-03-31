@@ -231,6 +231,9 @@ public:
   /// Get the entry block of the current Function
   mlir::Block *getEntryBlock() { return &getFunction().front(); }
 
+
+  mlir::Type getRefType(mlir::Type eleTy);
+  
   /// Create an integer constant of type \p type and value \p i.
   mlir::Value createIntegerConstant(mlir::Type integerType, std::int64_t i);
 

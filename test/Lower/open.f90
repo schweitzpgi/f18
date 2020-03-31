@@ -20,7 +20,33 @@
 ! CHECK: call {{.*}}EndIoStatement
   rewind(8)
 
+! CHECK: call {{.*}}BeginEndfile
+! CHECK: call {{.*}}EndIoStatement
+  endfile(8)
+
+! CHECK: call {{.*}}BeginWaitAll
+! CHECK: call {{.*}}EndIoStatement
+  wait(unit=8)
+  
+! CHECK: call {{.*}}BeginExternalListInput
+! CHECK: call {{.*}}InputInteger
+! CHECK: call {{.*}}InputReal32
+! CHECK: call {{.*}}EndIoStatement
+  read (8,*) i, f
+
+! CHECK: call {{.*}}BeginExternalListOutput
+! 32 bit integers are output as 64 bits in the runtime API  
+! CHECK: call {{.*}}OutputInteger64
+! CHECK: call {{.*}}OutputReal32
+! CHECK: call {{.*}}EndIoStatement
+  write (8,*) i, f
+
 ! CHECK: call {{.*}}BeginClose
 ! CHECK: call {{.*}}EndIoStatement
   close(8)
+
+! CHECK: call {{.*}}BeginExternalListOutput
+! CHECK: call {{.*}}OutputAscii
+! CHECK: call {{.*}}EndIoStatement
+  print *, "A literal string"
 end
