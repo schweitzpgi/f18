@@ -167,10 +167,11 @@ static void genOutputRuntimeFunc(Fortran::lower::FirOpBuilder &builder,
 
 /// Get the InputXyz routine to input a value with type `type`.
 static mlir::FuncOp getInputRuntimeFunc(Fortran::lower::FirOpBuilder &builder,
-                                        mlir::Type type) {
+                                        mlir::Type type, int &intKind) {
   if (auto ty = type.dyn_cast<mlir::IntegerType>()) {
     if (ty.getWidth() == 1)
       return getIORuntimeFunc<mkIOKey(InputLogical)>(builder);
+    intKind = ty.getWidth() / 8;
     return getIORuntimeFunc<mkIOKey(InputInteger)>(builder);
   }
   if (auto ty = type.dyn_cast<mlir::FloatType>()) {
@@ -193,17 +194,37 @@ static mlir::FuncOp getInputRuntimeFunc(Fortran::lower::FirOpBuilder &builder,
 /// Generate a call to an Output I/O function.
 /// The specific call is determined dynamically by the argument type.
 static void genInputRuntimeFunc(Fortran::lower::FirOpBuilder &builder,
-                                mlir::Location loc, mlir::Type argType,
-                                mlir::Value cookie,
-                                llvm::SmallVector<mlir::Value, 4> &operands) {
-  int i = 1;
-  llvm::SmallVector<mlir::Value, 4> actuals{cookie};
-  auto inputFunc = getInputRuntimeFunc(builder, argType);
-
-  for (auto &op : operands)
-    actuals.emplace_back(builder.create<fir::ConvertOp>(
-        loc, inputFunc.getType().getInput(i++), op));
-  builder.create<mlir::CallOp>(loc, inputFunc, actuals);
+                                mlir::Location loc, mlir::Type refType,
+                                mlir::Value cookie, mlir::Value &var) {
+  auto argType = refType.cast<fir::ReferenceType>().getEleTy();
+  int intKind = 0;
+  auto inputFunc = getInputRuntimeFunc(builder, argType, intKind);
+  if (auto ty = argType.dyn_cast<fir::CplxType>()) {
+    var = builder.create<fir::CoordinateOp>(
+        loc, builder.getRefType(ty.getEleTy()), var,
+        llvm::SmallVector<mlir::Value, 1>{builder.create<mlir::ConstantOp>(
+            loc, builder.getI32IntegerAttr(0))});
+  }
+  auto cvtTy = inputFunc.getType().getInput(1);
+  auto cvt = builder.create<fir::ConvertOp>(loc, cvtTy, var);
+  if (intKind != 0) {
+    auto kind = builder.create<mlir::ConstantOp>(
+        loc, builder.getI32IntegerAttr(intKind));
+    builder.create<mlir::CallOp>(
+        loc, inputFunc, llvm::SmallVector<mlir::Value, 3>{cookie, cvt, kind});
+  } else {
+    builder.create<mlir::CallOp>(
+        loc, inputFunc, llvm::SmallVector<mlir::Value, 2>{cookie, cvt});
+  }
+  if (auto ty = argType.dyn_cast<fir::CplxType>()) {
+    auto ptr = builder.create<fir::CoordinateOp>(
+        loc, builder.getRefType(ty.getEleTy()), var,
+        llvm::SmallVector<mlir::Value, 1>{builder.create<mlir::ConstantOp>(
+            loc, builder.getI32IntegerAttr(1))});
+    auto cst = builder.create<fir::ConvertOp>(loc, cvtTy, ptr);
+    builder.create<mlir::CallOp>(
+        loc, inputFunc, llvm::SmallVector<mlir::Value, 2>{cookie, cst});
+  }
 }
 
 //===----------------------------------------------------------------------===//
@@ -719,7 +740,7 @@ static std::tuple<mlir::Value, mlir::Value, mlir::Value>
 genBuffer(Fortran::lower::AbstractConverter &converter, mlir::Location loc,
           const Fortran::parser::IoUnit &iounit, mlir::Type ty0,
           mlir::Type ty1) {
-  auto &var = std::get<Fortran::parser::Variable>(iounit.u);
+  [[maybe_unused]] auto &var = std::get<Fortran::parser::Variable>(iounit.u);
   TODO();
 }
 template <typename A>
@@ -742,8 +763,14 @@ mlir::Value getDescriptor(Fortran::lower::AbstractConverter &converter,
 static mlir::Value genIOUnit(Fortran::lower::AbstractConverter &converter,
                              mlir::Location loc,
                              const Fortran::parser::IoUnit &iounit,
-                             mlir::Type toType) {
-  TODO();
+                             mlir::Type ty) {
+  auto &builder = converter.getFirOpBuilder();
+  if (auto *e = std::get_if<Fortran::parser::FileUnitNumber>(&iounit.u)) {
+    auto ex = converter.genExprValue(Fortran::semantics::GetExpr(*e), loc);
+    return builder.create<fir::ConvertOp>(loc, ty, ex);
+  }
+  return builder.create<mlir::ConstantOp>(
+      loc, builder.getIntegerAttr(ty, Fortran::runtime::io::DefaultUnit));
 }
 
 template <typename A>
@@ -1089,12 +1116,8 @@ static mlir::Value genDataTransfer(Fortran::lower::AbstractConverter &converter,
         TODO(); // TODO implied do
       }
     }
-    for (mlir::Value arg : args) {
-      // need some special handling for COMPLEX and CHARACTER
-      TODO();
-      auto operands = splitArguments(builder, loc, arg);
-      genInputRuntimeFunc(builder, loc, arg.getType(), cookie, operands);
-    }
+    for (mlir::Value arg : args)
+      genInputRuntimeFunc(builder, loc, arg.getType(), cookie, arg);
   } else {
     for (auto &item : getOutputItems(stmt)) {
       if (auto *pe = std::get_if<Fortran::parser::Expr>(&item.u)) {

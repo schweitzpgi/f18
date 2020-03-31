@@ -36,6 +36,10 @@ Fortran::lower::FirOpBuilder::getNamedFunction(mlir::ModuleOp modOp,
   return modOp.lookupSymbol<mlir::FuncOp>(name);
 }
 
+mlir::Type Fortran::lower::FirOpBuilder::getRefType(mlir::Type eleTy) {
+  return fir::ReferenceType::get(eleTy);
+}
+
 mlir::Value
 Fortran::lower::FirOpBuilder::createIntegerConstant(mlir::Type intType,
                                                     std::int64_t cst) {

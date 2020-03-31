@@ -906,6 +906,10 @@ CplxType fir::CplxType::get(mlir::MLIRContext *ctxt, KindTy kind) {
   return Base::get(ctxt, FIR_COMPLEX, kind);
 }
 
+mlir::Type fir::CplxType::getEleTy() const {
+  return fir::RealType::get(getContext(), getFKind());
+}
+
 KindTy fir::CplxType::getFKind() const { return getImpl()->getFKind(); }
 
 // REAL
