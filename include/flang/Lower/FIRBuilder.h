@@ -51,13 +51,6 @@ private:
   llvm::DenseMap<const semantics::Symbol *, mlir::Value> symbolMap;
 };
 
-/// Pair of ssa-values that compose a CHARACTER value. The buffer that holds the
-/// data and the LEN type parameter.
-struct CharValue {
-  mlir::Value buffer;
-  mlir::Value len;
-};
-
 //===----------------------------------------------------------------------===//
 // FirOpBuilder interface extensions
 //===----------------------------------------------------------------------===//
@@ -69,25 +62,76 @@ struct CharValue {
 template <typename T>
 class CharacterOpsBuilder {
 public:
-  fir::ReferenceType getReferenceType(const CharValue &pair);
-  fir::CharacterType getCharacterType(const CharValue &pair);
-
   // access the implementation
   T &impl() { return *static_cast<T *>(this); }
 
+  /// Unless otherwise stated, all mlir::Value inputs of these pseudo-fir ops
+  /// must be of type:
+  /// - fir.boxchar<kind> (dynamic length character),
+  /// - fir.ref<fir.array<len x fir.char<kind>>> (character with compile timeA
+  ///      constant length),
+  /// - fir.array<len x fir.char<kind>> (compile time constant character)
+
   /// Copy the \p count first characters of \p src into \p dest.
-  void createCopy(CharValue &dest, const CharValue &src, mlir::Value count);
+  /// \p count can have any integer type.
+  void createCopy(mlir::Value dest, mlir::Value src, mlir::Value count);
 
   /// Set characters of \p str at position [\p lower, \p upper) to blanks.
   /// \p lower and \upper bounds are zero based.
   /// If \p upper <= \p lower, no padding is done.
-  void createPadding(CharValue &str, mlir::Value lower, mlir::Value upper);
+  /// \p upper and \p lower can have any integer type.
+  void createPadding(mlir::Value str, mlir::Value lower, mlir::Value upper);
 
-  /// Allocate storage (on the stack) for character given the kind and length.
-  CharValue createCharacterTemp(fir::CharacterType type, mlir::Value len);
+  /// Create str(lb:ub), lower bounds must always be specified, upper
+  /// bound is optional.
+  mlir::Value createSubstring(mlir::Value str,
+                              llvm::ArrayRef<mlir::Value> bounds);
 
-protected:
+  /// Return blank character of given \p type !fir.char<kind>
   mlir::Value createBlankConstant(fir::CharacterType type);
+  /// Lower \p lhs = \p rhs where \p lhs and \p rhs are scalar characters.
+  /// It handles cases where \p lhs and \p rhs may overlap.
+  void createAssign(mlir::Value lhs, mlir::Value rhs);
+
+  /// Embox \p addr and \p len and return fir.boxchar.
+  /// Take care of type conversions before emboxing.
+  /// \p len is converted to the integer type for character lengths if needed.
+  mlir::Value createEmboxChar(mlir::Value addr, mlir::Value len);
+  /// Unbox \p boxchar into (fir.ref<fir.char<kind>>, getLengthType()).
+  std::pair<mlir::Value, mlir::Value> createUnboxChar(mlir::Value boxChar);
+
+  /// Allocate a temp of fir::CharacterType type and length len.
+  /// Returns related fir.ref<fir.char<kind>>.
+  mlir::Value createCharacterTemp(mlir::Type type, mlir::Value len);
+  /// Allocate a temp of compile time constant length.
+  /// Returns related fir.ref<fir.array<len x fir.char<kind>>>.
+  mlir::Value createCharacterTemp(mlir::Type type, int len);
+
+  /// Return buffer/length pair of character str, if str is a constant,
+  /// it is allocated into a temp, otherwise, its memory reference is
+  /// returned as the buffer.
+  /// The buffer type of str is of type:
+  ///   - fir.ref<fir.array<len x fir.char<kind>>> if str has compile time
+  ///      constant length.
+  ///   - fir.ref<fir.char<kind>> if str has dynamic length.
+  std::pair<mlir::Value, mlir::Value> materializeCharacter(mlir::Value str);
+
+  /// Return true if \p is a character literal (has type
+  /// fir.array<len x fir.char<kind>>).;
+  bool isCharacterLiteral(mlir::Value str);
+
+  /// Return true if \p val has one of the following type
+  /// - fir.boxchar<kind>
+  /// - fir.ref<fir.array<len x fir.char<kind>>>
+  /// - fir.array<len x fir.char<kind>>
+  bool isCharacter(mlir::Value val);
+
+  /// Extract the kind of character \p str.
+  int getCharacterKind(mlir::Value str);
+
+  /// Return the integer type that must be used to manipulate
+  /// Character lengths.
+  mlir::Type getLengthType();
 };
 
 /// Extension class to facilitate lowering of COMPLEX manipulations in FIR.
@@ -101,16 +145,20 @@ public:
   // access the implementation
   T &impl() { return *static_cast<T *>(this); }
 
-  // Type helper. They do not create MLIR operations.
+  /// Type helper. They do not create MLIR operations.
   mlir::Type getComplexPartType(mlir::Value cplx);
   mlir::Type getComplexPartType(mlir::Type complexType);
   mlir::Type getComplexPartType(fir::KindTy complexKind);
 
-  // Complex operation creation helper. They create MLIR operations.
+  /// Complex operation creation helper. They create MLIR operations.
   mlir::Value createComplex(fir::KindTy kind, mlir::Value real,
                             mlir::Value imag);
   mlir::Value extractComplexPart(mlir::Value cplx, bool isImagPart) {
     return isImagPart ? extract<Part::Imag>(cplx) : extract<Part::Real>(cplx);
+  }
+  /// Returns (Real, Imag) pair of \p cplx
+  std::pair<mlir::Value, mlir::Value> extractParts(mlir::Value cplx) {
+    return {extract<Part::Real>(cplx), extract<Part::Imag>(cplx)};
   }
   mlir::Value insertComplexPart(mlir::Value cplx, mlir::Value part,
                                 bool isImagPart) {
@@ -281,12 +329,12 @@ public:
 
   using BodyGenerator = std::function<void(FirOpBuilder &, mlir::Value)>;
 
-  /// Build loop [\p lb, \p ub) with step \p step.
+  /// Build loop [\p lb, \p ub] with step \p step.
   /// If \p step is an empty value, 1 is used for the step.
   void createLoop(mlir::Value lb, mlir::Value ub, mlir::Value step,
                   const BodyGenerator &bodyGenerator);
 
-  /// Build loop [\p lb,  \p ub) with step 1.
+  /// Build loop [\p lb,  \p ub] with step 1.
   void createLoop(mlir::Value lb, mlir::Value ub,
                   const BodyGenerator &bodyGenerator);
 

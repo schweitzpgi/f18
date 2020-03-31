@@ -157,7 +157,7 @@ contains
   function foo(x)
     real x(..)
     integer :: foo
-    ! CHECK: <<SelectRankConstruct>>
+    ! CHECK: <<SelectRankConstruct!>>
     ! CHECK: SelectRankStmt
     select rank(x)
       ! CHECK: SelectRankCaseStmt
@@ -178,7 +178,7 @@ contains
         foo = 2
     ! CHECK: EndSelectStmt
     end select
-    ! CHECK: <<End SelectRankConstruct>>
+    ! CHECK: <<End SelectRankConstruct!>>
   end function
 
   ! CHECK: Function bar
