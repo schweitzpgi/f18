@@ -77,8 +77,7 @@ mlir::Value Fortran::lower::FirOpBuilder::createTemporary(
 fir::GlobalOp Fortran::lower::FirOpBuilder::createGlobal(
     mlir::Location loc, mlir::Type type, llvm::StringRef name,
     mlir::Attribute value, mlir::StringAttr linkage, bool isConst) {
-  auto module =
-      getInsertionBlock()->getParentOp()->getParentOfType<mlir::ModuleOp>();
+  auto module = getModule();
   auto insertPt = saveInsertionPoint();
   if (auto glob = module.lookupSymbol<fir::GlobalOp>(name))
     return glob;
