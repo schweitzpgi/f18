@@ -68,7 +68,7 @@ public:
   /// Unless otherwise stated, all mlir::Value inputs of these pseudo-fir ops
   /// must be of type:
   /// - fir.boxchar<kind> (dynamic length character),
-  /// - fir.ref<fir.array<len x fir.char<kind>>> (character with compile timeA
+  /// - fir.ref<fir.array<len x fir.char<kind>>> (character with compile time
   ///      constant length),
   /// - fir.array<len x fir.char<kind>> (compile time constant character)
 
@@ -169,6 +169,11 @@ public:
   mlir::Value createComplexCompare(mlir::Value cplx1, mlir::Value cplx2,
                                    bool eq);
 
+  static bool isComplex(mlir::Value val) {
+    auto ty = val.getType();
+    return ty.isa<fir::CplxType>() || ty.isa<mlir::ComplexType>();
+  }
+
 protected:
   template <Part partId>
   mlir::Value extract(mlir::Value cplx) {
@@ -231,9 +236,8 @@ public:
   /// Get the entry block of the current Function
   mlir::Block *getEntryBlock() { return &getFunction().front(); }
 
-
   mlir::Type getRefType(mlir::Type eleTy);
-  
+
   /// Create an integer constant of type \p type and value \p i.
   mlir::Value createIntegerConstant(mlir::Type integerType, std::int64_t i);
 

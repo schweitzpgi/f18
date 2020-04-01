@@ -1,3 +1,10 @@
+! RUN: bbc -emit-llvm -o - %s | tco | llc | sed 's/_QP//g' | as -o %t
+! RUN: c++ -std=c++17 %t %S/end-to-end-character-assignment-driver.cpp
+! RUN: ./a.out
+
+! This is an end-to-end test that is driven from a c++ program that builds
+! characters, pass them to this functions and checks expected results.
+
 ! Simple character assignment tests
 subroutine assign1(s1, s2)
   character(*, 1) :: s1, s2
