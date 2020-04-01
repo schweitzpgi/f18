@@ -1042,6 +1042,19 @@ static mlir::ParseResult parseWhereOp(OpAsmParser &parser,
   return mlir::success();
 }
 
+mlir::LogicalResult fir::WhereOp::fold(llvm::ArrayRef<mlir::Attribute> opnds,
+ 		           llvm::SmallVectorImpl<mlir::OpFoldResult> &results) {
+  // If the WhereOp has no body, then just delete it
+  if ((whereRegion().empty() || whereRegion().front().empty() ||
+       isa<fir::FirEndOp>(whereRegion().front().front())) &&
+      (otherRegion().empty() || otherRegion().front().empty() ||
+       isa<fir::FirEndOp>(otherRegion().front().front()))) {
+    results.clear();
+    return mlir::success();
+  }
+  return mlir::failure();
+}
+
 //===----------------------------------------------------------------------===//
 
 mlir::ParseResult fir::isValidCaseAttr(mlir::Attribute attr) {
