@@ -65,6 +65,17 @@ static constexpr std::tuple<
     newIOTable;
 } // namespace Fortran::lower
 
+namespace {
+struct ErrorHandling {
+  bool hasErrorHandlers() const { return ioStat || err || end || eor || ioMsg; }
+  bool ioStat{};
+  bool err{};
+  bool end{};
+  bool eor{};
+  bool ioMsg{};
+};
+} // namespace
+
 using namespace Fortran::lower;
 
 /// Helper function to retrieve the name of the IO function given the key `A`
@@ -100,12 +111,30 @@ static mlir::FuncOp getIORuntimeFunc(Fortran::lower::FirOpBuilder &builder) {
 
 /// Generate a call to end an IO statement
 static mlir::Value genEndIO(Fortran::lower::FirOpBuilder &builder,
-                            mlir::Location loc, mlir::Value cookie) {
+                            mlir::Location loc, mlir::Value cookie,
+                            const ErrorHandling &eh) {
   // Terminate IO
   auto endIOFunc = getIORuntimeFunc<mkIOKey(EndIoStatement)>(builder);
   llvm::SmallVector<mlir::Value, 1> endArgs{cookie};
   auto call = builder.create<mlir::CallOp>(loc, endIOFunc, endArgs);
-  return call.getResult(0);
+  // FIXME: gen code for ioStat and ioMsg cases
+  return eh.hasErrorHandlers() ? call.getResult(0) : mlir::Value{};
+}
+
+/// Make the next `call` in the IO statement conditional on the result `ok`.  If
+/// the current call returns `ok==false`, we do not continue to call the IO
+/// statement's suboperations. This will lend itself to deeply nested
+/// conditionals (and very branch heavy code) for statements with a large number
+/// of suboperations.
+static void makeNextConditionalOn(Fortran::lower::FirOpBuilder &builder,
+                                  mlir::Location loc, mlir::Value ok,
+                                  mlir::OpBuilder::InsertPoint &insertPt) {
+  if (!ok)
+    return;
+  auto where = builder.create<fir::WhereOp>(loc, ok, /*withOtherwise=*/false);
+  if (!insertPt.isSet())
+    insertPt = builder.saveInsertionPoint();
+  builder.setInsertionPointToStart(&where.whereRegion().front());
 }
 
 /// Get the OutputXyz routine to output a value with type `type`.
@@ -154,7 +183,8 @@ splitArguments(Fortran::lower::FirOpBuilder &builder, mlir::Location loc,
 static void genOutputRuntimeFunc(Fortran::lower::FirOpBuilder &builder,
                                  mlir::Location loc, mlir::Type argType,
                                  mlir::Value cookie,
-                                 llvm::SmallVector<mlir::Value, 4> &operands) {
+                                 llvm::SmallVector<mlir::Value, 4> &operands,
+                                 mlir::OpBuilder::InsertPoint &insertPt) {
   int i = 1;
   llvm::SmallVector<mlir::Value, 4> actuals{cookie};
   auto outputFunc = getOutputRuntimeFunc(builder, argType);
@@ -162,7 +192,8 @@ static void genOutputRuntimeFunc(Fortran::lower::FirOpBuilder &builder,
   for (auto &op : operands)
     actuals.emplace_back(builder.create<fir::ConvertOp>(
         loc, outputFunc.getType().getInput(i++), op));
-  builder.create<mlir::CallOp>(loc, outputFunc, actuals);
+  auto ok = builder.create<mlir::CallOp>(loc, outputFunc, actuals);
+  makeNextConditionalOn(builder, loc, ok.getResult(0), insertPt);
 }
 
 /// Get the InputXyz routine to input a value with type `type`.
@@ -195,7 +226,8 @@ static mlir::FuncOp getInputRuntimeFunc(Fortran::lower::FirOpBuilder &builder,
 /// The specific call is determined dynamically by the argument type.
 static void genInputRuntimeFunc(Fortran::lower::FirOpBuilder &builder,
                                 mlir::Location loc, mlir::Type refType,
-                                mlir::Value cookie, mlir::Value &var) {
+                                mlir::Value cookie, mlir::Value &var,
+                                mlir::OpBuilder::InsertPoint &insertPt) {
   auto argType = refType.cast<fir::ReferenceType>().getEleTy();
   int intKind = 0;
   auto inputFunc = getInputRuntimeFunc(builder, argType, intKind);
@@ -210,11 +242,13 @@ static void genInputRuntimeFunc(Fortran::lower::FirOpBuilder &builder,
   if (intKind != 0) {
     auto kind = builder.create<mlir::ConstantOp>(
         loc, builder.getI32IntegerAttr(intKind));
-    builder.create<mlir::CallOp>(
+    auto ok = builder.create<mlir::CallOp>(
         loc, inputFunc, llvm::SmallVector<mlir::Value, 3>{cookie, cvt, kind});
+    makeNextConditionalOn(builder, loc, ok.getResult(0), insertPt);
   } else {
-    builder.create<mlir::CallOp>(
+    auto ok = builder.create<mlir::CallOp>(
         loc, inputFunc, llvm::SmallVector<mlir::Value, 2>{cookie, cvt});
+    makeNextConditionalOn(builder, loc, ok.getResult(0), insertPt);
   }
   if (auto ty = argType.dyn_cast<fir::CplxType>()) {
     auto ptr = builder.create<fir::CoordinateOp>(
@@ -222,8 +256,9 @@ static void genInputRuntimeFunc(Fortran::lower::FirOpBuilder &builder,
         llvm::SmallVector<mlir::Value, 1>{builder.create<mlir::ConstantOp>(
             loc, builder.getI32IntegerAttr(1))});
     auto cst = builder.create<fir::ConvertOp>(loc, cvtTy, ptr);
-    builder.create<mlir::CallOp>(
+    auto ok = builder.create<mlir::CallOp>(
         loc, inputFunc, llvm::SmallVector<mlir::Value, 2>{cookie, cst});
+    makeNextConditionalOn(builder, loc, ok.getResult(0), insertPt);
   }
 }
 
@@ -487,17 +522,6 @@ mlir::Value genIOOption<Fortran::parser::IoControlSpec::Rec>(
 // Gathering of I/O statement error specifiers (if any).
 //===----------------------------------------------------------------------===//
 
-namespace {
-struct ErrorHandling {
-  bool hasErrorHandlers() { return ioStat || err || end || eor || ioMsg; }
-  bool ioStat{};
-  bool err{};
-  bool end{};
-  bool eor{};
-  bool ioMsg{};
-};
-} // namespace
-
 template <typename A>
 void genErrorOption(ErrorHandling &handle, const A &) {}
 template <>
@@ -549,25 +573,28 @@ static const Fortran::semantics::SomeExpr *getExpr(const A &stmt) {
 }
 
 /// For each specifier, build the appropriate call, threading the cookie, and
-/// return the final ssa-value of the cookie.
+/// returning the insertion point as to the initial context. If there are no
+/// specs, the insertion point is undefined.
 template <typename A>
-static void threadSpecs(Fortran::lower::AbstractConverter &converter,
-                        mlir::Location loc, mlir::Value cookie, const A &list) {
+static mlir::OpBuilder::InsertPoint
+threadSpecs(Fortran::lower::AbstractConverter &converter, mlir::Location loc,
+            mlir::Value cookie, const A &list) {
+  auto &builder = converter.getFirOpBuilder();
+  mlir::OpBuilder::InsertPoint insertPt;
   for (const auto &spec : list) {
-    [[maybe_unused]] auto ok =
-        std::visit(Fortran::common::visitors{[&](const auto &x) {
-                     return genIOOption(converter, loc, cookie, x);
-                   }},
-                   spec.u);
-    // TODO: if error handling, add check of `ok`
+    auto ok = std::visit(Fortran::common::visitors{[&](const auto &x) {
+                           return genIOOption(converter, loc, cookie, x);
+                         }},
+                         spec.u);
+    makeNextConditionalOn(builder, loc, ok, insertPt);
   }
+  return insertPt;
 }
 
 template <typename A>
 static void threadErrors(Fortran::lower::AbstractConverter &converter,
-                         mlir::Location loc, mlir::Value cookie,
-                         const A &list) {
-  ErrorHandling eh{};
+                         mlir::Location loc, mlir::Value cookie, const A &list,
+                         ErrorHandling &eh) {
   for (const auto &spec : list)
     std::visit(Fortran::common::visitors{[&](const auto &x) {
                  genErrorOption(eh, x);
@@ -800,9 +827,12 @@ static mlir::Value genBasicIOStmt(Fortran::lower::AbstractConverter &converter,
   auto line = getDefaultLineNo(builder, loc, beginFuncTy.getInput(2));
   llvm::SmallVector<mlir::Value, 4> args{un, file, line};
   auto cookie = builder.create<mlir::CallOp>(loc, beginFunc, args).getResult(0);
-  threadErrors(converter, loc, cookie, stmt.v);
-  threadSpecs(converter, loc, cookie, stmt.v);
-  return genEndIO(builder, converter.getCurrentLocation(), cookie);
+  ErrorHandling eh{};
+  threadErrors(converter, loc, cookie, stmt.v, eh);
+  auto insertPt = threadSpecs(converter, loc, cookie, stmt.v);
+  if (insertPt.isSet())
+    builder.restoreInsertionPoint(insertPt);
+  return genEndIO(builder, converter.getCurrentLocation(), cookie, eh);
 }
 
 mlir::Value Fortran::lower::genBackspaceStatement(
@@ -858,9 +888,12 @@ Fortran::lower::genOpenStatement(Fortran::lower::AbstractConverter &converter,
   }
   auto cookie =
       builder.create<mlir::CallOp>(loc, beginFunc, beginArgs).getResult(0);
-  threadErrors(converter, loc, cookie, stmt.v);
-  threadSpecs(converter, loc, cookie, stmt.v);
-  return genEndIO(builder, loc, cookie);
+  ErrorHandling eh{};
+  threadErrors(converter, loc, cookie, stmt.v, eh);
+  auto insertPt = threadSpecs(converter, loc, cookie, stmt.v);
+  if (insertPt.isSet())
+    builder.restoreInsertionPoint(insertPt);
+  return genEndIO(builder, loc, cookie, eh);
 }
 
 mlir::Value
@@ -890,8 +923,9 @@ Fortran::lower::genWaitStatement(Fortran::lower::AbstractConverter &converter,
         builder.create<fir::ConvertOp>(loc, beginFuncTy.getInput(1), id));
   }
   auto cookie = builder.create<mlir::CallOp>(loc, beginFunc, args).getResult(0);
-  threadErrors(converter, loc, cookie, stmt.v);
-  return genEndIO(builder, converter.getCurrentLocation(), cookie);
+  ErrorHandling eh{};
+  threadErrors(converter, loc, cookie, stmt.v, eh);
+  return genEndIO(builder, converter.getCurrentLocation(), cookie, eh);
 }
 
 //===----------------------------------------------------------------------===//
@@ -1065,7 +1099,7 @@ const std::list<Fortran::parser::OutputItem> &getOutputItems(const A &stmt) {
   } else {
     return stmt.items;
   }
-};
+}
 
 template <bool isInput, bool hasIOCtrl = true, typename A>
 static mlir::Value genDataTransfer(Fortran::lower::AbstractConverter &converter,
@@ -1100,9 +1134,11 @@ static mlir::Value genDataTransfer(Fortran::lower::AbstractConverter &converter,
   mlir::Value cookie =
       builder.create<mlir::CallOp>(loc, ioFunc, ioArgs).getResult(0);
 
+  ErrorHandling eh{};
+  mlir::OpBuilder::InsertPoint insertPt;
   if constexpr (hasIOCtrl) {
-    threadErrors(converter, loc, cookie, stmt.controls);
-    threadSpecs(converter, loc, cookie, stmt.controls);
+    threadErrors(converter, loc, cookie, stmt.controls, eh);
+    insertPt = threadSpecs(converter, loc, cookie, stmt.controls);
   }
   // process the arguments
   llvm::SmallVector<mlir::Value, 32> args;
@@ -1117,7 +1153,7 @@ static mlir::Value genDataTransfer(Fortran::lower::AbstractConverter &converter,
       }
     }
     for (mlir::Value arg : args)
-      genInputRuntimeFunc(builder, loc, arg.getType(), cookie, arg);
+      genInputRuntimeFunc(builder, loc, arg.getType(), cookie, arg, insertPt);
   } else {
     for (auto &item : getOutputItems(stmt)) {
       if (auto *pe = std::get_if<Fortran::parser::Expr>(&item.u)) {
@@ -1131,11 +1167,14 @@ static mlir::Value genDataTransfer(Fortran::lower::AbstractConverter &converter,
     for (mlir::Value arg : args) {
       // need some special handling for COMPLEX and CHARACTER
       auto operands = splitArguments(builder, loc, arg);
-      genOutputRuntimeFunc(builder, loc, arg.getType(), cookie, operands);
+      genOutputRuntimeFunc(builder, loc, arg.getType(), cookie, operands,
+                           insertPt);
     }
   }
 
-  return genEndIO(builder, loc, cookie);
+  if (insertPt.isSet())
+    builder.restoreInsertionPoint(insertPt);
+  return genEndIO(builder, loc, cookie, eh);
 }
 
 void Fortran::lower::genPrintStatement(
