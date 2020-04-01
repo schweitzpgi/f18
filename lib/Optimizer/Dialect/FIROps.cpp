@@ -1042,8 +1042,9 @@ static mlir::ParseResult parseWhereOp(OpAsmParser &parser,
   return mlir::success();
 }
 
-mlir::LogicalResult fir::WhereOp::fold(llvm::ArrayRef<mlir::Attribute> opnds,
- 		           llvm::SmallVectorImpl<mlir::OpFoldResult> &results) {
+mlir::LogicalResult
+fir::WhereOp::fold(llvm::ArrayRef<mlir::Attribute> opnds,
+                   llvm::SmallVectorImpl<mlir::OpFoldResult> &results) {
   // If the WhereOp has no body, then just delete it
   if ((whereRegion().empty() || whereRegion().front().empty() ||
        isa<fir::FirEndOp>(whereRegion().front().front())) &&
