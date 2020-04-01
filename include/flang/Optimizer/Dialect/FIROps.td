@@ -2062,6 +2062,8 @@ def fir_WhereOp :
       return mlir::OpBuilder(&body, std::prev(body.end()));
     }
   }];
+
+  let hasFolder = 1;
 }
 
 // Procedure call operations
