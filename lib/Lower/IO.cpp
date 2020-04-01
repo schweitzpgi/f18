@@ -1065,7 +1065,7 @@ const std::list<Fortran::parser::OutputItem> &getOutputItems(const A &stmt) {
   } else {
     return stmt.items;
   }
-};
+}
 
 template <bool isInput, bool hasIOCtrl = true, typename A>
 static mlir::Value genDataTransfer(Fortran::lower::AbstractConverter &converter,
