@@ -249,6 +249,8 @@ struct CharacterOpsBuilderImpl {
 
   void createPadding(Char str, mlir::Value lower, mlir::Value upper) {
     auto blank = createBlankConstant(str.getCharacterType());
+    // Always create the loop, if upper < lower, no iteration will be
+    // executed.
     builder.createLoop(
         lower, upper,
         [&](Fortran::lower::FirOpBuilder &handler, mlir::Value index) {
@@ -275,6 +277,13 @@ struct CharacterOpsBuilderImpl {
 
   void createAssign(Char lhs, Char rhs) {
     Char safe_rhs{rhs};
+    // Copy the minimum of the lhs and rhs lengths and pad the lhs remainder
+    // if needed.
+    auto cmpLen = builder.createHere<mlir::CmpIOp>(mlir::CmpIPredicate::slt,
+                                                   lhs.len, rhs.len);
+    auto copyCount =
+        builder.createHere<mlir::SelectOp>(cmpLen, lhs.len, rhs.len);
+
     if (rhs.isConstant()) {
       // Need to materialize the constant to get its elements.
       // (No equivalent of fir.coordinate_of for array value).
@@ -282,16 +291,13 @@ struct CharacterOpsBuilderImpl {
     } else {
       // If rhs is in memory, always assumes rhs might overlap with lhs
       // in a way that require a temp for the copy. That can be optimize later.
-      auto temp = createTemp(rhs.getCharacterType(), rhs.len);
-      createCopy(temp, rhs, rhs.len);
+      // Only create a temp of copyCount size because we do not need more from
+      // rhs.
+      auto temp = createTemp(rhs.getCharacterType(), copyCount.getResult());
+      createCopy(temp, rhs, copyCount);
       safe_rhs = temp;
     }
 
-    // Copy the minimum of the lhs and rhs lengths and pad the lhs remainder
-    auto cmpLen = builder.createHere<mlir::CmpIOp>(mlir::CmpIPredicate::slt,
-                                                   lhs.len, rhs.len);
-    auto copyCount =
-        builder.createHere<mlir::SelectOp>(cmpLen, lhs.len, rhs.len);
     createCopy(lhs, safe_rhs, copyCount);
     auto one = builder.createIntegerConstant(lhs.len.getType(), 1);
     auto maxPadding = builder.createHere<mlir::SubIOp>(lhs.len, one);
@@ -539,3 +545,7 @@ mlir::Value Fortran::lower::ComplexOpsBuilder<T>::createComplexCompare(
   return eq ? b.template createHere<mlir::AndOp>(realCmp, imagCmp).getResult()
             : b.template createHere<mlir::OrOp>(realCmp, imagCmp).getResult();
 }
+template mlir::Value Fortran::lower::ComplexOpsBuilder<
+    Fortran::lower::FirOpBuilder>::createComplexCompare(mlir::Value cplx1,
+                                                        mlir::Value cplx2,
+                                                        bool eq);

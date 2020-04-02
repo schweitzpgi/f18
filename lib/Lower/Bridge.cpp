@@ -1100,6 +1100,23 @@ private:
     return Fortran::lower::FirOpBuilder::createFunction(loc, module, name, ty);
   }
 
+  /// Temporary helper to detect shapes that do not require evaluating
+  /// bound expressions at runtime or to get the shape from a descriptor.
+  static bool isConstantShape(const Fortran::semantics::ArraySpec &shape) {
+    auto isConstant{[](const auto &bound) {
+      const auto &expr = bound.GetExplicit();
+      return expr.has_value() && Fortran::evaluate::IsConstantExpr(*expr);
+    }};
+    for (const auto &susbcript : shape) {
+      const auto &lb = susbcript.lbound();
+      const auto &ub = susbcript.ubound();
+      if (isConstant(lb) && (isConstant(ub) || ub.isAssumed()))
+        break;
+      return false;
+    }
+    return true;
+  }
+
   /// Evaluate specification expressions of local symbol and add
   /// the resulting mlir::value to localSymbols.
   /// Before evaluating a specification expression, the symbols
@@ -1163,8 +1180,11 @@ private:
     }
     if (const auto *details =
             symbol.detailsIf<Fortran::semantics::ObjectEntityDetails>()) {
-      if (!details->shape().empty())
-        TODO(); // handle bounds specification expressions
+      // For now, only allow compile time constant shapes that do no require
+      // to evaluate bounds expression here. Assumed size are also supported.
+      if (!isConstantShape(details->shape()))
+        TODO();
+      // handle bounds specification expressions
       if (!details->coshape().empty())
         TODO(); // handle cobounds specification expressions
       if (details->init())

@@ -186,7 +186,7 @@ splitArguments(Fortran::lower::FirOpBuilder &builder, mlir::Location loc,
     auto dataLen = builder.materializeCharacter(arg);
     return {dataLen.first, dataLen.second};
   }
-  if (arg.getType().isa<fir::CplxType>()) {
+  if (builder.isComplex(arg)) {
     auto parts = builder.extractParts(arg);
     return {parts.first, parts.second};
   }
