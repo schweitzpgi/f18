@@ -330,6 +330,15 @@ public:
 
   /// Is the shape of the sequence constant?
   bool hasConstantShape() const { return getConstantRows() == getDimension(); }
+
+  /// Does the sequence have unknown shape? (`array<* x T>`)
+  bool hasUnknownShape() const { return getShape().empty(); }
+
+  /// Is the interior of the sequence constant? Check if the array is
+  /// one of constant shape (`array<C...xCxT>`), unknown shape
+  /// (`array<*xT>`), or rows with shape and ending with column(s) of
+  /// unknown extent (`array<C...xCx?...x?xT>`).
+  bool hasConstantInterior() const;
   
   /// The value `-1` represents an unknown extent for a dimension
   static constexpr Extent getUnknownExtent() { return -1; }
