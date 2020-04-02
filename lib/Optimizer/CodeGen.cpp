@@ -1265,8 +1265,7 @@ struct CoordinateOpConversion
     auto loc = coor.getLoc();
     auto c0 = genConstantIndex(loc, lowering.indexType(), rewriter, 0);
     mlir::Value base = operands[0];
-    auto firRef = coor.ref();
-    auto firTy = firRef.getType();
+    auto firTy = coor.getBaseType();
     mlir::Type cpnTy = getReferenceEleTy(firTy);
     bool columnIsDeferred = false;
     bool hasSubdimension = hasSubDimensions(cpnTy);
