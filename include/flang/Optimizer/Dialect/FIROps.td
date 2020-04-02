@@ -1588,10 +1588,16 @@ def fir_CoordinateOp : fir_Op<"coordinate_of", []> {
 
   let results = (outs fir_ReferenceType);
 
-  let assemblyFormat = [{
-    operands attr-dict `:` functional-type(operands, results)
-  }];
+  let parser = "return parseCoordinateOp(parser, result);";
 
+  let printer = [{
+    p << getOperationName() << ' ' << getOperation()->getOperands();
+    p.printOptionalAttrDict(getAttrs(), /*elidedAttrs=*/{baseType()});
+    p << " : ";
+    p.printFunctionalType(getOperation()->getOperandTypes(),
+        getOperation()->getResultTypes());
+  }];
+  
   let verifier = [{
     // Recovering a LEN type parameter only makes sense from a boxed value
     for (auto co : coor())
@@ -1601,7 +1607,27 @@ def fir_CoordinateOp : fir_Op<"coordinate_of", []> {
         if (!ref().getType().dyn_cast<BoxType>())
           return emitOpError("len_param_index must be used on box type");
       }
+    if (auto attr = getAttr(CoordinateOp::baseType())) {
+      if (!attr.isa<mlir::TypeAttr>())
+        return emitOpError("improperly constructed");
+    } else {
+      return emitOpError("must have base type");
+    }
     return mlir::success();
+  }];
+
+  let skipDefaultBuilders = 1;
+  let builders = [
+    OpBuilder<"mlir::Builder *builder, OperationState &result,"
+              "Type type, Value ref, ValueRange coor,"
+	      "ArrayRef<NamedAttribute> attrs = {}">,
+    OpBuilder<"mlir::Builder *builder, OperationState &result,"
+              "Type type, ValueRange operands,"
+	      "ArrayRef<NamedAttribute> attrs = {}">];
+	      
+  let extraClassDeclaration = [{
+    static constexpr llvm::StringRef baseType() { return "base_type"; }
+    mlir::Type getBaseType();
   }];
 }
 

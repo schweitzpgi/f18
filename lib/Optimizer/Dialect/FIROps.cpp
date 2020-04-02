@@ -315,6 +315,61 @@ mlir::OpFoldResult fir::ConvertOp::fold(llvm::ArrayRef<mlir::Attribute> opnds) {
 }
 
 //===----------------------------------------------------------------------===//
+// CoordinateOp
+//===----------------------------------------------------------------------===//
+
+static mlir::ParseResult
+parseCoordinateOp(mlir::OpAsmParser &parser, mlir::OperationState &result) {
+  llvm::ArrayRef<mlir::Type> allOperandTypes;
+  llvm::ArrayRef<mlir::Type> allResultTypes;
+  llvm::SMLoc allOperandLoc = parser.getCurrentLocation();
+  llvm::SmallVector<mlir::OpAsmParser::OperandType, 4> allOperands;
+  if (parser.parseOperandList(allOperands))
+    return failure();
+  if (parser.parseOptionalAttrDict(result.attributes))
+    return failure();
+  if (parser.parseColon())
+    return failure();
+
+  mlir::FunctionType funcTy;
+  if (parser.parseType(funcTy))
+    return failure();
+  allOperandTypes = funcTy.getInputs();
+  allResultTypes = funcTy.getResults();
+  result.addTypes(allResultTypes);
+  if (parser.resolveOperands(allOperands, allOperandTypes, allOperandLoc,
+			     result.operands))
+    return failure();
+  if (funcTy.getNumInputs()) {
+    // No inputs handled by verify
+    result.addAttribute(fir::CoordinateOp::baseType(),
+			mlir::TypeAttr::get(funcTy.getInput(0)));
+  }
+  return success();
+}
+
+mlir::Type fir::CoordinateOp::getBaseType() {
+  return getAttr(CoordinateOp::baseType()).cast<mlir::TypeAttr>().getValue();
+}
+
+void fir::CoordinateOp::build(Builder *, OperationState &result, mlir::Type resType,
+			 ValueRange operands, ArrayRef<NamedAttribute> attrs) {
+  assert(operands.size() >= 1u && "mismatched number of parameters");
+  result.addOperands(operands);
+  result.addAttribute(fir::CoordinateOp::baseType(), mlir::TypeAttr::get(operands[0].getType()));
+  result.attributes.append(attrs.begin(), attrs.end());
+  result.addTypes({resType});
+}
+
+void fir::CoordinateOp::build(Builder *builder, OperationState &result,
+			      mlir::Type resType, mlir::Value ref, ValueRange coor,
+			 ArrayRef<NamedAttribute> attrs) {
+  llvm::SmallVector<mlir::Value, 16> operands{ref};
+  operands.append(coor.begin(), coor.end());
+  build(builder, result, resType, operands, attrs);
+}
+
+//===----------------------------------------------------------------------===//
 // DispatchOp
 //===----------------------------------------------------------------------===//
 
