@@ -58,8 +58,8 @@ namespace fir {
 bool allConstants(OperandTy operands) {
   for (auto opnd : operands) {
     if (auto defop = opnd.getDefiningOp())
-      if (dyn_cast<mlir::LLVM::ConstantOp>(defop) ||
-          dyn_cast<mlir::ConstantOp>(defop))
+      if (isa<mlir::LLVM::ConstantOp>(defop) ||
+          isa<mlir::ConstantOp>(defop))
         continue;
     return false;
   }
@@ -235,7 +235,12 @@ public:
 
   template <typename A>
   mlir::LLVM::LLVMType convertPointerLike(A &ty) {
-    return unwrap(convertType(ty.getEleTy())).getPointerTo();
+    mlir::Type eleTy = ty.getEleTy();
+    if (auto seqTy = eleTy.dyn_cast<fir::SequenceType>()) {
+      if (!seqTy.hasConstantShape() && seqTy.hasConstantInterior())
+	return unwrap(convertType(seqTy));
+    }
+    return unwrap(convertType(eleTy)).getPointerTo();
   }
 
   // convert a front-end kind value to either a std or LLVM IR dialect type
@@ -262,6 +267,8 @@ public:
 
   // fir.array<c ... :any>  -->  llvm<"[...[c x any]]">
   mlir::LLVM::LLVMType convertSequenceType(fir::SequenceType seq) {
+    if (!seq.hasConstantInterior())
+      llvm_unreachable("cannot lower type to LLVM IR");
     auto baseTy = unwrap(convertType(seq.getEleTy()));
     auto shape = seq.getShape();
     auto constRows = seq.getConstantRows();
@@ -338,12 +345,12 @@ public:
   /// Returns false iff the sequence type has a shape and the shape is constant.
   static bool unknownShape(fir::SequenceType::Shape shape) {
     // does the shape even exist?
-    if (!shape.size())
+    auto size = shape.size();
+    if (size == 0)
       return true;
     // if it exists, are any dimensions deferred?
-    const auto sz = shape.size();
-    for (std::remove_const_t<decltype(sz)> i = 0; i < sz; ++i)
-      if (shape[i] < 0)
+    for (decltype(size) i = 0, sz = size; i < sz; ++i)
+      if (shape[i] == fir::SequenceType::getUnknownExtent())
         return true;
     return false;
   }
