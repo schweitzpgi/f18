@@ -1103,13 +1103,16 @@ private:
   /// Temporary helper to detect shapes that do not require evaluating
   /// bound expressions at runtime or to get the shape from a descriptor.
   static bool isConstantShape(const Fortran::semantics::ArraySpec &shape) {
+    auto isConstant{[](const auto &bound) {
+      const auto &expr = bound.GetExplicit();
+      return expr.has_value() && Fortran::evaluate::IsConstantExpr(*expr);
+    }};
     for (const auto &susbcript : shape) {
-      const auto &lb = susbcript.lbound().GetExplicit();
-      const auto &ub = susbcript.ubound().GetExplicit();
-      if (!lb.has_value() || !Fortran::evaluate::IsConstantExpr(*lb) ||
-          !(susbcript.ubound().isAssumed() ||
-            (ub.has_value() && Fortran::evaluate::IsConstantExpr(*ub))))
-        return false;
+      const auto &lb = susbcript.lbound();
+      const auto &ub = susbcript.ubound();
+      if (isConstant(lb) && (isConstant(ub) || ub.isAssumed()))
+        break;
+      return false;
     }
     return true;
   }
