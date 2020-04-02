@@ -1500,7 +1500,6 @@ struct CoordinateOpConversion
     if (auto ptrTy = refTy.dyn_cast<fir::HeapType>())
       return ptrTy.getEleTy();
     llvm_unreachable("not a reference type");
-    return {};
   }
 
   /// return true if all `Value`s in `operands` are not `FieldIndexOp`s
@@ -1523,8 +1522,7 @@ struct CoordinateOpConversion
       if (auto defop = val.getDefiningOp())
         if (auto constOp = dyn_cast<mlir::ConstantIntOp>(defop))
           return constOp.getValue();
-    assert(false && "must be a constant");
-    return 0;
+    llvm_unreachable("must be a constant");
   }
 };
 
@@ -1668,8 +1666,7 @@ struct GenTypeDescOpConversion : public FIROpConversion<fir::GenTypeDescOp> {
           pair.second.modules, pair.second.host, pair.second.name,
           pair.second.kinds);
     }
-    assert(false);
-    return {};
+    llvm_unreachable("no name found");
   }
 };
 
