@@ -73,6 +73,8 @@ struct ErrorHandling {
   bool end{};
   bool eor{};
   bool ioMsg{};
+  const Fortran::semantics::SomeExpr *ioStatExpr{};
+  const Fortran::semantics::SomeExpr *ioMsgExpr{};
 };
 } // namespace
 
@@ -110,14 +112,27 @@ static mlir::FuncOp getIORuntimeFunc(Fortran::lower::FirOpBuilder &builder) {
 }
 
 /// Generate a call to end an IO statement
-static mlir::Value genEndIO(Fortran::lower::FirOpBuilder &builder,
+static mlir::Value genEndIO(Fortran::lower::AbstractConverter &converter,
                             mlir::Location loc, mlir::Value cookie,
                             const ErrorHandling &eh) {
   // Terminate IO
+  auto &builder = converter.getFirOpBuilder();
+  if (eh.ioMsg) {
+    TODO(); // eh.ioMsgExpr is never set
+    auto getMsg = getIORuntimeFunc<mkIOKey(GetIoMsg)>(builder);
+    auto var = converter.genExprAddr(eh.ioMsgExpr, loc);
+    mlir::Value varLen{}; // FIXME
+    llvm::SmallVector<mlir::Value, 3> args{cookie, var, varLen};
+    builder.create<mlir::CallOp>(loc, getMsg, args);
+  }
   auto endIOFunc = getIORuntimeFunc<mkIOKey(EndIoStatement)>(builder);
   llvm::SmallVector<mlir::Value, 1> endArgs{cookie};
   auto call = builder.create<mlir::CallOp>(loc, endIOFunc, endArgs);
-  // FIXME: gen code for ioStat and ioMsg cases
+  if (eh.ioStat) {
+    TODO(); // eh.ioStatExpr is never set
+    auto ioStatVar = converter.genExprAddr(eh.ioStatExpr, loc);
+    builder.create<fir::StoreOp>(loc, call.getResult(0), ioStatVar);
+  }
   return eh.hasErrorHandlers() ? call.getResult(0) : mlir::Value{};
 }
 
@@ -832,7 +847,7 @@ static mlir::Value genBasicIOStmt(Fortran::lower::AbstractConverter &converter,
   auto insertPt = threadSpecs(converter, loc, cookie, stmt.v);
   if (insertPt.isSet())
     builder.restoreInsertionPoint(insertPt);
-  return genEndIO(builder, converter.getCurrentLocation(), cookie, eh);
+  return genEndIO(converter, converter.getCurrentLocation(), cookie, eh);
 }
 
 mlir::Value Fortran::lower::genBackspaceStatement(
@@ -893,7 +908,7 @@ Fortran::lower::genOpenStatement(Fortran::lower::AbstractConverter &converter,
   auto insertPt = threadSpecs(converter, loc, cookie, stmt.v);
   if (insertPt.isSet())
     builder.restoreInsertionPoint(insertPt);
-  return genEndIO(builder, loc, cookie, eh);
+  return genEndIO(converter, loc, cookie, eh);
 }
 
 mlir::Value
@@ -925,7 +940,7 @@ Fortran::lower::genWaitStatement(Fortran::lower::AbstractConverter &converter,
   auto cookie = builder.create<mlir::CallOp>(loc, beginFunc, args).getResult(0);
   ErrorHandling eh{};
   threadErrors(converter, loc, cookie, stmt.v, eh);
-  return genEndIO(builder, converter.getCurrentLocation(), cookie, eh);
+  return genEndIO(converter, converter.getCurrentLocation(), cookie, eh);
 }
 
 //===----------------------------------------------------------------------===//
@@ -1174,7 +1189,7 @@ static mlir::Value genDataTransfer(Fortran::lower::AbstractConverter &converter,
 
   if (insertPt.isSet())
     builder.restoreInsertionPoint(insertPt);
-  return genEndIO(builder, loc, cookie, eh);
+  return genEndIO(converter, loc, cookie, eh);
 }
 
 void Fortran::lower::genPrintStatement(
