@@ -29,7 +29,7 @@ assembly=a.s
 testObject=test.o
 testExec=./test_exec
 testLog=test.log
-llFile=a.mlir.ll
+llFile=test.mlir.ll
 
 $CPP $SRC -std=c++17 -o $testGen
 [[ $? -ne 0 ]] && die "test generator compilation failure"
