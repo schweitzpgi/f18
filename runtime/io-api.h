@@ -27,10 +27,9 @@ using Cookie = IoStatementState *;
 using ExternalUnit = int;
 using AsynchronousId = int;
 static constexpr ExternalUnit DefaultUnit{-1}; // READ(*), WRITE(*), PRINT
-}
+} // namespace Fortran::runtime::io
 
-using namespace Fortran::runtime;
-using namespace Fortran::runtime::io;
+namespace Fortran::runtime::io {
 
 extern "C" {
 
@@ -296,6 +295,7 @@ bool IONAME(InquireInteger64)(
 // rather than by terminating the image.
 enum Iostat IONAME(EndIoStatement)(Cookie);
 
-}  // extern "C"
+} // extern "C"
+} // namespace Fortran::runtime::io
 
 #endif
