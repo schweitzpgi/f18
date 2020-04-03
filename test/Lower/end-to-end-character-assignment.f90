@@ -1,4 +1,4 @@
-! RUN: bbc -emit-llvm -o - %s | tco | llc | sed 's/_QP//g' | as -o %t
+! RUN: bbc --disable-pass-threading -emit-llvm -o - %s | tco | llc | sed 's/_QP//g' | as -o %t
 ! RUN: c++ -std=c++17 %t %S/end-to-end-character-assignment-driver.cpp
 ! RUN: ./a.out
 
