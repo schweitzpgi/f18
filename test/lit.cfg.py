@@ -67,6 +67,7 @@ if config.flang_llvm_tools_dir != "" :
 
 config.substitutions.append(('%B', config.flang_obj_root))
 config.substitutions.append(("%L", config.flang_lib_dir))
+config.substitutions.append(("%CXX", config.cplusplus_executable))
 
 # For each occurrence of a flang tool name, replace it with the full path to
 # the build directory holding that tool.  We explicitly specify the directories
