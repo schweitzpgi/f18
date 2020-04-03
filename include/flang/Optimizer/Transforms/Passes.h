@@ -20,6 +20,11 @@ class Pass;
 
 namespace fir {
 
+class KindMapping;
+
+/// Convert fir.select_type to the standard dialect
+std::unique_ptr<mlir::Pass> createFIRToStdPass(const KindMapping &);
+
 /// Effects aware CSE pass
 std::unique_ptr<mlir::OpPassBase<mlir::FuncOp>> createCSEPass();
 

@@ -20,7 +20,6 @@
 #include "flang/Optimizer/Support/InternalNames.h"
 #include "flang/Optimizer/Support/KindMapping.h"
 #include "flang/Optimizer/Transforms/Passes.h"
-#include "flang/Optimizer/Transforms/StdConverter.h"
 #include "flang/Parser/characters.h"
 #include "flang/Parser/dump-parse-tree.h"
 #include "flang/Parser/message.h"

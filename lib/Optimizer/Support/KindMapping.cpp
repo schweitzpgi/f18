@@ -219,26 +219,27 @@ MatchResult fir::KindMapping::parse(llvm::StringRef kindMap) {
   return mlir::success();
 }
 
-Bitsize fir::KindMapping::getCharacterBitsize(KindTy kind) {
+Bitsize fir::KindMapping::getCharacterBitsize(KindTy kind) const {
   return getIntegerLikeBitsize<'a'>(kind, intMap);
 }
 
-Bitsize fir::KindMapping::getIntegerBitsize(KindTy kind) {
+Bitsize fir::KindMapping::getIntegerBitsize(KindTy kind) const {
   return getIntegerLikeBitsize<'i'>(kind, intMap);
 }
 
-Bitsize fir::KindMapping::getLogicalBitsize(KindTy kind) {
+Bitsize fir::KindMapping::getLogicalBitsize(KindTy kind) const {
   return getIntegerLikeBitsize<'l'>(kind, intMap);
 }
 
-LLVMTypeID fir::KindMapping::getRealTypeID(KindTy kind) {
+LLVMTypeID fir::KindMapping::getRealTypeID(KindTy kind) const {
   return getFloatLikeTypeID<'r'>(kind, floatMap);
 }
 
-LLVMTypeID fir::KindMapping::getComplexTypeID(KindTy kind) {
+LLVMTypeID fir::KindMapping::getComplexTypeID(KindTy kind) const {
   return getFloatLikeTypeID<'c'>(kind, floatMap);
 }
 
-const llvm::fltSemantics &fir::KindMapping::getFloatSemantics(KindTy kind) {
+const llvm::fltSemantics &
+fir::KindMapping::getFloatSemantics(KindTy kind) const {
   return getFloatSemanticsOfKind<'r'>(kind, floatMap);
 }

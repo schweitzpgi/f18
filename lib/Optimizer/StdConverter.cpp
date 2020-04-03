@@ -6,7 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "flang/Optimizer/Transforms/StdConverter.h"
+#include "flang/Optimizer/Transforms/Passes.h"
 #include "flang/Optimizer/Dialect/FIRAttr.h"
 #include "flang/Optimizer/Dialect/FIRDialect.h"
 #include "flang/Optimizer/Dialect/FIROpsSupport.h"
@@ -22,10 +22,11 @@
 // This module performs the conversion of some FIR operations.
 // Convert some FIR types to standard dialect?
 
-static llvm::cl::opt<bool>
-    ClDisableFirToStd("disable-fir2std",
-                      llvm::cl::desc("disable FIR to standard pass"),
-                      llvm::cl::init(false), llvm::cl::Hidden);
+static llvm::cl::opt<bool> disableFirToStd(
+    "disable-fir-to-std",
+    llvm::cl::desc("disable conversion of fir.select_type and affine dialect "
+                   "to the standard dialect pass"),
+    llvm::cl::init(false), llvm::cl::Hidden);
 
 namespace fir {
 namespace {
@@ -182,33 +183,30 @@ struct SelectTypeOpConversion : public FIROpConversion<SelectTypeOp> {
 /// Convert affine dialect, fir.select_type to standard dialect
 class FIRToStdLoweringPass : public mlir::FunctionPass<FIRToStdLoweringPass> {
 public:
-  explicit FIRToStdLoweringPass(KindMapping &kindMap) : kindMap{kindMap} {}
+  explicit FIRToStdLoweringPass(const KindMapping &kindMap)
+      : kindMap{kindMap} {}
 
   void runOnFunction() override {
-    if (ClDisableFirToStd)
+    if (disableFirToStd)
       return;
 
-    auto *context{&getContext()};
-    // FIRToStdTypeConverter typeConverter{kindMap};
+    // FIRToStdTypeConverter tyConv{kindMap};
     mlir::OwningRewritePatternList patterns;
-    // patterns.insert<SelectTypeOpConversion>(context, typeConverter);
-    patterns.insert<SelectTypeOpConversion>(context);
-    mlir::populateAffineToStdConversionPatterns(patterns, context);
-    // mlir::populateFuncOpTypeConversionPattern(patterns, context,
-    // typeConverter);
-    mlir::ConversionTarget target{*context};
-    target.addLegalDialect<mlir::StandardOpsDialect, FIROpsDialect>();
+    // patterns.insert<SelectTypeOpConversion>(context, tyConv);
+    patterns.insert<SelectTypeOpConversion>(&getContext());
+    mlir::populateAffineToStdConversionPatterns(patterns, &getContext());
+    // mlir::populateFuncOpTypeConversionPattern(patterns, context, tyConv);
+    mlir::ConversionTarget target(getContext());
+    target.addLegalDialect<FIROpsDialect, mlir::loop::LoopOpsDialect,
+                           mlir::StandardOpsDialect>();
     // target.addDynamicallyLegalOp<mlir::FuncOp>([&](mlir::FuncOp op) {
-    //  return typeConverter.isSignatureLegal(op.getType());
+    //  return tyConv.isSignatureLegal(op.getType());
     //});
     target.addIllegalOp<SelectTypeOp>();
-    if (mlir::failed(mlir::applyPartialConversion(
-            // getModule(), target, std::move(patterns), &typeConverter))) {
-            getModule(), target, std::move(patterns)))) {
-      mlir::emitError(mlir::UnknownLoc::get(context),
-                      "error in converting to standard dialect\n");
+
+    if (mlir::failed(
+            mlir::applyPartialConversion(getFunction(), target, patterns)))
       signalPassFailure();
-    }
   }
 
   mlir::ModuleOp getModule() {
@@ -216,11 +214,11 @@ public:
   }
 
 private:
-  KindMapping &kindMap;
+  const KindMapping &kindMap;
 };
 } // namespace
 
-std::unique_ptr<mlir::Pass> createFIRToStdPass(KindMapping &kindMap) {
+std::unique_ptr<mlir::Pass> createFIRToStdPass(const KindMapping &kindMap) {
   return std::make_unique<FIRToStdLoweringPass>(kindMap);
 }
 } // namespace fir

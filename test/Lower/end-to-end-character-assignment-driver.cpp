@@ -176,9 +176,9 @@ extern "C" {
 //   CHARACTER(*, K) :: s1, s2
 //   s1 = s2
 // END SUBROUTINE
-void assign1(Fchar, Fchar);
-void assign2(Fchar, Fchar);
-void assign4(Fchar, Fchar);
+void _QPassign1(Fchar, Fchar);
+void _QPassign2(Fchar, Fchar);
+void _QPassign4(Fchar, Fchar);
 }
 
 template<int Kind, typename Func>
@@ -221,9 +221,9 @@ extern "C" {
 //   INTEGER :: lb, ub
 //   s1(lb:ub) = s2
 // END SUBROUTINE
-void assign_substring1(Fchar s1, Fchar s2, int *lb, int *ub);
-void assign_substring2(Fchar, Fchar, int *, int *);
-void assign_substring4(Fchar, Fchar, int *, int *);
+void _QPassign_substring1(Fchar s1, Fchar s2, int *lb, int *ub);
+void _QPassign_substring2(Fchar, Fchar, int *, int *);
+void _QPassign_substring4(Fchar, Fchar, int *, int *);
 }
 
 template<int Kind, typename Func>
@@ -257,9 +257,9 @@ extern "C" {
 //   INTEGER :: lb
 //   s1(lb:) = s2
 // END SUBROUTINE
-void assign_overlap1(Fchar s1, Fchar s2, int *lb);
-void assign_overlap2(Fchar, Fchar, int *);
-void assign_overlap4(Fchar, Fchar, int *);
+void _QPassign_overlap1(Fchar s1, Fchar s2, int *lb);
+void _QPassign_overlap2(Fchar, Fchar, int *);
+void _QPassign_overlap4(Fchar, Fchar, int *);
 }
 
 template<int Kind, typename Func>
@@ -290,9 +290,9 @@ extern "C" {
 //   CHARACTER(l2, K) :: s2
 //   s1 = s2
 // END SUBROUTINE
-void assign_spec_expr_len1(Fchar s1, Fchar s2, int *l1, int *l2);
-void assign_spec_expr_len2(Fchar s1, Fchar s2, int *l1, int *l2);
-void assign_spec_expr_len4(Fchar s1, Fchar s2, int *l1, int *l2);
+void _QPassign_spec_expr_len1(Fchar s1, Fchar s2, int *l1, int *l2);
+void _QPassign_spec_expr_len2(Fchar s1, Fchar s2, int *l1, int *l2);
+void _QPassign_spec_expr_len4(Fchar s1, Fchar s2, int *l1, int *l2);
 }
 
 template<int Kind, typename Func>
@@ -336,21 +336,21 @@ void TestSpecExprLenAssignement(Func testedSub, int &tests, int &passed) {
 int main(int, char **) {
   int tests{0}, passed{0};
 
-  TestNormalAssignement<1>(assign1, tests, passed);
-  TestNormalAssignement<2>(assign2, tests, passed);
-  TestNormalAssignement<4>(assign4, tests, passed);
+  TestNormalAssignement<1>(_QPassign1, tests, passed);
+  TestNormalAssignement<2>(_QPassign2, tests, passed);
+  TestNormalAssignement<4>(_QPassign4, tests, passed);
 
-  TestSubstringAssignement<1>(assign_substring1, tests, passed);
-  TestSubstringAssignement<2>(assign_substring2, tests, passed);
-  TestSubstringAssignement<4>(assign_substring4, tests, passed);
+  TestSubstringAssignement<1>(_QPassign_substring1, tests, passed);
+  TestSubstringAssignement<2>(_QPassign_substring2, tests, passed);
+  TestSubstringAssignement<4>(_QPassign_substring4, tests, passed);
 
-  TestOverlappingAssignement<1>(assign_overlap1, tests, passed);
-  TestOverlappingAssignement<2>(assign_overlap2, tests, passed);
-  TestOverlappingAssignement<4>(assign_overlap4, tests, passed);
+  TestOverlappingAssignement<1>(_QPassign_overlap1, tests, passed);
+  TestOverlappingAssignement<2>(_QPassign_overlap2, tests, passed);
+  TestOverlappingAssignement<4>(_QPassign_overlap4, tests, passed);
 
-  TestSpecExprLenAssignement<1>(assign_spec_expr_len1, tests, passed);
-  TestSpecExprLenAssignement<2>(assign_spec_expr_len2, tests, passed);
-  TestSpecExprLenAssignement<4>(assign_spec_expr_len4, tests, passed);
+  TestSpecExprLenAssignement<1>(_QPassign_spec_expr_len1, tests, passed);
+  TestSpecExprLenAssignement<2>(_QPassign_spec_expr_len2, tests, passed);
+  TestSpecExprLenAssignement<4>(_QPassign_spec_expr_len4, tests, passed);
 
   std::cout << passed << " tests passed out of " << tests << std::endl;
   return tests == passed ? 0 : -1;

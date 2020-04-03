@@ -57,24 +57,24 @@ public:
   explicit KindMapping(mlir::MLIRContext *context, llvm::StringRef map);
 
   /// Get the size in bits of !fir.char<kind>
-  Bitsize getCharacterBitsize(KindTy kind);
+  Bitsize getCharacterBitsize(KindTy kind) const;
 
   /// Get the size in bits of !fir.int<kind>
-  Bitsize getIntegerBitsize(KindTy kind);
+  Bitsize getIntegerBitsize(KindTy kind) const;
 
   /// Get the size in bits of !fir.logical<kind>
-  Bitsize getLogicalBitsize(KindTy kind);
+  Bitsize getLogicalBitsize(KindTy kind) const;
 
   /// Get the LLVM Type::TypeID of !fir.real<kind>
-  LLVMTypeID getRealTypeID(KindTy kind);
+  LLVMTypeID getRealTypeID(KindTy kind) const;
 
   /// Get the LLVM Type::TypeID of !fir.complex<kind>
-  LLVMTypeID getComplexTypeID(KindTy kind);
+  LLVMTypeID getComplexTypeID(KindTy kind) const;
 
   mlir::MLIRContext *getContext() const { return context; }
 
   /// Get the float semantics of !fir.real<kind>
-  const llvm::fltSemantics &getFloatSemantics(KindTy kind);
+  const llvm::fltSemantics &getFloatSemantics(KindTy kind) const;
 
 private:
   MatchResult badMapString(const llvm::Twine &ptr);
