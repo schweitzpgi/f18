@@ -59,14 +59,6 @@ private:
 
 class SubprogramDetails {
 public:
-  SubprogramDetails() {}
-  SubprogramDetails(const SubprogramDetails &that)
-    : dummyArgs_{that.dummyArgs_}, result_{that.result_} {}
-  SubprogramDetails &operator=(const SubprogramDetails &) = delete;
-  ~SubprogramDetails() = default;
-  SubprogramDetails &operator=(SubprogramDetails &&) = default;
-  SubprogramDetails(SubprogramDetails &&) = default;
-
   bool isFunction() const { return result_ != nullptr; }
   bool isInterface() const { return isInterface_; }
   void set_isInterface(bool value = true) { isInterface_ = value; }
@@ -743,10 +735,11 @@ inline bool ProcEntityDetails::HasExplicitInterface() const {
 
 inline bool operator<(SymbolRef x, SymbolRef y) { return *x < *y; }
 using SymbolSet = std::set<SymbolRef>;
+} // namespace Fortran::semantics
 
 // Define required  info so that SymbolRef can be used inside llvm::DenseMap.
 namespace llvm {
-template<> struct DenseMapInfo<Fortran::semantics::SymbolRef> {
+template <> struct DenseMapInfo<Fortran::semantics::SymbolRef> {
   static inline Fortran::semantics::SymbolRef getEmptyKey() {
     auto ptr = DenseMapInfo<const Fortran::semantics::Symbol *>::getEmptyKey();
     return *reinterpret_cast<Fortran::semantics::SymbolRef *>(&ptr);
@@ -768,6 +761,5 @@ template<> struct DenseMapInfo<Fortran::semantics::SymbolRef> {
     return LHS == RHS;
   }
 };
-
-} // namespace Fortran::semantics
-#endif  // FORTRAN_SEMANTICS_SYMBOL_H_
+} // namespace llvm
+#endif // FORTRAN_SEMANTICS_SYMBOL_H_
