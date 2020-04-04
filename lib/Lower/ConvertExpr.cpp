@@ -475,6 +475,9 @@ class ExprLowering {
     auto valTag = mlir::Identifier::get(fir::StringLitOp::value(), context);
     // FIXME: for wider char types, use an array of i16 or i32
     // for now, just fake it that it's a i8 to get it past the C++ compiler
+    if constexpr (KIND == 1) {
+    [[maybe_unused]] auto globalName = converter.uniqueCGIdent(data);
+    }
     auto strAttr = mlir::StringAttr::get((const char *)data.c_str(), context);
     mlir::NamedAttribute dataAttr(valTag, strAttr);
     auto sizeTag = mlir::Identifier::get(fir::StringLitOp::size(), context);

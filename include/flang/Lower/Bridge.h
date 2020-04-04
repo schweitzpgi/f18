@@ -116,6 +116,8 @@ public:
   virtual mlir::ModuleOp &getModuleOp() = 0;
   /// Unique a symbol
   virtual std::string mangleName(const semantics::Symbol &) = 0;
+  /// Unique a compiler generated identifier
+  virtual std::string uniqueCGIdent(llvm::StringRef name) = 0;
 
   virtual ~AbstractConverter() = default;
 };

@@ -16,10 +16,8 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/Twine.h"
 
-namespace {
-
 // recursively build the vector of module scopes
-void moduleNames(const Fortran::semantics::Scope &scope,
+static void moduleNames(const Fortran::semantics::Scope &scope,
                  llvm::SmallVector<llvm::StringRef, 2> &result) {
   if (scope.kind() == Fortran::semantics::Scope::Kind::Global) {
     return;
@@ -30,7 +28,7 @@ void moduleNames(const Fortran::semantics::Scope &scope,
       result.emplace_back(toStringRef(symbol->name()));
 }
 
-llvm::SmallVector<llvm::StringRef, 2>
+static llvm::SmallVector<llvm::StringRef, 2>
 moduleNames(const Fortran::semantics::Symbol &symbol) {
   const auto &scope = symbol.owner();
   llvm::SmallVector<llvm::StringRef, 2> result;
@@ -38,7 +36,7 @@ moduleNames(const Fortran::semantics::Symbol &symbol) {
   return result;
 }
 
-llvm::Optional<llvm::StringRef>
+static llvm::Optional<llvm::StringRef>
 hostName(const Fortran::semantics::Symbol &symbol) {
   const auto &scope = symbol.owner();
   if (scope.kind() == Fortran::semantics::Scope::Kind::Subprogram) {
@@ -48,7 +46,6 @@ hostName(const Fortran::semantics::Symbol &symbol) {
   return {};
 }
 
-} // namespace
 
 static const Fortran::semantics::Symbol *
 findInterfaceIfSeperateMP(const Fortran::semantics::Symbol &symbol) {

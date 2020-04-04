@@ -25,6 +25,7 @@
 #include "mlir/Target/LLVMIR.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/MD5.h"
 
 #undef TODO
 #define TODO()                                                                 \
@@ -44,6 +45,12 @@ static llvm::cl::opt<bool>
     disableToDoAssertions("disable-burnside-todo",
                           llvm::cl::desc("disable burnside bridge asserts"),
                           llvm::cl::init(false), llvm::cl::Hidden);
+
+static llvm::cl::opt<std::size_t>
+    nameLengthHashSize("length-to-hash-string-literal",
+		       llvm::cl::desc("string literals that exceed this length"
+				      " will use a hash value as their symbol "
+				      "name"), llvm::cl::init(32));
 
 namespace {
 /// Information for generating a structured or unstructured increment loop.
@@ -184,6 +191,22 @@ public:
   std::string
   mangleName(const Fortran::semantics::Symbol &symbol) override final {
     return Fortran::lower::mangle::mangleName(uniquer, symbol);
+  }
+
+  std::string uniqueCGIdent(llvm::StringRef name) override final {
+    // TODO: check for special characters
+    if ((name.size() > nameLengthHashSize) || name.contains('\0')){
+      llvm::MD5 hash;
+      hash.update(name);
+      llvm::MD5::MD5Result result;
+      hash.final(result);
+      llvm::SmallString<32> str;
+      llvm::MD5::stringifyResult(result, str);
+      std::string hashName = "h.";
+      hashName.append(str.c_str());
+      return uniquer.doGenerated(hashName);
+    }
+    return uniquer.doGenerated(name);
   }
 
 private:
