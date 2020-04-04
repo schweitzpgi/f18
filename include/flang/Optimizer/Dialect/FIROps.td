@@ -2225,7 +2225,8 @@ def fir_StringLitOp : fir_Op<"string_lit", []> {
     else if (auto v = val.dyn_cast<mlir::ArrayAttr>())
       result.attributes.push_back(builder.getNamedAttr(xlist(), v));
     else
-      return mlir::failure();
+      return parser.emitError(parser.getCurrentLocation(),
+                              "found an invalid constant");
     mlir::IntegerAttr sz;
     mlir::Type type;
     if (parser.parseLParen() ||
@@ -2233,9 +2234,11 @@ def fir_StringLitOp : fir_Op<"string_lit", []> {
         parser.parseRParen() ||
         parser.parseColonType(type))
       return mlir::failure();
+    if (!(type.isa<fir::CharacterType>() || type.isa<mlir::IntegerType>()))
+      return parser.emitError(parser.getCurrentLocation(),
+                              "must have character type");
     type = fir::SequenceType::get({sz.getInt()}, type);
-    if (!type ||
-        parser.addTypesToList(type, result.types))
+    if (!type || parser.addTypesToList(type, result.types))
       return mlir::failure();
     return mlir::success();
   }];

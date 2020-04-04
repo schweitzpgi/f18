@@ -26,3 +26,9 @@ fir.global common @C_i511 (511:i32) : i32
 
 // CHECK: @w_i86 = weak global i32 86
 fir.global weak @w_i86 (86:i32) : i32
+
+// CHECK: @str1 = global [6 x i8] c"Hello!"
+fir.global @str1 : !fir.array<6 x !fir.char<1>> {
+  %1 = fir.string_lit "Hello!"(6) : !fir.char<1>
+  fir.has_value %1 : !fir.array<6 x !fir.char<1>>
+}
