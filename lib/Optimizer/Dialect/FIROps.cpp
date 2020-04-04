@@ -16,8 +16,6 @@
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/Function.h"
 #include "mlir/IR/Module.h"
-#include "mlir/IR/StandardTypes.h"
-#include "mlir/IR/SymbolTable.h"
 #include "llvm/ADT/StringSwitch.h"
 
 using namespace fir;

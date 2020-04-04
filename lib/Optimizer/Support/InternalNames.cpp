@@ -8,7 +8,6 @@
 
 #include "flang/Optimizer/Support/InternalNames.h"
 #include "mlir/IR/Diagnostics.h"
-#include "llvm/ADT/Optional.h"
 #include "llvm/Support/CommandLine.h"
 
 static llvm::cl::opt<std::string> mainEntryName("main-entry-name", llvm::cl::desc("override the name of the default PROGRAM entry (may be helpful for using other runtimes)"));

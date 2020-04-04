@@ -14,8 +14,6 @@
 #include "llvm/IR/Type.h"
 
 namespace llvm {
-template <typename>
-class Optional;
 struct fltSemantics;
 } // namespace llvm
 

@@ -8,7 +8,6 @@
 
 #include "flang/Optimizer/Support/KindMapping.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
-#include "llvm/ADT/Optional.h"
 #include "llvm/Support/CommandLine.h"
 
 /// Allow the user to set the FIR intrinsic type kind value to LLVM type

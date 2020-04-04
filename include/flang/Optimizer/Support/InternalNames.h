@@ -14,10 +14,6 @@
 #include "llvm/ADT/StringRef.h"
 #include <cstdint>
 
-namespace llvm {
-class Twine;
-} // namespace llvm
-
 namespace fir {
 
 /// Internal name mangling of identifiers
