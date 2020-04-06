@@ -316,8 +316,8 @@ mlir::OpFoldResult fir::ConvertOp::fold(llvm::ArrayRef<mlir::Attribute> opnds) {
 // CoordinateOp
 //===----------------------------------------------------------------------===//
 
-static mlir::ParseResult
-parseCoordinateOp(mlir::OpAsmParser &parser, mlir::OperationState &result) {
+static mlir::ParseResult parseCoordinateOp(mlir::OpAsmParser &parser,
+                                           mlir::OperationState &result) {
   llvm::ArrayRef<mlir::Type> allOperandTypes;
   llvm::ArrayRef<mlir::Type> allResultTypes;
   llvm::SMLoc allOperandLoc = parser.getCurrentLocation();
@@ -336,12 +336,12 @@ parseCoordinateOp(mlir::OpAsmParser &parser, mlir::OperationState &result) {
   allResultTypes = funcTy.getResults();
   result.addTypes(allResultTypes);
   if (parser.resolveOperands(allOperands, allOperandTypes, allOperandLoc,
-			     result.operands))
+                             result.operands))
     return failure();
   if (funcTy.getNumInputs()) {
     // No inputs handled by verify
     result.addAttribute(fir::CoordinateOp::baseType(),
-			mlir::TypeAttr::get(funcTy.getInput(0)));
+                        mlir::TypeAttr::get(funcTy.getInput(0)));
   }
   return success();
 }
@@ -350,18 +350,20 @@ mlir::Type fir::CoordinateOp::getBaseType() {
   return getAttr(CoordinateOp::baseType()).cast<mlir::TypeAttr>().getValue();
 }
 
-void fir::CoordinateOp::build(Builder *, OperationState &result, mlir::Type resType,
-			 ValueRange operands, ArrayRef<NamedAttribute> attrs) {
+void fir::CoordinateOp::build(Builder *, OperationState &result,
+                              mlir::Type resType, ValueRange operands,
+                              ArrayRef<NamedAttribute> attrs) {
   assert(operands.size() >= 1u && "mismatched number of parameters");
   result.addOperands(operands);
-  result.addAttribute(fir::CoordinateOp::baseType(), mlir::TypeAttr::get(operands[0].getType()));
+  result.addAttribute(fir::CoordinateOp::baseType(),
+                      mlir::TypeAttr::get(operands[0].getType()));
   result.attributes.append(attrs.begin(), attrs.end());
   result.addTypes({resType});
 }
 
 void fir::CoordinateOp::build(Builder *builder, OperationState &result,
-			      mlir::Type resType, mlir::Value ref, ValueRange coor,
-			 ArrayRef<NamedAttribute> attrs) {
+                              mlir::Type resType, mlir::Value ref,
+                              ValueRange coor, ArrayRef<NamedAttribute> attrs) {
   llvm::SmallVector<mlir::Value, 16> operands{ref};
   operands.append(coor.begin(), coor.end());
   build(builder, result, resType, operands, attrs);
@@ -453,13 +455,12 @@ static ParseResult parseGlobalOp(OpAsmParser &parser, OperationState &result) {
   }
 
   // Parse the name as a symbol reference attribute.
-  SymbolRefAttr nameAttr;
-  if (parser.parseAttribute(nameAttr, mlir::SymbolTable::getSymbolAttrName(),
+  mlir::SymbolRefAttr nameAttr;
+  if (parser.parseAttribute(nameAttr, fir::GlobalOp::symbolAttrName(),
                             result.attributes))
     return failure();
-
-  auto name = nameAttr.getRootReference();
-  result.attributes.back().second = builder.getStringAttr(name);
+  result.addAttribute(mlir::SymbolTable::getSymbolAttrName(),
+                      builder.getStringAttr(nameAttr.getRootReference()));
 
   bool simpleInitializer = false;
   if (mlir::succeeded(parser.parseOptionalLParen())) {
@@ -506,9 +507,11 @@ void fir::GlobalOp::build(mlir::Builder *builder, OperationState &result,
                           StringRef name, bool isConstant, Type type,
                           Attribute initialVal, StringAttr linkage,
                           ArrayRef<NamedAttribute> attrs) {
+  result.addRegion();
   result.addAttribute(typeAttrName(), mlir::TypeAttr::get(type));
   result.addAttribute(mlir::SymbolTable::getSymbolAttrName(),
                       builder->getStringAttr(name));
+  result.addAttribute(symbolAttrName(), builder->getSymbolRefAttr(name));
   if (isConstant)
     result.addAttribute(constantAttrName(), builder->getUnitAttr());
   if (initialVal)
@@ -516,6 +519,7 @@ void fir::GlobalOp::build(mlir::Builder *builder, OperationState &result,
   if (linkage)
     result.addAttribute(linkageAttrName(), linkage);
   result.attributes.append(attrs.begin(), attrs.end());
+  result.addTypes({AllocaOp::wrapResultType(type)});
 }
 
 void fir::GlobalOp::build(mlir::Builder *builder, OperationState &result,

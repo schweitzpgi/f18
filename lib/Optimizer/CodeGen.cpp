@@ -58,8 +58,7 @@ namespace fir {
 bool allConstants(OperandTy operands) {
   for (auto opnd : operands) {
     if (auto defop = opnd.getDefiningOp())
-      if (isa<mlir::LLVM::ConstantOp>(defop) ||
-          isa<mlir::ConstantOp>(defop))
+      if (isa<mlir::LLVM::ConstantOp>(defop) || isa<mlir::ConstantOp>(defop))
         continue;
     return false;
   }
@@ -238,7 +237,7 @@ public:
     mlir::Type eleTy = ty.getEleTy();
     if (auto seqTy = eleTy.dyn_cast<fir::SequenceType>()) {
       if (!seqTy.hasConstantShape() && seqTy.hasConstantInterior())
-	return unwrap(convertType(seqTy));
+        return unwrap(convertType(seqTy));
     }
     return unwrap(convertType(eleTy)).getPointerTo();
   }

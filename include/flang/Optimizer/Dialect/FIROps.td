@@ -2658,13 +2658,14 @@ def fir_GlobalOp : fir_Op<"global", [IsolatedFromAbove, Symbol]> {
 
   let arguments = (ins
     StrAttr:$sym_name,
+    SymbolRefAttr:$symref,
     TypeAttr:$type,
     OptionalAttr<AnyAttr>:$initVal,
     OptionalAttr<UnitAttr>:$constant,
     OptionalAttr<StrAttr>:$linkName
   );
 
-  let results = (outs fir_ReferenceType:$resultType);
+  let results = (outs fir_ReferenceType:$resval);
 
   let regions = (region AtMostRegion<1>:$region);
 
@@ -2674,19 +2675,17 @@ def fir_GlobalOp : fir_Op<"global", [IsolatedFromAbove, Symbol]> {
     p << getOperationName();
     if (linkName().hasValue())
       p << ' ' << linkName().getValue();
-    auto varName = getAttrOfType<StringAttr>(
-      mlir::SymbolTable::getSymbolAttrName()).getValue();
-    p << " @" << varName;
+    p << ' ';
+    p.printAttributeWithoutType(getAttr(symbolAttrName()));
     if (auto val = getValueOrNull())
       p << '(' << val << ')';
     if (getAttr(constantAttrName()))
       p << " constant";
     p << " : ";
     p.printType(getType());
-    Region &body = getOperation()->getRegion(0);
-    if (!body.empty())
-      p.printRegion(body, /*printEntryBlockArgs=*/false,
-                          /*printBlockTerminators=*/true);
+    if (hasInitializationBody())
+      p.printRegion(getOperation()->getRegion(0), /*printEntryBlockArgs=*/false,
+                    /*printBlockTerminators=*/true);
   }];
 
   let skipDefaultBuilders = 1;
@@ -2714,6 +2713,7 @@ def fir_GlobalOp : fir_Op<"global", [IsolatedFromAbove, Symbol]> {
   ];
 
   let extraClassDeclaration = [{
+    static constexpr llvm::StringRef symbolAttrName() { return "symref"; }
     static constexpr llvm::StringRef constantAttrName() { return "constant"; }
     static constexpr llvm::StringRef initValAttrName() { return "initVal"; }
     static constexpr llvm::StringRef linkageAttrName() { return "linkName"; }
@@ -2722,11 +2722,11 @@ def fir_GlobalOp : fir_Op<"global", [IsolatedFromAbove, Symbol]> {
     mlir::Type getType() {
       return getAttrOfType<TypeAttr>(typeAttrName()).getValue();
     }
+
+    mlir::Type resultType() { return resval().getType(); }
     
     /// Return the initializer attribute if it exists, or a null attribute.
-    Attribute getValueOrNull() {
-      return initVal().getValueOr(Attribute());
-    }
+    Attribute getValueOrNull() { return initVal().getValueOr(Attribute()); }
 
     /// Append the next initializer value to the `GlobalOp` to construct
     /// the variable's initial value.
@@ -2740,6 +2740,16 @@ def fir_GlobalOp : fir_Op<"global", [IsolatedFromAbove, Symbol]> {
 
     /// Determine if `linkage` is a supported keyword
     static mlir::ParseResult verifyValidLinkage(StringRef linkage);
+
+    bool hasInitializationBody() {
+      return (getOperation()->getNumRegions() == 1) && !getRegion().empty() &&
+        !isa<fir::FirEndOp>(getBlock().front());
+    }
+
+    mlir::FlatSymbolRefAttr getSymbol() {
+      return mlir::FlatSymbolRefAttr::get(getAttrOfType<mlir::StringAttr>(
+          mlir::SymbolTable::getSymbolAttrName()).getValue(), getContext());
+    }
   }];
 }
 

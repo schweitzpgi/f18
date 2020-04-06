@@ -48,9 +48,10 @@ static llvm::cl::opt<bool>
 
 static llvm::cl::opt<std::size_t>
     nameLengthHashSize("length-to-hash-string-literal",
-		       llvm::cl::desc("string literals that exceed this length"
-				      " will use a hash value as their symbol "
-				      "name"), llvm::cl::init(32));
+                       llvm::cl::desc("string literals that exceed this length"
+                                      " will use a hash value as their symbol "
+                                      "name"),
+                       llvm::cl::init(32));
 
 namespace {
 /// Information for generating a structured or unstructured increment loop.
@@ -195,7 +196,7 @@ public:
 
   std::string uniqueCGIdent(llvm::StringRef name) override final {
     // TODO: check for special characters
-    if ((name.size() > nameLengthHashSize) || name.contains('\0')){
+    if ((name.size() > nameLengthHashSize) || name.contains('\0')) {
       llvm::MD5 hash;
       hash.update(name);
       llvm::MD5::MD5Result result;

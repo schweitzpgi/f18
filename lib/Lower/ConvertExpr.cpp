@@ -471,20 +471,43 @@ class ExprLowering {
   /// Construct a CHARACTER literal
   template <int KIND, typename E>
   mlir::Value genCharLit(const E &data, int64_t size) {
-    auto context = builder.getContext();
-    auto valTag = mlir::Identifier::get(fir::StringLitOp::value(), context);
+    auto type = fir::SequenceType::get(
+        {size}, fir::CharacterType::get(builder.getContext(), KIND));
     // FIXME: for wider char types, use an array of i16 or i32
     // for now, just fake it that it's a i8 to get it past the C++ compiler
     if constexpr (KIND == 1) {
-    [[maybe_unused]] auto globalName = converter.uniqueCGIdent(data);
+      auto globalName = converter.uniqueCGIdent(data);
+      auto global = builder.getNamedGlobal(globalName);
+      if (!global)
+        global = builder.createGlobalConstant(
+            getLoc(), type, globalName,
+            [&](Fortran::lower::FirOpBuilder &builder) {
+              auto context = builder.getContext();
+              auto strAttr = mlir::StringAttr::get(data.c_str(), context);
+              auto valTag =
+                  mlir::Identifier::get(fir::StringLitOp::value(), context);
+              mlir::NamedAttribute dataAttr(valTag, strAttr);
+              auto sizeTag =
+                  mlir::Identifier::get(fir::StringLitOp::size(), context);
+              mlir::NamedAttribute sizeAttr(sizeTag,
+                                            builder.getI64IntegerAttr(size));
+              llvm::SmallVector<mlir::NamedAttribute, 2> attrs{dataAttr,
+                                                               sizeAttr};
+              auto str = builder.create<fir::StringLitOp>(
+                  getLoc(), llvm::ArrayRef<mlir::Type>{type}, llvm::None,
+                  attrs);
+              builder.create<fir::HasValueOp>(getLoc(), str);
+            });
+      return builder.create<fir::AddrOfOp>(getLoc(), global.resultType(),
+                                           global.getSymbol());
     }
+    auto context = builder.getContext();
+    auto valTag = mlir::Identifier::get(fir::StringLitOp::value(), context);
     auto strAttr = mlir::StringAttr::get((const char *)data.c_str(), context);
     mlir::NamedAttribute dataAttr(valTag, strAttr);
     auto sizeTag = mlir::Identifier::get(fir::StringLitOp::size(), context);
     mlir::NamedAttribute sizeAttr(sizeTag, builder.getI64IntegerAttr(size));
     llvm::SmallVector<mlir::NamedAttribute, 2> attrs{dataAttr, sizeAttr};
-    auto type =
-        fir::SequenceType::get({size}, fir::CharacterType::get(context, KIND));
     return builder.create<fir::StringLitOp>(
         getLoc(), llvm::ArrayRef<mlir::Type>{type}, llvm::None, attrs);
   }

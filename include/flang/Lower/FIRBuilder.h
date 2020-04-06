@@ -266,16 +266,28 @@ public:
 
   /// Create a global value.
   fir::GlobalOp createGlobal(mlir::Location loc, mlir::Type type,
-                             llvm::StringRef name, mlir::Attribute value = {},
+                             llvm::StringRef name,
                              mlir::StringAttr linkage = {},
-                             bool isConst = false);
+                             mlir::Attribute value = {}, bool isConst = false);
+
+  fir::GlobalOp createGlobal(mlir::Location loc, mlir::Type type,
+			     llvm::StringRef name, bool isConst,
+			     std::function<void(FirOpBuilder&)> bodyBuilder,
+			     mlir::StringAttr linkage = {});
 
   /// Create a global constant (read-only) value.
   fir::GlobalOp createGlobalConstant(mlir::Location loc, mlir::Type type,
                                      llvm::StringRef name,
-                                     mlir::Attribute value = {},
-                                     mlir::StringAttr linkage = {}) {
-    return createGlobal(loc, type, name, value, linkage, /*isConst=*/true);
+                                     mlir::StringAttr linkage = {},
+                                     mlir::Attribute value = {}) {
+    return createGlobal(loc, type, name, linkage, value, /*isConst=*/true);
+  }
+
+  fir::GlobalOp createGlobalConstant(mlir::Location loc, mlir::Type type,
+			     llvm::StringRef name,
+			     std::function<void(FirOpBuilder&)> bodyBuilder,
+				     mlir::StringAttr linkage = {}) {
+    return createGlobal(loc, type, name, /*isConst=*/true, bodyBuilder, linkage);
   }
 
   mlir::Block *createBlock() {
@@ -290,6 +302,13 @@ public:
 
   static mlir::FuncOp getNamedFunction(mlir::ModuleOp module,
                                        llvm::StringRef name);
+
+  fir::GlobalOp getNamedGlobal(llvm::StringRef name) {
+    return getNamedGlobal(getModule(), name);
+  }
+
+  static fir::GlobalOp getNamedGlobal(mlir::ModuleOp module,
+				      llvm::StringRef name);
 
   /// Create a new FuncOp. If the function may have already been created, use
   /// `addNamedFunction` instead.

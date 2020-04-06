@@ -18,7 +18,7 @@
 
 // recursively build the vector of module scopes
 static void moduleNames(const Fortran::semantics::Scope &scope,
-                 llvm::SmallVector<llvm::StringRef, 2> &result) {
+                        llvm::SmallVector<llvm::StringRef, 2> &result) {
   if (scope.kind() == Fortran::semantics::Scope::Kind::Global) {
     return;
   }
@@ -45,7 +45,6 @@ hostName(const Fortran::semantics::Symbol &symbol) {
   }
   return {};
 }
-
 
 static const Fortran::semantics::Symbol *
 findInterfaceIfSeperateMP(const Fortran::semantics::Symbol &symbol) {
