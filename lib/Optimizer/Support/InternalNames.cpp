@@ -113,7 +113,7 @@ fir::NameUniquer::doDispatchTable(llvm::ArrayRef<llvm::StringRef> modules,
 
 std::string fir::NameUniquer::doGenerated(llvm::StringRef name) {
   std::string result = prefix();
-  return result.append("Q").append(toLower(name));
+  return result.append("Q").append(name);
 }
 
 std::string fir::NameUniquer::doIntrinsicTypeDescriptor(

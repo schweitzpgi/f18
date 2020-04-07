@@ -19,11 +19,9 @@ set(FLANG_TEST_PARAMS
 
 set(FLANG_TEST_DEPENDS
   f18
+  tco
+  bbc
 )
-
-if (LINK_WITH_FIR)
-  list(APPEND FLANG_TEST_DEPENDS tco)
-endif()
 
 add_custom_target(flang-test-depends DEPENDS ${FLANG_TEST_DEPENDS})
 

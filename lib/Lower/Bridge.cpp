@@ -195,8 +195,8 @@ public:
   }
 
   std::string uniqueCGIdent(llvm::StringRef name) override final {
-    // TODO: check for special characters
-    if ((name.size() > nameLengthHashSize) || name.contains('\0')) {
+    // For "long" identifiers use a hash value
+    if (name.size() > nameLengthHashSize) {
       llvm::MD5 hash;
       hash.update(name);
       llvm::MD5::MD5Result result;
@@ -207,7 +207,8 @@ public:
       hashName.append(str.c_str());
       return uniquer.doGenerated(hashName);
     }
-    return uniquer.doGenerated(name);
+    // "Short" identifiers use a reversible hex string
+    return uniquer.doGenerated(llvm::toHex(name));
   }
 
 private:

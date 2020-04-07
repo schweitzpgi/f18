@@ -10,6 +10,7 @@ config.flang_intrinsic_modules_dir = "@FLANG_INTRINSIC_MODULES_DIR@"
 config.flang_lib_dir = "@LLVM_LIBRARY_OUTPUT_INTDIR@"
 config.flang_llvm_tools_dir = "@LLVM_RUNTIME_OUTPUT_INTDIR@"
 config.python_executable = "@PYTHON_EXECUTABLE@"
+config.c_executable = "@CMAKE_C_COMPILER@"
 config.cplusplus_executable = "@CMAKE_CXX_COMPILER@"
 config.macos_sysroot = "@CMAKE_OSX_SYSROOT@"
 

@@ -5,8 +5,8 @@
 ! Note: On linux, the Fortran runtime wants to include libm as well.
 
 ! RUN: bbc %s -o - | tco | llc --filetype=obj -o %t.o
-! RUN: cc -I%S/../.. %S/main.c -c -o %t.main.o
-! RUN: cc %t.o %t.main.o -L%L -lFortranRuntime -lFortranDecimal -lstdc++ -lm
+! RUN: %CC -I%S/../.. %S/main.c -c -o %t.main.o
+! RUN: %CC %t.o %t.main.o -L%L -lFortranRuntime -lFortranDecimal -lstdc++ -lm
 ! RUN: ./a.out | FileCheck %s
 
 ! CHECK: Hello, World!

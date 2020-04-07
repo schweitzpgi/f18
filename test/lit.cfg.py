@@ -69,8 +69,10 @@ config.substitutions.append(('%B', config.flang_obj_root))
 config.substitutions.append(("%L", config.flang_lib_dir))
 if len(config.macos_sysroot) > 0:
   config.substitutions.append(("%CXX", config.cplusplus_executable + " -isysroot " + config.macos_sysroot))
+  config.substitutions.append(("%CC", config.c_executable + " -isysroot " + config.macos_sysroot))
 else:
   config.substitutions.append(("%CXX", config.cplusplus_executable))
+  config.substitutions.append(("%CC", config.c_executable))
 
 # For each occurrence of a flang tool name, replace it with the full path to
 # the build directory holding that tool.  We explicitly specify the directories
