@@ -10,8 +10,8 @@ subroutine assign1(lhs, rhs)
   ! CHECK-DAG:[[rhs:%[0-9]+]]:2 = fir.unboxchar %arg1
 
   ! Compute minimum length
-  ! CHECK-DAG:[[cmp_len:%[0-9]+]] = cmpi "slt", [[lhs]]#1, [[rhs]]#1
-  ! CHECK-DAG:[[min_len:%[0-9]+]] = select %2, [[lhs]]#1, [[rhs]]#1
+  ! CHECK-DAG:%[[cmp_len:[0-9]+]] = cmpi "slt", [[lhs]]#1, [[rhs]]#1
+  ! CHECK-DAG:[[min_len:%[0-9]+]] = select %[[cmp_len]], [[lhs]]#1, [[rhs]]#1
 
   ! Allocate temp in case rhs and lhs may overlap
   ! CHECK: [[tmp:%[0-9]+]] = fir.alloca !fir.char<1>, [[min_len]]
@@ -78,26 +78,29 @@ subroutine assign_substring1(str, rhs, lb, ub)
 end subroutine
 
 ! CHECK-LABEL: assign_constant
+! CHECK: (%[[ARG:.*]]:{{.*}})
 subroutine assign_constant(lhs)
   character(*, 1) :: lhs
-  ! CHECK-DAG:[[lhs:%[0-9]+]]:2 = fir.unboxchar %arg0
+  ! CHECK-DAG: %[[lhs:.*]]:2 = fir.unboxchar %[[ARG]] :
+  ! CHECK-DAG: %[[tmp:.*]] = fir.address_of(@{{.*}}) :
   lhs = "Hello World"
-  ! CHECK-DAG: [[cst:%[0-9]+]] = fir.string_lit "Hello World"(11) : !fir.char<1>
-  ! CHECK-DAG: [[tmp:%[0-9]+]] = fir.alloca !fir.array<11x!fir.char<1>>
-  ! CHECK: fir.store [[cst]] to [[tmp]]
-  ! CHECK: fir.loop [[i:%[[:alnum:]]+]]
-    ! CHECK-DAG: [[tmp_addr:%[0-9]+]] = fir.coordinate_of [[tmp]], [[i]]
-    ! CHECK-DAG: [[lhs_addr:%[0-9]+]] = fir.coordinate_of [[lhs]]#0, [[i]]
-    ! CHECK-DAG: [[tmp_elt:%[0-9]+]] = fir.load [[tmp_addr]]
-    ! CHECK: fir.store [[tmp_elt]] to [[lhs_addr]]
+  ! CHECK: fir.loop %[[i:.*]] = %{{.*}} to %{{.*}} {
+    ! CHECK-DAG: %[[tmp_addr:.*]] = fir.coordinate_of %[[tmp]], %[[i]]
+    ! CHECK-DAG: %[[tmp_elt:.*]] = fir.load %[[tmp_addr]]
+    ! CHECK-DAG: %[[lhs_addr:.*]] = fir.coordinate_of %[[lhs]]#0, %[[i]]
+    ! CHECK: fir.store %[[tmp_elt]] to %[[lhs_addr]]
   ! CHECK: }
 
   ! Padding
-  ! CHECK: [[c32:%[[:alnum:]_]+]] = constant 32 : i8
-  ! CHECK: [[blank:%[0-9]+]] = fir.convert [[c32]] : (i8) -> !fir.char<1>
-  ! CHECK: fir.loop [[i:%[[:alnum:]_]+]]
-    ! CHECK-DAG: [[lhs_addr:%[0-9]+]] = fir.coordinate_of [[lhs]]#0, [[i]]
-    ! CHECK: fir.store [[blank]] to [[lhs_addr]]
+  ! CHECK-DAG: %[[c32:.*]] = constant 32 : i8
+  ! CHECK-DAG: %[[blank:.*]] = fir.convert %[[c32]] : (i8) -> !fir.char<1>
+  ! CHECK: fir.loop %[[j:.*]] = %{{.*}} to %{{.*}} {
+    ! CHECK: %[[jhs_addr:.*]] = fir.coordinate_of %[[lhs]]#0, %[[j]]
+    ! CHECK: fir.store %[[blank]] to %[[jhs_addr]]
   ! CHECK: }
 end subroutine
 
+! CHECK-LABEL: fir.global @"_QQhello world"
+! CHECK: %[[lit:.*]] = fir.string_lit "Hello World"(11) : !fir.char<1>
+! CHECK: fir.has_value %[[lit]] : !fir.array<11x!fir.char<1>>
+! CHECK: }
