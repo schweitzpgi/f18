@@ -654,8 +654,12 @@ static const auto *getIOControl(const A &stmt) {
 
 template <typename A>
 static bool formatIsActuallyNamelist(const A &format) {
-  if (auto *e = std::get_if<Fortran::parser::DefaultCharExpr>(&format.u)) {
-    // TODO
+  if (auto *e = std::get_if<Fortran::parser::Expr>(&format.u)) {
+    auto *expr = Fortran::semantics::GetExpr(*e);
+    if (Fortran::evaluate::IsVariable(*expr)) {
+      TODO();
+      // TODO: fish out the symbol and determine if it has namelist details
+    }
   }
   return false;
 }
@@ -755,7 +759,7 @@ static std::tuple<mlir::Value, mlir::Value, mlir::Value>
 genFormat(Fortran::lower::AbstractConverter &converter, mlir::Location loc,
           const Fortran::parser::Format &format, mlir::Type ty0,
           mlir::Type ty1) {
-  if (auto *e = std::get_if<Fortran::parser::DefaultCharExpr>(&format.u))
+  if (auto *e = std::get_if<Fortran::parser::Expr>(&format.u))
     return lowerStringLit(converter, loc, *e, ty0, ty1);
   TODO(); // handle Label case
 }
