@@ -426,8 +426,9 @@ class ExprLowering {
   }
 
   template <typename A>
-  mlir::Value genval(const Fortran::evaluate::Parentheses<A> &) {
-    TODO();
+  mlir::Value genval(const Fortran::evaluate::Parentheses<A> &op) {
+    auto input = genval(op.left());
+    return builder.create<fir::NoReassocOp>(getLoc(), input.getType(), input);
   }
 
   template <int KIND>
