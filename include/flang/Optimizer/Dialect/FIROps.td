@@ -2665,8 +2665,6 @@ def fir_GlobalOp : fir_Op<"global", [IsolatedFromAbove, Symbol]> {
     OptionalAttr<StrAttr>:$linkName
   );
 
-  let results = (outs fir_ReferenceType:$resval);
-
   let regions = (region AtMostRegion<1>:$region);
 
   let parser = "return parseGlobalOp(parser, result);";
@@ -2719,11 +2717,15 @@ def fir_GlobalOp : fir_Op<"global", [IsolatedFromAbove, Symbol]> {
     static constexpr llvm::StringRef linkageAttrName() { return "linkName"; }
     static constexpr llvm::StringRef typeAttrName() { return "type"; }
 
+    /// The printable type of the global
     mlir::Type getType() {
       return getAttrOfType<TypeAttr>(typeAttrName()).getValue();
     }
 
-    mlir::Type resultType() { return resval().getType(); }
+    /// The semantic type of the global
+    mlir::Type resultType() {
+      return fir::AllocaOp::wrapResultType(getType());
+    }
     
     /// Return the initializer attribute if it exists, or a null attribute.
     Attribute getValueOrNull() { return initVal().getValueOr(Attribute()); }

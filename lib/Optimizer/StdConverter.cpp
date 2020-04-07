@@ -6,12 +6,12 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "flang/Optimizer/Transforms/Passes.h"
 #include "flang/Optimizer/Dialect/FIRAttr.h"
 #include "flang/Optimizer/Dialect/FIRDialect.h"
 #include "flang/Optimizer/Dialect/FIROpsSupport.h"
 #include "flang/Optimizer/Dialect/FIRType.h"
 #include "flang/Optimizer/Support/KindMapping.h"
+#include "flang/Optimizer/Transforms/Passes.h"
 #include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
 #include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/StandardTypes.h"
@@ -93,6 +93,13 @@ public:
                           ctx) /*, lowering(lowering)*/
   {}
 
+  static Block *createBlock(mlir::ConversionPatternRewriter &rewriter,
+                     Block *insertBefore) {
+    assert(insertBefore && "expected valid insertion block");
+    return rewriter.createBlock(insertBefore->getParent(),
+                                mlir::Region::iterator(insertBefore));
+  }
+
 protected:
   // mlir::Type convertType(mlir::Type ty) const { return
   // lowering.convertType(ty); }
@@ -167,7 +174,7 @@ struct SelectTypeOpConversion : public FIROpConversion<SelectTypeOp> {
     auto cmp = rewriter.create<mlir::CallOp>(
         loc, fty, rewriter.getSymbolRefAttr(funName), actuals);
     auto *thisBlock = rewriter.getInsertionBlock();
-    auto *newBlock = rewriter.createBlock(dest);
+    auto *newBlock = createBlock(rewriter, dest);
     rewriter.setInsertionPointToEnd(thisBlock);
     if (destOps.hasValue())
       rewriter.create<mlir::CondBranchOp>(loc, cmp.getResult(0), dest,

@@ -510,6 +510,13 @@ public:
 };
 } // namespace
 
+static Block *createBlock(mlir::ConversionPatternRewriter &rewriter,
+                          mlir::Block *insertBefore) {
+  assert(insertBefore && "expected valid insertion block");
+  return rewriter.createBlock(insertBefore->getParent(),
+                              mlir::Region::iterator(insertBefore));
+}
+
 /// Create an LLVM dialect global
 static void createGlobal(mlir::Location loc, mlir::ModuleOp mod, StringRef name,
                          mlir::LLVM::LLVMType type,
@@ -1778,7 +1785,7 @@ void genCaseLadderStep(mlir::Location loc, mlir::Value cmp, mlir::Block *dest,
                        llvm::Optional<OperandTy> destOps,
                        mlir::ConversionPatternRewriter &rewriter) {
   auto *thisBlock = rewriter.getInsertionBlock();
-  auto *newBlock = rewriter.createBlock(dest);
+  auto *newBlock = createBlock(rewriter, dest);
   rewriter.setInsertionPointToEnd(thisBlock);
   genCondBrOp(loc, cmp, dest, destOps, rewriter, newBlock);
   rewriter.setInsertionPointToEnd(newBlock);
@@ -1829,8 +1836,8 @@ struct SelectCaseOpConversion : public FIROpConversion<fir::SelectCaseOp> {
         auto cmp = rewriter.create<mlir::LLVM::ICmpOp>(
             loc, mlir::LLVM::ICmpPredicate::sle, caseArg, selector);
         auto *thisBlock = rewriter.getInsertionBlock();
-        auto *newBlock1 = rewriter.createBlock(dest);
-        auto *newBlock2 = rewriter.createBlock(dest);
+        auto *newBlock1 = createBlock(rewriter, dest);
+        auto *newBlock2 = createBlock(rewriter, dest);
         rewriter.setInsertionPointToEnd(thisBlock);
         rewriter.create<mlir::LLVM::CondBrOp>(loc, cmp, newBlock1, newBlock2);
         rewriter.setInsertionPointToEnd(newBlock1);

@@ -493,9 +493,6 @@ static ParseResult parseGlobalOp(OpAsmParser &parser, OperationState &result) {
       return failure();
   }
 
-  auto refTy = fir::AllocaOp::wrapResultType(globalType);
-  if (parser.addTypeToList(refTy, result.types))
-    return failure();
   return success();
 }
 
@@ -519,7 +516,6 @@ void fir::GlobalOp::build(mlir::Builder *builder, OperationState &result,
   if (linkage)
     result.addAttribute(linkageAttrName(), linkage);
   result.attributes.append(attrs.begin(), attrs.end());
-  result.addTypes({fir::AllocaOp::wrapResultType(type)});
 }
 
 void fir::GlobalOp::build(mlir::Builder *builder, OperationState &result,
