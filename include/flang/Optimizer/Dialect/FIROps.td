@@ -785,54 +785,15 @@ def fir_SelectCaseOp : fir_SwitchTerminatorOp<"select_case"> {
   }];
 
   let skipDefaultBuilders = 1;
-  let builders = [OpBuilder<
-    "Builder *builder, OperationState &result, Value selector,"
+  let builders = [
+    OpBuilder<"Builder *builder, OperationState &result, Value selector,"
     "ArrayRef<mlir::Attribute> compareAttrs, ArrayRef<ValueRange> cmpOperands,"
     "ArrayRef<Block *> destinations, ArrayRef<ValueRange> destOperands = {},"
-    "ArrayRef<NamedAttribute> attributes = {}",
-    [{
-      result.addOperands(selector);
-      result.addAttribute(getCasesAttr(), builder->getArrayAttr(compareAttrs));
-      llvm::SmallVector<int32_t, 8> operOffs;
-      int32_t operSize = 0;
-      for (auto attr : compareAttrs) {
-        if (attr.isa<fir::ClosedIntervalAttr>()) {
-          operOffs.push_back(2);
-          operSize += 2;
-        } else if (attr.isa<mlir::UnitAttr>()) {
-          operOffs.push_back(0);
-        } else {
-          operOffs.push_back(1);
-          ++operSize;
-        }
-      }
-      for (auto ops : cmpOperands)
-        result.addOperands(ops);
-      result.addAttribute(getCompareOffsetAttr(),
-                          builder->getI32VectorAttr(operOffs));
-      const auto count = destinations.size();
-      for (auto d : destinations)
-        result.addSuccessors(d);
-      const auto opCount = destOperands.size();
-      llvm::SmallVector<int32_t, 8> argOffs;
-      int32_t sumArgs = 0;
-      for (std::remove_const_t<decltype(count)> i = 0; i != count; ++i) {
-        if (i < opCount) {
-          result.addOperands(destOperands[i]);
-          const auto argSz = destOperands[i].size();
-          argOffs.push_back(argSz);
-          sumArgs += argSz;
-        } else {
-          argOffs.push_back(0);
-        }
-      }
-      result.addAttribute(getOperandSegmentSizeAttr(),
-                          builder->getI32VectorAttr({1, operSize, sumArgs}));
-      result.addAttribute(getTargetOffsetAttr(),
-                          builder->getI32VectorAttr(argOffs));
-      result.addAttributes(attributes);
-    }]
-  >];
+    "ArrayRef<NamedAttribute> attributes = {}">,
+    OpBuilder<"Builder *builder, OperationState &result, Value selector,"
+    "ArrayRef<mlir::Attribute> compareAttrs, ArrayRef<Value> cmpOpList,"
+    "ArrayRef<Block *> destinations, ArrayRef<ValueRange> destOperands = {},"
+    "ArrayRef<NamedAttribute> attributes = {}">];
 
   let parser = "return parseSelectCase(parser, result);";
 

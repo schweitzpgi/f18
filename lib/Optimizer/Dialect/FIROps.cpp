@@ -900,6 +900,85 @@ unsigned fir::SelectCaseOp::targetOffsetSize() {
       getAttrOfType<mlir::DenseIntElementsAttr>(getTargetOffsetAttr()));
 }
 
+void fir::SelectCaseOp::build(mlir::Builder *builder,
+                              mlir::OperationState &result,
+                              mlir::Value selector,
+                              llvm::ArrayRef<mlir::Attribute> compareAttrs,
+                              llvm::ArrayRef<mlir::ValueRange> cmpOperands,
+                              llvm::ArrayRef<mlir::Block *> destinations,
+                              llvm::ArrayRef<mlir::ValueRange> destOperands,
+                              llvm::ArrayRef<mlir::NamedAttribute> attributes) {
+  result.addOperands(selector);
+  result.addAttribute(getCasesAttr(), builder->getArrayAttr(compareAttrs));
+  llvm::SmallVector<int32_t, 8> operOffs;
+  int32_t operSize = 0;
+  for (auto attr : compareAttrs) {
+    if (attr.isa<fir::ClosedIntervalAttr>()) {
+      operOffs.push_back(2);
+      operSize += 2;
+    } else if (attr.isa<mlir::UnitAttr>()) {
+      operOffs.push_back(0);
+    } else {
+      operOffs.push_back(1);
+      ++operSize;
+    }
+  }
+  for (auto ops : cmpOperands)
+    result.addOperands(ops);
+  result.addAttribute(getCompareOffsetAttr(),
+                      builder->getI32VectorAttr(operOffs));
+  const auto count = destinations.size();
+  for (auto d : destinations)
+    result.addSuccessors(d);
+  const auto opCount = destOperands.size();
+  llvm::SmallVector<int32_t, 8> argOffs;
+  int32_t sumArgs = 0;
+  for (std::remove_const_t<decltype(count)> i = 0; i != count; ++i) {
+    if (i < opCount) {
+      result.addOperands(destOperands[i]);
+      const auto argSz = destOperands[i].size();
+      argOffs.push_back(argSz);
+      sumArgs += argSz;
+    } else {
+      argOffs.push_back(0);
+    }
+  }
+  result.addAttribute(getOperandSegmentSizeAttr(),
+                      builder->getI32VectorAttr({1, operSize, sumArgs}));
+  result.addAttribute(getTargetOffsetAttr(),
+                      builder->getI32VectorAttr(argOffs));
+  result.addAttributes(attributes);
+}
+
+/// This builder has a slightly simplified interface in that the list of
+/// operands need not be partitioned by the builder. Instead the operands are
+/// partitioned here, before being passed to the default builder. This
+/// partitioning is unchecked, so can go awry on bad input.
+void fir::SelectCaseOp::build(mlir::Builder *builder,
+                              mlir::OperationState &result,
+                              mlir::Value selector,
+                              llvm::ArrayRef<mlir::Attribute> compareAttrs,
+                              llvm::ArrayRef<mlir::Value> cmpOpList,
+                              llvm::ArrayRef<mlir::Block *> destinations,
+                              llvm::ArrayRef<mlir::ValueRange> destOperands,
+                              llvm::ArrayRef<mlir::NamedAttribute> attributes) {
+  llvm::SmallVector<mlir::ValueRange, 16> cmpOpers;
+  auto iter = cmpOpList.begin();
+  for (auto &attr : compareAttrs) {
+    if (attr.isa<fir::ClosedIntervalAttr>()) {
+      cmpOpers.push_back(mlir::ValueRange({iter, iter + 2}));
+      iter += 2;
+    } else if (attr.isa<UnitAttr>()) {
+      // do nothing
+    } else {
+      cmpOpers.push_back(mlir::ValueRange({iter, iter + 1}));
+      ++iter;
+    }
+  }
+  build(builder, result, selector, compareAttrs, cmpOpers, destinations,
+        destOperands, attributes);
+}
+
 //===----------------------------------------------------------------------===//
 // SelectRankOp
 //===----------------------------------------------------------------------===//
