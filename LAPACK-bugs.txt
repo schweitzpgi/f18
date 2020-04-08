@@ -1,6 +1,8 @@
-Block.cpp:200: mlir::Operation *mlir::Block::getTerminator(): Assertion `!empty() && !back().isKnownNonTerminator()' failed.
+NEED ATTENTION
+______________
 
-error: 'std.return' op must be the last operation in the parent block
+
+Block.cpp:200: mlir::Operation *mlir::Block::getTerminator(): Assertion `!empty() && !back().isKnownNonTerminator()' failed.
 
 UNREACHABLE executed at Bridge.cpp:1045!
 UNREACHABLE executed at Bridge.cpp:1211!
@@ -9,3 +11,10 @@ UNREACHABLE executed at ConvertExpr.cpp:403!
 UNREACHABLE executed at ConvertExpr.cpp:798!
 UNREACHABLE executed at ConvertExpr.cpp:848!
 UNREACHABLE executed at IO.cpp:760!
+
+FIXED
+_____
+
+
+error: 'std.return' op must be the last operation in the parent block
+
