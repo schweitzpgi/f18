@@ -844,8 +844,12 @@ class ExprLowering {
         argTypes.push_back(argRef.getType());
         operands.push_back(argRef);
       } else {
-        // TODO create temps for expressions
-        TODO();
+        // create a temp to store the expression value
+        auto val = genval(*expr);
+        auto addr = builder.createTemporary(getLoc(), symMap, val.getType());
+        builder.create<fir::StoreOp>(getLoc(), val, addr);
+        argTypes.push_back(addr.getType());
+        operands.push_back(addr);
       }
     }
     mlir::FunctionType funTy =
