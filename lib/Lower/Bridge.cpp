@@ -1070,7 +1070,7 @@ private:
   // gen expression, if any; share code with END of procedure
   void genFIR(Fortran::lower::pft::Evaluation &eval,
               const Fortran::parser::ReturnStmt &stmt) {
-    const auto *funit{eval.getOwningProcedure()};
+    const auto *funit = eval.getOwningProcedure();
     assert(funit && "not inside main program or a procedure");
     if (funit->isMainProgram()) {
       genFIRProgramExit();
@@ -1098,9 +1098,9 @@ private:
 
   void genFIR(Fortran::lower::pft::Evaluation &eval,
               bool unstructuredContext = true) {
-    if (eval.skip) {
+    if (eval.skip)
       return; // rhs of {Forall,If,Where}Stmt has already been processed
-    }
+
     setCurrentPosition(eval.position);
     if (unstructuredContext) {
       // When transitioning from unstructured to structured code,
@@ -1167,7 +1167,7 @@ private:
 
     attempted.insert(symbol);
     mlir::Value localValue;
-    auto *type{symbol.GetType()};
+    auto *type = symbol.GetType();
     assert(type && "expected type for local symbol");
 
     if (type->category() == Fortran::semantics::DeclTypeSpec::Character) {
@@ -1284,9 +1284,9 @@ private:
       std::list<Fortran::lower::pft::Evaluation> &evaluationList) {
     for (auto &eval : evaluationList) {
       if (eval.isNewBlock)
-        eval.block = builder->createBlock();
+        eval.block = builder->createBlock(&builder->getRegion());
       for (size_t i = 0, n = eval.localBlocks.size(); i < n; ++i)
-        eval.localBlocks[i] = builder->createBlock();
+        eval.localBlocks[i] = builder->createBlock(&builder->getRegion());
       if (eval.isConstruct()) {
         if (eval.lowerAsUnstructured()) {
           createEmptyBlocks(*eval.evaluationList);
@@ -1295,7 +1295,7 @@ private:
           Fortran::lower::pft::Evaluation &constructStmt =
               eval.evaluationList->front();
           if (constructStmt.isNewBlock)
-            constructStmt.block = builder->createBlock();
+            constructStmt.block = builder->createBlock(&builder->getRegion());
         }
       }
     }
@@ -1303,7 +1303,7 @@ private:
 
   /// Return the predicate: "current block does not have a terminator branch".
   bool blockIsUnterminated() {
-    mlir::Block *currentBlock = builder->getBlock();
+    auto *currentBlock = builder->getBlock();
     return currentBlock->empty() || currentBlock->back().isKnownNonTerminator();
   }
 
@@ -1312,17 +1312,15 @@ private:
     assert(newBlock && "missing block");
     // If the current block does not have a terminator branch,
     // append a fallthrough branch.
-    if (blockIsUnterminated()) {
+    if (blockIsUnterminated())
       genFIRUnconditionalBranch(newBlock);
-    }
     builder->setInsertionPointToStart(newBlock);
   }
 
   /// Conditionally switch code insertion to a new block.
   void maybeStartBlock(mlir::Block *newBlock) {
-    if (newBlock) {
+    if (newBlock)
       startBlock(newBlock);
-    }
   }
 
   /// Emit return and cleanup after the function has been translated.
@@ -1345,27 +1343,24 @@ private:
   void lowerFunc(Fortran::lower::pft::FunctionLikeUnit &funit) {
     startNewFunction(funit);
     // lower this procedure
-    for (auto &eval : funit.evaluationList) {
+    for (auto &eval : funit.evaluationList)
       genFIR(eval);
-    }
+
     endNewFunction(funit);
     // recursively lower internal procedures
-    for (auto &f : funit.nestedFunctions) {
+    for (auto &f : funit.nestedFunctions)
       lowerFunc(f);
-    }
   }
 
   void lowerMod(Fortran::lower::pft::ModuleLikeUnit &mod) {
     // FIXME: do we need to visit the module statements?
-    for (auto &f : mod.nestedFunctions) {
+    for (auto &f : mod.nestedFunctions)
       lowerFunc(f);
-    }
   }
 
   void setCurrentPosition(const Fortran::parser::CharBlock &position) {
-    if (position != Fortran::parser::CharBlock{}) {
+    if (position != Fortran::parser::CharBlock{})
       currentPosition = position;
-    }
   }
 
   //

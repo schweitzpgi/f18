@@ -292,10 +292,6 @@ public:
                         linkage);
   }
 
-  mlir::Block *createBlock() {
-    return OpBuilder::createBlock(getBlock()->getParent());
-  }
-
   /// Get a function by name. If the function exists in the current module, it
   /// is returned. Otherwise, a null FuncOp is returned.
   mlir::FuncOp getNamedFunction(llvm::StringRef name) {
