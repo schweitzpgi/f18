@@ -360,6 +360,8 @@ struct FunctionLikeUnit : public ProgramUnit {
   /// The symbol has MainProgramDetails for named programs, otherwise it has
   /// SubprogramDetails.
   const semantics::Symbol *symbol{nullptr};
+  /// Terminal basic block (if any)
+  mlir::Block *finalBlock{};
 };
 
 /// Module-like units contain a list of function-like units.
