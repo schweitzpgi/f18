@@ -339,7 +339,7 @@ public:
   /// (`array<*xT>`), or rows with shape and ending with column(s) of
   /// unknown extent (`array<C...xCx?...x?xT>`).
   bool hasConstantInterior() const;
-  
+
   /// The value `-1` represents an unknown extent for a dimension
   static constexpr Extent getUnknownExtent() { return -1; }
 

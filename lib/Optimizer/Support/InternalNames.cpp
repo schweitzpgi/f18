@@ -10,7 +10,10 @@
 #include "mlir/IR/Diagnostics.h"
 #include "llvm/Support/CommandLine.h"
 
-static llvm::cl::opt<std::string> mainEntryName("main-entry-name", llvm::cl::desc("override the name of the default PROGRAM entry (may be helpful for using other runtimes)"));
+static llvm::cl::opt<std::string> mainEntryName(
+    "main-entry-name",
+    llvm::cl::desc("override the name of the default PROGRAM entry (may be "
+                   "helpful for using other runtimes)"));
 
 constexpr std::int64_t BAD_VALUE = -1;
 
@@ -238,7 +241,7 @@ fir::NameUniquer::deconstruct(llvm::StringRef uniq) {
       case 'Q':
         nk = NameKind::GENERATED;
         name = uniq;
-	i = end;
+        i = end;
         break;
       case 'T':
         nk = NameKind::DERIVED_TYPE;

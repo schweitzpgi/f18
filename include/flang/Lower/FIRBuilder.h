@@ -271,9 +271,9 @@ public:
                              mlir::Attribute value = {}, bool isConst = false);
 
   fir::GlobalOp createGlobal(mlir::Location loc, mlir::Type type,
-			     llvm::StringRef name, bool isConst,
-			     std::function<void(FirOpBuilder&)> bodyBuilder,
-			     mlir::StringAttr linkage = {});
+                             llvm::StringRef name, bool isConst,
+                             std::function<void(FirOpBuilder &)> bodyBuilder,
+                             mlir::StringAttr linkage = {});
 
   /// Create a global constant (read-only) value.
   fir::GlobalOp createGlobalConstant(mlir::Location loc, mlir::Type type,
@@ -283,11 +283,13 @@ public:
     return createGlobal(loc, type, name, linkage, value, /*isConst=*/true);
   }
 
-  fir::GlobalOp createGlobalConstant(mlir::Location loc, mlir::Type type,
-			     llvm::StringRef name,
-			     std::function<void(FirOpBuilder&)> bodyBuilder,
-				     mlir::StringAttr linkage = {}) {
-    return createGlobal(loc, type, name, /*isConst=*/true, bodyBuilder, linkage);
+  fir::GlobalOp
+  createGlobalConstant(mlir::Location loc, mlir::Type type,
+                       llvm::StringRef name,
+                       std::function<void(FirOpBuilder &)> bodyBuilder,
+                       mlir::StringAttr linkage = {}) {
+    return createGlobal(loc, type, name, /*isConst=*/true, bodyBuilder,
+                        linkage);
   }
 
   mlir::Block *createBlock() {
@@ -308,7 +310,7 @@ public:
   }
 
   static fir::GlobalOp getNamedGlobal(mlir::ModuleOp module,
-				      llvm::StringRef name);
+                                      llvm::StringRef name);
 
   /// Create a new FuncOp. If the function may have already been created, use
   /// `addNamedFunction` instead.
