@@ -652,14 +652,15 @@ static const auto *getIOControl(const A &stmt) {
   return static_cast<const SEEK *>(nullptr);
 }
 
+/// returns true iff the expression in the parse tree is not really a format but
+/// rather a namelist variable.
 template <typename A>
 static bool formatIsActuallyNamelist(const A &format) {
   if (auto *e = std::get_if<Fortran::parser::Expr>(&format.u)) {
     auto *expr = Fortran::semantics::GetExpr(*e);
-    if (Fortran::evaluate::IsVariable(*expr)) {
-      TODO();
-      // TODO: fish out the symbol and determine if it has namelist details
-    }
+    if (const Fortran::semantics::Symbol *y =
+            Fortran::evaluate::UnwrapWholeSymbolDataRef(*expr))
+      return y->has<Fortran::semantics::NamelistDetails>();
   }
   return false;
 }
