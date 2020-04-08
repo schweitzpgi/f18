@@ -187,6 +187,7 @@ public:
   Fortran::lower::FirOpBuilder &getFirOpBuilder() override final {
     return *builder;
   }
+
   mlir::ModuleOp &getModuleOp() override final { return module; }
 
   std::string
@@ -265,7 +266,7 @@ private:
 
   void
   genFIRUnconditionalBranch(Fortran::lower::pft::Evaluation *targetEvaluation) {
-    builder->create<mlir::BranchOp>(toLocation(), targetEvaluation->block);
+    genFIRUnconditionalBranch(targetEvaluation->block);
   }
 
   void genFIRConditionalBranch(mlir::Value &cond, mlir::Block *trueTarget,
@@ -291,30 +292,45 @@ private:
   /// END of program
   ///
   /// Generate the cleanup block before the program exits
-  void genFIRProgramExit() { builder->create<mlir::ReturnOp>(toLocation()); }
+  void genExitRoutine() { builder->create<mlir::ReturnOp>(toLocation()); }
+  void genFIRProgramExit() { genExitRoutine(); }
   void genFIR(const Fortran::parser::EndProgramStmt &) { genFIRProgramExit(); }
 
   /// END of procedure-like constructs
   ///
   /// Generate the cleanup block before the procedure exits
-  void genFIRFunctionReturn(const Fortran::semantics::Symbol &functionSymbol) {
+  void genExitFunction(mlir::Value val) {
+    builder->create<mlir::ReturnOp>(toLocation(), val);
+  }
+  void genReturnSymbol(const Fortran::semantics::Symbol &functionSymbol) {
     const auto &details =
         functionSymbol.get<Fortran::semantics::SubprogramDetails>();
-    mlir::Value resultRef = localSymbols.lookupSymbol(details.result());
+    auto resultRef = localSymbols.lookupSymbol(details.result());
     mlir::Value r = builder->create<fir::LoadOp>(toLocation(), resultRef);
-    builder->create<mlir::ReturnOp>(toLocation(), r);
+    genExitFunction(r);
   }
-  void genFIRProcedureExit(const Fortran::semantics::Symbol &symbol) {
-    const auto &details = symbol.get<Fortran::semantics::SubprogramDetails>();
+
+  void genFIRProcedureExit(Fortran::lower::pft::FunctionLikeUnit &funit,
+                           const Fortran::semantics::Symbol &symbol) {
     if (Fortran::semantics::IsFunction(symbol)) {
-      mlir::Value resultRef = localSymbols.lookupSymbol(details.result());
-      mlir::Value r = builder->create<fir::LoadOp>(toLocation(), resultRef);
-      builder->create<mlir::ReturnOp>(toLocation(), r);
-    } else if (Fortran::semantics::HasAlternateReturns(symbol)) {
-      TODO();
-    } else {
-      builder->create<mlir::ReturnOp>(toLocation());
+      // FUNCTION
+      genReturnSymbol(symbol);
+      return;
     }
+
+    // SUBROUTINE
+    if (Fortran::semantics::HasAlternateReturns(symbol)) {
+      // lower to a the constant expression (or zero); the return value will
+      // drive a SelectOp in the calling context to branch to the alternate
+      // return LABEL block
+      TODO();
+      mlir::Value intExpr{};
+      genExitFunction(intExpr);
+      return;
+    }
+    if (funit.finalBlock)
+      builder->setInsertionPoint(funit.finalBlock, funit.finalBlock->end());
+    genExitRoutine();
   }
 
   //
@@ -1079,7 +1095,16 @@ private:
         // Alternate return
         TODO();
       }
-      genFIRProcedureExit(funit->getSubprogramSymbol());
+      // an ordinary RETURN should be lowered as a GOTO to the last block of the
+      // SUBROUTINE
+      auto *subr = eval.getOwningProcedure();
+      assert(subr && "RETURN not in a PROCEDURE");
+      if (!subr->finalBlock) {
+        auto insPt = builder->saveInsertionPoint();
+        subr->finalBlock = builder->createBlock(&builder->getRegion());
+        builder->restoreInsertionPoint(insPt);
+      }
+      builder->create<mlir::BranchOp>(toLocation(), subr->finalBlock);
     }
   }
 
@@ -1171,8 +1196,8 @@ private:
     assert(type && "expected type for local symbol");
 
     if (type->category() == Fortran::semantics::DeclTypeSpec::Character) {
-      const auto &lenghtParam{type->characterTypeSpec().length()};
-      if (auto expr{lenghtParam.GetExplicit()}) {
+      const auto &lengthParam = type->characterTypeSpec().length();
+      if (auto expr = lengthParam.GetExplicit()) {
         for (const auto &requiredSymbol :
              Fortran::evaluate::CollectSymbols(*expr)) {
           instantiateLocalVariable(requiredSymbol, dummyArgs, attempted);
@@ -1186,7 +1211,7 @@ private:
           // TODO: propagate symbol name to FIR.
           localValue = builder->createCharacterTemp(genType(symbol), lenValue);
         }
-      } else if (lenghtParam.isDeferred()) {
+      } else if (lengthParam.isDeferred()) {
         TODO();
       } else {
         // Assumed
@@ -1331,7 +1356,7 @@ private:
     if (funit.isMainProgram()) {
       genFIRProgramExit();
     } else {
-      genFIRProcedureExit(funit.getSubprogramSymbol());
+      genFIRProcedureExit(funit, funit.getSubprogramSymbol());
     }
 
     delete builder;
