@@ -969,7 +969,7 @@ void fir::SelectCaseOp::build(mlir::Builder *builder,
       cmpOpers.push_back(mlir::ValueRange({iter, iter + 2}));
       iter += 2;
     } else if (attr.isa<UnitAttr>()) {
-      // do nothing
+      cmpOpers.push_back(mlir::ValueRange{});
     } else {
       cmpOpers.push_back(mlir::ValueRange({iter, iter + 1}));
       ++iter;
