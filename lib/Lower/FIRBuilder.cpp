@@ -38,7 +38,7 @@ Fortran::lower::FirOpBuilder::getNamedFunction(mlir::ModuleOp modOp,
 
 fir::GlobalOp
 Fortran::lower::FirOpBuilder::getNamedGlobal(mlir::ModuleOp modOp,
-					     llvm::StringRef name) {
+                                             llvm::StringRef name) {
   return modOp.lookupSymbol<fir::GlobalOp>(name);
 }
 
@@ -93,18 +93,16 @@ fir::GlobalOp Fortran::lower::FirOpBuilder::createGlobal(
   return glob;
 }
 
-fir::GlobalOp
-Fortran::lower::FirOpBuilder::createGlobal(mlir::Location loc, mlir::Type type,
-			     llvm::StringRef name, bool isConst,
-			     std::function<void(FirOpBuilder &)> bodyBuilder,
-					   mlir::StringAttr linkage) {
+fir::GlobalOp Fortran::lower::FirOpBuilder::createGlobal(
+    mlir::Location loc, mlir::Type type, llvm::StringRef name, bool isConst,
+    std::function<void(FirOpBuilder &)> bodyBuilder, mlir::StringAttr linkage) {
   auto module = getModule();
   auto insertPt = saveInsertionPoint();
   if (auto glob = module.lookupSymbol<fir::GlobalOp>(name))
     return glob;
   setInsertionPoint(module.getBody()->getTerminator());
   auto glob = create<fir::GlobalOp>(loc, name, isConst, type, mlir::Attribute{},
-				    linkage);
+                                    linkage);
   auto &region = glob.getRegion();
   region.push_back(new mlir::Block);
   auto &block = glob.getRegion().back();
@@ -113,7 +111,6 @@ Fortran::lower::FirOpBuilder::createGlobal(mlir::Location loc, mlir::Type type,
   restoreInsertionPoint(insertPt);
   return glob;
 }
-
 
 //===----------------------------------------------------------------------===//
 // LoopOp builder

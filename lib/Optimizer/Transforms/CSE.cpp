@@ -35,12 +35,11 @@ using namespace mlir;
 
 static llvm::cl::opt<bool>
     leaveEffects("keep-effects",
-                   llvm::cl::desc("disable cleaning up effects attributes"),
-                   llvm::cl::init(false), llvm::cl::Hidden);
+                 llvm::cl::desc("disable cleaning up effects attributes"),
+                 llvm::cl::init(false), llvm::cl::Hidden);
 static llvm::cl::opt<bool> disableCSE("disable-cse",
-                                        llvm::cl::desc("disable CSE pass"),
-                                        llvm::cl::init(false),
-                                        llvm::cl::Hidden);
+                                      llvm::cl::desc("disable CSE pass"),
+                                      llvm::cl::init(false), llvm::cl::Hidden);
 
 namespace {
 

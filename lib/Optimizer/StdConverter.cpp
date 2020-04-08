@@ -94,7 +94,7 @@ public:
   {}
 
   static Block *createBlock(mlir::ConversionPatternRewriter &rewriter,
-                     Block *insertBefore) {
+                            Block *insertBefore) {
     assert(insertBefore && "expected valid insertion block");
     return rewriter.createBlock(insertBefore->getParent(),
                                 mlir::Region::iterator(insertBefore));
