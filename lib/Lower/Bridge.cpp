@@ -343,14 +343,18 @@ private:
   void switchInsertionPointToOtherwise(fir::WhereOp &where) {
     builder->setInsertionPointToStart(&where.otherRegion().front());
   }
+  
   template <typename A>
-  void genWhereCondition(fir::WhereOp &where, const A *stmt) {
+  mlir::OpBuilder::InsertPoint genWhereCondition(fir::WhereOp &where,
+						 const A *stmt) {
     auto cond = createLogicalExprAsI1(
         toLocation(),
         Fortran::semantics::GetExpr(
             std::get<Fortran::parser::ScalarLogicalExpr>(stmt->t)));
     where = builder->create<fir::WhereOp>(toLocation(), cond, true);
+    auto insPt = builder->saveInsertionPoint();
     switchInsertionPointToWhere(where);
+    return insPt;
   }
 
   mlir::Value genFIRLoopIndex(const Fortran::parser::ScalarExpr &x,
@@ -394,12 +398,11 @@ private:
     }
 
     // Generate fir.where.
-    mlir::Block *ifStmtBlock = builder->getInsertionBlock();
     fir::WhereOp where;
-    genWhereCondition(where, &stmt);
+    auto insPt = genWhereCondition(where, &stmt);
     genFIR(*eval.lexicalSuccessor, /*unstructuredContext*/ false);
     eval.lexicalSuccessor->skip = true;
-    builder->setInsertionPointToEnd(ifStmtBlock);
+    builder->restoreInsertionPoint(insPt);
   }
 
   void genFIR(Fortran::lower::pft::Evaluation &eval,
@@ -602,25 +605,25 @@ private:
               const Fortran::parser::IfConstruct &) {
     if (eval.lowerAsStructured()) {
       // Structured fir.where nest.
-      fir::WhereOp where;
-      mlir::OpBuilder::InsertPoint insertionPoint =
-          builder->saveInsertionPoint();
+      fir::WhereOp underWhere;
+      mlir::OpBuilder::InsertPoint insPt;
       for (auto &e : *eval.evaluationList) {
         if (auto *s = e.getIf<Fortran::parser::IfThenStmt>()) {
           // fir.where op
-          genWhereCondition(where, s);
+          insPt = genWhereCondition(underWhere, s);
         } else if (auto *s = e.getIf<Fortran::parser::ElseIfStmt>()) {
           // otherwise block, then nested fir.where
-          switchInsertionPointToOtherwise(where);
-          genWhereCondition(where, s);
+          switchInsertionPointToOtherwise(underWhere);
+          genWhereCondition(underWhere, s);
         } else if (e.isA<Fortran::parser::ElseStmt>()) {
           // otherwise block
-          switchInsertionPointToOtherwise(where);
+          switchInsertionPointToOtherwise(underWhere);
+	} else if (e.isA<Fortran::parser::EndIfStmt>()) {
+	  builder->restoreInsertionPoint(insPt);
         } else {
           genFIR(e, /*unstructuredContext*/ false);
         }
       }
-      builder->restoreInsertionPoint(insertionPoint);
       return;
     }
 
