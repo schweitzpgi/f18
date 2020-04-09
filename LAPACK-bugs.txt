@@ -9,11 +9,11 @@ ______________
 
 UNREACHABLE executed at Lower/Bridge.cpp:1236!  adjustable array?
 UNREACHABLE executed at Lower/ConvertExpr.cpp:798!  intrinsic subroutine
-UNREACHABLE executed at Lower/IO.cpp:764!       FORMAT
 
 FIXED
 _____
 
+UNREACHABLE executed at Lower/IO.cpp:764!       FORMAT
 
 UNREACHABLE executed at Lower/ConvertExpr.cpp:848!  temps on call?
 
